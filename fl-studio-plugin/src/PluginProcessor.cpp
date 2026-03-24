@@ -1,0 +1,257 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+StarDustProcessor::StarDustProcessor()
+    : AudioProcessor(BusesProperties()
+          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts(*this, nullptr, "Parameters", createParameterLayout())
+{
+    initFactoryPresets();
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createParameterLayout()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("bitDepth", 1), "Bit Depth",
+        juce::NormalisableRange<float>(4.0f, 16.0f, 0.1f), 12.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("sampleRate", 1), "Sample Rate",
+        juce::NormalisableRange<float>(4000.0f, 48000.0f, 1.0f, 0.5f), 26040.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainMix", 1), "Grain Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainDensity", 1), "Grain Density",
+        juce::NormalisableRange<float>(1.0f, 20.0f, 1.0f), 4.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainSize", 1), "Grain Size",
+        juce::NormalisableRange<float>(5.0f, 100.0f, 0.1f, 0.5f), 30.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainScatter", 1), "Grain Scatter",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.2f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainTune", 1), "Grain Tune",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stereoWidth", 1), "Stereo Width",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("filterCutoff", 1), "Filter Cutoff",
+        juce::NormalisableRange<float>(0.0f, 99.0f, 1.0f), 99.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("drive", 1), "Drive",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("mix", 1), "Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+
+    return { params.begin(), params.end() };
+}
+
+void StarDustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+    saturation.prepare(sampleRate, samplesPerBlock);
+    bitCrusher.prepare(sampleRate, samplesPerBlock);
+    detuneEngine.prepare(sampleRate, samplesPerBlock);
+    granularEngine.prepare(sampleRate, samplesPerBlock);
+    butterworthFilter.prepare(sampleRate, samplesPerBlock);
+
+    dryBuffer.setSize(2, samplesPerBlock, false, true, true);
+    setLatencySamples(0);
+}
+
+void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
+                                     juce::MidiBuffer& /*midiMessages*/)
+{
+    juce::ScopedNoDenormals noDenormals;
+
+    const auto totalNumInputChannels = getTotalNumInputChannels();
+    const auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
+        buffer.clear(i, 0, buffer.getNumSamples());
+
+    // Measure input levels
+    inputLevelLeft.store(buffer.getMagnitude(0, 0, buffer.getNumSamples()));
+    if (buffer.getNumChannels() > 1)
+        inputLevelRight.store(buffer.getMagnitude(1, 0, buffer.getNumSamples()));
+
+    // Save dry copy
+    const auto numSamples = buffer.getNumSamples();
+    const auto numChannels = buffer.getNumChannels();
+    if (dryBuffer.getNumChannels() < numChannels || dryBuffer.getNumSamples() < numSamples)
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    // Read parameters
+    const float bitDepthVal    = *apvts.getRawParameterValue("bitDepth");
+    const float sampleRateVal  = *apvts.getRawParameterValue("sampleRate");
+    const float grainMixVal    = *apvts.getRawParameterValue("grainMix");
+    const float grainDensityVal = *apvts.getRawParameterValue("grainDensity");
+    const float grainSizeVal   = *apvts.getRawParameterValue("grainSize");
+    const float grainScatterVal = *apvts.getRawParameterValue("grainScatter");
+    const float grainTuneVal   = *apvts.getRawParameterValue("grainTune");
+    const float stereoWidthVal = *apvts.getRawParameterValue("stereoWidth");
+    const float cutoffVal      = *apvts.getRawParameterValue("filterCutoff");
+    const float driveVal       = *apvts.getRawParameterValue("drive");
+    const float mixVal         = *apvts.getRawParameterValue("mix");
+
+    // 1. Input gain + saturation
+    saturation.setInputGain(driveVal * 6.0f);
+    saturation.setDrive(driveVal);
+    saturation.processInput(buffer);
+
+    // 2. BitCrusher
+    bitCrusher.setBitDepth(bitDepthVal);
+    bitCrusher.setSampleRate(sampleRateVal);
+    bitCrusher.process(buffer);
+
+    // 3. Detune — bypassed (detune=0)
+    detuneEngine.setDetune(0.0f);
+
+    // 4. Granular engine
+    granularEngine.setBasePitch(grainTuneVal);
+    granularEngine.setParameters(
+        grainSizeVal, grainDensityVal, grainScatterVal,
+        0.0f,         // pitchJitter = 0
+        grainMixVal,
+        0.0f,         // feedback = 0
+        0.0f,         // reverse = 0
+        stereoWidthVal);
+    granularEngine.process(buffer);
+
+    // 5. Filter
+    butterworthFilter.setCutoff(cutoffVal);
+    butterworthFilter.setResonance(0.0f);
+    butterworthFilter.setLFO(1.0f, 0.0f);
+    butterworthFilter.process(buffer);
+
+    // 6. Output gain (compensate drive)
+    saturation.setOutputGain(-driveVal * 3.0f);
+    saturation.processOutput(buffer);
+
+    // 7. Dry/wet mix
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* wet = buffer.getWritePointer(ch);
+        const auto* dry = dryBuffer.getReadPointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            wet[i] = dry[i] * (1.0f - mixVal) + wet[i] * mixVal;
+    }
+
+    // Measure output levels
+    outputLevelLeft.store(buffer.getMagnitude(0, 0, buffer.getNumSamples()));
+    if (buffer.getNumChannels() > 1)
+        outputLevelRight.store(buffer.getMagnitude(1, 0, buffer.getNumSamples()));
+}
+
+void StarDustProcessor::setCurrentProgram(int index)
+{
+    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+    {
+        currentPresetIndex = index;
+        loadPreset(index);
+    }
+}
+
+const juce::String StarDustProcessor::getProgramName(int index)
+{
+    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+        return factoryPresets[static_cast<size_t>(index)].name;
+    return {};
+}
+
+void StarDustProcessor::loadPreset(int index)
+{
+    if (index < 0 || index >= static_cast<int>(factoryPresets.size()))
+        return;
+
+    const auto& preset = factoryPresets[static_cast<size_t>(index)];
+    for (const auto& [paramId, value] : preset.values)
+    {
+        if (auto* param = apvts.getParameter(paramId))
+            param->setValueNotifyingHost(param->convertTo0to1(value));
+    }
+    currentPresetIndex = index;
+}
+
+void StarDustProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    copyXmlToBinary(*xml, destData);
+}
+
+void StarDustProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
+    if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
+        apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+}
+
+juce::AudioProcessorEditor* StarDustProcessor::createEditor()
+{
+    return new StarDustEditor(*this);
+}
+
+void StarDustProcessor::initFactoryPresets()
+{
+    factoryPresets = {
+        { "Classic SP", {
+            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
+            {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
+            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"mix", 1.0f}
+        }},
+        { "Dusty Vinyl", {
+            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
+            {"grainMix", 0.35f}, {"grainDensity", 3.0f}, {"grainSize", 50.0f},
+            {"grainScatter", 0.4f}, {"grainTune", -3.0f}, {"stereoWidth", 0.3f},
+            {"filterCutoff", 72.0f}, {"drive", 0.25f}, {"mix", 0.85f}
+        }},
+        { "Tape Wobble", {
+            {"bitDepth", 14.0f}, {"sampleRate", 33000.0f},
+            {"grainMix", 0.7f}, {"grainDensity", 6.0f}, {"grainSize", 80.0f},
+            {"grainScatter", 0.6f}, {"grainTune", -7.0f}, {"stereoWidth", 0.5f},
+            {"filterCutoff", 60.0f}, {"drive", 0.1f}, {"mix", 0.9f}
+        }},
+        { "Granular Haze", {
+            {"bitDepth", 10.0f}, {"sampleRate", 22000.0f},
+            {"grainMix", 0.9f}, {"grainDensity", 15.0f}, {"grainSize", 20.0f},
+            {"grainScatter", 0.8f}, {"grainTune", -12.0f}, {"stereoWidth", 0.7f},
+            {"filterCutoff", 50.0f}, {"drive", 0.35f}, {"mix", 1.0f}
+        }},
+        { "Lo-Fi Melody", {
+            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
+            {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
+            {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
+            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"mix", 0.75f}
+        }},
+        { "Destroyed", {
+            {"bitDepth", 6.0f}, {"sampleRate", 11000.0f},
+            {"grainMix", 1.0f}, {"grainDensity", 20.0f}, {"grainSize", 10.0f},
+            {"grainScatter", 1.0f}, {"grainTune", -24.0f}, {"stereoWidth", 0.9f},
+            {"filterCutoff", 35.0f}, {"drive", 0.7f}, {"mix", 1.0f}
+        }}
+    };
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new StarDustProcessor();
+}

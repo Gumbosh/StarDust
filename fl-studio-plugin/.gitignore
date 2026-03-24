@@ -1,0 +1,28 @@
+# Build
+build/
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# IDE
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+
+# JUCE generated
+JuceLibraryCode/
+
+# Compiled objects
+*.o
+*.obj
+*.a
+*.lib
+*.dylib
+*.dll
+*.so
+
+# Installers (built artifacts)
+*.pkg
+*.exe

@@ -1,0 +1,3 @@
+[submodule "fl-studio-plugin/JUCE"]
+	path = fl-studio-plugin/JUCE
+	url = https://github.com/juce-framework/JUCE.git
