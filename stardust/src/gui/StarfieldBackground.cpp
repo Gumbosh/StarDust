@@ -54,6 +54,8 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("grainTune"),
         *apvts.getRawParameterValue("mix"),
         *apvts.getRawParameterValue("chorusMix"),
+        *apvts.getRawParameterValue("multiplyPanOuter"),
+        *apvts.getRawParameterValue("multiplyPanInner"),
         *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
         *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
@@ -73,7 +75,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
     const float crushAmount = (16.0f - params.bitDepth) / 12.0f;
     const float galaxyIntensity = 0.3f + params.mix * 0.7f;   // DESTROY mix → galaxy opacity
-    const float starIntensity = 0.3f + params.grain * 0.7f;   // GRAIN → star opacity
+    const float starIntensity = params.grain;   // GRAIN → star opacity (0 = invisible, 1 = full)
     const float scatter = params.grainScatter;
     const float rateNorm = (params.sampleRate - 4000.0f) / 44000.0f;
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
@@ -206,18 +208,21 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     }
   } // end DESTROY
 
-  if (params.granularEnabled)
+  if (params.granularEnabled && starIntensity > 0.005f)
   {
     // ---- Stars: 3 depth layers (GRAIN knobs only) ----
+    // Save galaxy-only pixels so we can blend stars with uniform opacity
+    std::vector<float> galaxyOnly(pixelData);
+
     const float widthSpread = params.stereoWidth; // WIDTH: brightness spread from center
     const float densityMul = 1.0f + densityNorm * 2.0f; // DENSITY: just more stars
 
     struct StarLayer { int count; float brightMul; int spikeLen; float twinkleSpeed; };
     const StarLayer layers[3] = {
-        { static_cast<int>((80.0f + params.grain * 120.0f) * densityMul), 0.25f, 0, 0.6f },
-        { static_cast<int>((30.0f + params.grain * 100.0f) * densityMul),
+        { static_cast<int>(150.0f * densityMul), 0.25f, 0, 0.6f },
+        { static_cast<int>(80.0f * densityMul),
           0.5f, static_cast<int>(1.0f + sizeNorm * 1.5f), 1.2f },
-        { static_cast<int>((10.0f + params.grain * 40.0f) * densityMul),
+        { static_cast<int>(30.0f * densityMul),
           1.0f, static_cast<int>(2.0f + sizeNorm * 3.0f), 2.5f },
     };
 
@@ -264,7 +269,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 const float distFade = widthSpread + (1.0f - widthSpread) * (1.0f - starDist);
 
                 const float twinkle = hash(static_cast<float>(gx) * 7.3f + layerSeed, static_cast<float>(gy) * 5.1f);
-                const float bright = sl.brightMul * starIntensity * distFade
+                const float bright = sl.brightMul * distFade
                     * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
 
                 auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
@@ -290,6 +295,12 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 }
             }
         }
+    }
+    // Apply GRAIN as uniform star opacity
+    for (size_t i = 0; i < pixelData.size(); ++i)
+    {
+        const float starOnly = pixelData[i] - galaxyOnly[i];
+        pixelData[i] = galaxyOnly[i] + starOnly * starIntensity;
     }
   } // end GRANULAR
 
@@ -345,6 +356,47 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         // Crossfade between original and kaleidoscope
         for (size_t i = 0; i < pixelData.size(); ++i)
             pixelData[i] = source[i] * (1.0f - chorusMix) + kaleidoscope[i] * chorusMix;
+    }
+
+    // ---- Atmospheric haze (1+2 and 3+4 pan spread) ----
+    if (params.multiplyEnabled && params.chorusMix > 0.01f)
+    {
+        const float spread = (params.panOuter + params.panInner) * 0.5f;
+        const float hazeAmount = spread * 0.35f * params.chorusMix;
+
+        if (hazeAmount > 0.01f)
+        {
+            // Blur pass — simple box blur to create soft haze layer
+            const int blurRadius = 2 + static_cast<int>(spread * 4.0f);
+            std::vector<float> haze(pixelData.size(), 0.0f);
+
+            for (int y = 0; y < kRenderHeight; ++y)
+            {
+                for (int x = 0; x < kRenderWidth; ++x)
+                {
+                    float sum = 0.0f;
+                    int count = 0;
+                    for (int dy = -blurRadius; dy <= blurRadius; ++dy)
+                    {
+                        for (int dx = -blurRadius; dx <= blurRadius; ++dx)
+                        {
+                            const int sx = x + dx;
+                            const int sy = y + dy;
+                            if (sx >= 0 && sx < kRenderWidth && sy >= 0 && sy < kRenderHeight)
+                            {
+                                sum += pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
+                                ++count;
+                            }
+                        }
+                    }
+                    haze[static_cast<size_t>(y * kRenderWidth + x)] = sum / static_cast<float>(count);
+                }
+            }
+
+            // Blend haze on top: adds soft atmospheric glow
+            for (size_t i = 0; i < pixelData.size(); ++i)
+                pixelData[i] = pixelData[i] * (1.0f - hazeAmount * 0.5f) + haze[i] * hazeAmount;
+        }
     }
 
     // ---- Bayer dithering + scanlines + vignette ----

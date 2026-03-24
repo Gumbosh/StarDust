@@ -17,6 +17,8 @@ struct StarfieldParams
     float grainTune = 0.0f;
     float mix = 1.0f;
     float chorusMix = 0.0f;
+    float panOuter = 1.0f;
+    float panInner = 0.8f;
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;
