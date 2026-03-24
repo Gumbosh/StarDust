@@ -8,10 +8,7 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     grainSizeSmoothed.reset(sampleRate, rampTimeSec);
     grainDensitySmoothed.reset(sampleRate, rampTimeSec);
     grainScatterSmoothed.reset(sampleRate, rampTimeSec);
-    grainPitchJitterSmoothed.reset(sampleRate, rampTimeSec);
     grainMixSmoothed.reset(sampleRate, rampTimeSec);
-    grainFeedbackSmoothed.reset(sampleRate, rampTimeSec);
-    grainReverseSmoothed.reset(sampleRate, rampTimeSec);
     grainStereoWidthSmoothed.reset(sampleRate, rampTimeSec);
     basePitchRateSmoothed.reset(sampleRate, rampTimeSec);
 
@@ -21,29 +18,20 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     writePos = 0;
     samplesSinceLastGrain = 0;
     nextGrainInterval = 0;
+    warmupSamples = 512;
 
     for (auto& g : grains)
         g.active = false;
-
-    // DC blocker coefficient: R = 1 - (2*pi*20Hz / sr)
-    dcBlockerCoeff = 1.0f - (2.0f * juce::MathConstants<float>::pi * 20.0f
-                             / static_cast<float>(sampleRate));
-    dcBlockerX1.fill(0.0f);
-    dcBlockerY1.fill(0.0f);
 }
 
 void GranularEngine::setParameters(float grainSize, float grainDensity,
-                                    float grainScatter, float grainPitchJitter,
-                                    float grainMix, float grainFeedback,
-                                    float grainReverse, float grainStereoWidth)
+                                    float grainScatter, float grainMix,
+                                    float grainStereoWidth)
 {
     if (currentGrainSize != grainSize) { currentGrainSize = grainSize; grainSizeSmoothed.setTargetValue(grainSize); }
     if (currentDensity != grainDensity) { currentDensity = grainDensity; grainDensitySmoothed.setTargetValue(grainDensity); }
     if (currentScatter != grainScatter) { currentScatter = grainScatter; grainScatterSmoothed.setTargetValue(grainScatter); }
-    if (currentPitchJitter != grainPitchJitter) { currentPitchJitter = grainPitchJitter; grainPitchJitterSmoothed.setTargetValue(grainPitchJitter); }
     if (currentMix != grainMix) { currentMix = grainMix; grainMixSmoothed.setTargetValue(grainMix); }
-    if (currentFeedback != grainFeedback) { currentFeedback = grainFeedback; grainFeedbackSmoothed.setTargetValue(grainFeedback); }
-    if (currentReverse != grainReverse) { currentReverse = grainReverse; grainReverseSmoothed.setTargetValue(grainReverse); }
     if (currentStereoWidth != grainStereoWidth) { currentStereoWidth = grainStereoWidth; grainStereoWidthSmoothed.setTargetValue(grainStereoWidth); }
 }
 
@@ -76,10 +64,7 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         const float grainSizeMs = grainSizeSmoothed.getNextValue();
         const float density = grainDensitySmoothed.getNextValue();
         const float scatter = grainScatterSmoothed.getNextValue();
-        const float pitchJitter = grainPitchJitterSmoothed.getNextValue();
         const float mix = grainMixSmoothed.getNextValue();
-        const float feedback = grainFeedbackSmoothed.getNextValue();
-        const float reverse = grainReverseSmoothed.getNextValue();
         const float stereoWidth = grainStereoWidthSmoothed.getNextValue();
         const float basePitchRate = basePitchRateSmoothed.getNextValue();
 
@@ -88,6 +73,14 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         // Write input samples into the circular buffer
         for (int ch = 0; ch < numChannels; ++ch)
             inputBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] = buffer.getReadPointer(ch)[i];
+
+        // Warmup: let buffer fill before spawning grains
+        if (warmupSamples > 0)
+        {
+            --warmupSamples;
+            writePos = (writePos + 1) % kInputBufferSize;
+            continue;
+        }
 
         // Grain scheduling
         ++samplesSinceLastGrain;
@@ -114,16 +107,12 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
                     g.startPosition = startPos;
                     g.currentPosition = startPos;
-                    g.playbackRate = basePitchRate + (random.nextFloat() * 2.0f - 1.0f) * pitchJitter * 0.5f;
-
-                    // Reverse playback: probability-based
-                    if (reverse > 0.001f && random.nextFloat() < reverse)
-                        g.playbackRate = -g.playbackRate;
+                    g.playbackRate = basePitchRate;
 
                     // Stereo pan: center when width=0, random when width=1
                     g.pan = 0.5f + (random.nextFloat() - 0.5f) * stereoWidth;
 
-                    const float lengthVariation = 1.0f + (random.nextFloat() * 0.2f - 0.1f);
+                    const float lengthVariation = 1.0f + (random.nextFloat() * 0.4f - 0.2f);
                     g.lengthInSamples = std::max(1, static_cast<int>(
                         static_cast<float>(grainSizeSamples) * lengthVariation));
                     g.currentSample = 0;
@@ -185,22 +174,6 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
             const float output = drySample * (1.0f - mix) + grainOutput * mix;
             data[i] = output;
-
-            // Feedback with DC blocker
-            if (feedback > 0.001f)
-            {
-                float fbSample = output * feedback;
-
-                // DC blocker: y[n] = x[n] - x[n-1] + R * y[n-1]
-                const auto uch = static_cast<size_t>(ch);
-                float dcFiltered = fbSample - dcBlockerX1[uch] + dcBlockerCoeff * dcBlockerY1[uch];
-                dcBlockerX1[uch] = fbSample;
-                dcBlockerY1[uch] = dcFiltered;
-
-                inputBuffer[uch][static_cast<size_t>(writePos)] += dcFiltered;
-                inputBuffer[uch][static_cast<size_t>(writePos)] = juce::jlimit(-2.0f, 2.0f,
-                    inputBuffer[uch][static_cast<size_t>(writePos)]);
-            }
         }
 
         writePos = (writePos + 1) % kInputBufferSize;

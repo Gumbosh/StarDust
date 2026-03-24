@@ -51,7 +51,11 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("filterCutoff"),
         *apvts.getRawParameterValue("drive"),
         *apvts.getRawParameterValue("grainTune"),
-        *apvts.getRawParameterValue("mix")
+        *apvts.getRawParameterValue("mix"),
+        *apvts.getRawParameterValue("chorusMix"),
+        *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
+        *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
+        *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
     };
 }
 
@@ -67,8 +71,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     juce::Image img(juce::Image::ARGB, kRenderWidth, kRenderHeight, false);
 
     const float crushAmount = (16.0f - params.bitDepth) / 12.0f;
-    const float scatter = params.grainScatter;
     const float visualIntensity = 0.3f + params.mix * 0.7f;
+    const float scatter = params.grainScatter;
     const float rateNorm = (params.sampleRate - 4000.0f) / 44000.0f;
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
     const float scanlineDarken = 0.55f + rateNorm * 0.4f;
@@ -84,17 +88,19 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     // Galaxy parameters — static, no audio reactivity
     const float rotationSpeed = 0.3f;
     const float tiltAmount = params.grainTune / 24.0f;
-    const float spiralTightness = 0.03f + params.stereoWidth * 0.04f;
+    const float spiralTightness = 0.03f;
     const float coreRadius = 25.0f;
     const float coreBrightness = 0.7f * visualIntensity;
-    const float armBrightness = (0.15f + crushAmount * 0.2f + params.grain * 0.15f) * visualIntensity;
+    const float armBrightness = (0.15f + crushAmount * 0.2f) * visualIntensity;
 
     const float densityNorm = (params.grainDensity - 1.0f) / 19.0f;
     const float sizeNorm = (params.grainSize - 5.0f) / 95.0f;
 
     std::vector<float> pixelData(static_cast<size_t>(kRenderWidth * kRenderHeight), 0.0f);
 
-    // ---- Galaxy: Core + Spiral Arms ----
+    // ---- Galaxy: Core + Spiral Arms (DESTROY) ----
+  if (params.destroyEnabled)
+  {
     for (int y = 0; y < kRenderHeight; ++y)
     {
         for (int x = 0; x < kRenderWidth; ++x)
@@ -114,28 +120,17 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             float armValue = std::cos(spiralAngle * 2.0f);
             armValue = (armValue + 1.0f) * 0.5f;
 
-            const float armWidth = 0.3f + dist * 0.008f + scatter * 0.25f;
+            const float armWidth = 0.3f + dist * 0.008f;
             armValue = std::pow(armValue, 1.0f / (armWidth + 0.01f));
 
             const float armFalloff = std::exp(-dist * 0.012f);
             float armGlow = armValue * armBrightness * armFalloff;
-
-            if (scatter > 0.05f)
-            {
-                const float turbX = static_cast<float>(x) * 0.08f + time * rotationSpeed * 0.5f;
-                const float turbY = static_cast<float>(y) * 0.08f - time * rotationSpeed * 0.3f;
-                const float turb = std::sin(turbX) * std::cos(turbY * 1.3f) * scatter * 0.12f;
-                armGlow += turb * armFalloff;
-            }
 
             const float dustLane = 1.0f - (1.0f - armValue) * 0.3f * armFalloff;
 
             float pixel = coreGlow + std::max(0.0f, armGlow);
             pixel *= dustLane;
             pixel += 0.01f * visualIntensity;
-
-            const float fog = densityNorm * 0.25f * std::exp(-dist * 0.008f) * visualIntensity;
-            pixel += fog;
 
             pixelData[static_cast<size_t>(y * kRenderWidth + x)] = pixel;
         }
@@ -193,15 +188,21 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                         pixelData[static_cast<size_t>((by + dy) * kRenderWidth + (bx + dx))] = avg;
             }
     }
+  } // end DESTROY
 
-    // ---- Stars: 3 depth layers ----
+  if (params.granularEnabled)
+  {
+    // ---- Stars: 3 depth layers (GRAIN knobs only) ----
+    const float widthSpread = params.stereoWidth; // WIDTH: brightness spread from center
+    const float densityMul = 1.0f + densityNorm * 2.0f; // DENSITY: just more stars
+
     struct StarLayer { int count; float brightMul; int spikeLen; float twinkleSpeed; };
     const StarLayer layers[3] = {
-        { static_cast<int>(80.0f + params.grain * 120.0f), 0.25f, 0, 0.6f },
-        { static_cast<int>(30.0f + params.grain * 100.0f),
+        { static_cast<int>((80.0f + params.grain * 120.0f) * densityMul), 0.25f, 0, 0.6f },
+        { static_cast<int>((30.0f + params.grain * 100.0f) * densityMul),
           0.5f, static_cast<int>(1.0f + sizeNorm * 1.5f), 1.2f },
-        { static_cast<int>(10.0f + params.grain * 40.0f),
-          1.0f, static_cast<int>(2.0f + sizeNorm * 3.0f + params.drive * 2.0f), 2.5f },
+        { static_cast<int>((10.0f + params.grain * 40.0f) * densityMul),
+          1.0f, static_cast<int>(2.0f + sizeNorm * 3.0f), 2.5f },
     };
 
     for (int layer = 0; layer < 3; ++layer)
@@ -221,14 +222,33 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
                 const float jx = hash(static_cast<float>(gx) * 1.1f + layerSeed, static_cast<float>(gy) * 2.3f);
                 const float jy = hash(static_cast<float>(gx) * 3.7f + layerSeed, static_cast<float>(gy) * 1.9f);
-                const int sx = static_cast<int>((static_cast<float>(gx) + jx) * gridSpacing);
-                const int sy = static_cast<int>((static_cast<float>(gy) + jy) * gridSpacing);
+                float starX = (static_cast<float>(gx) + jx) * gridSpacing;
+                float starY = (static_cast<float>(gy) + jy) * gridSpacing;
+
+                // SCATTER: animated wiggle/distortion — stars wobble more as scatter increases
+                if (scatter > 0.01f)
+                {
+                    const float starSeed = hash(static_cast<float>(gx) * 5.3f + layerSeed, static_cast<float>(gy) * 3.1f);
+                    const float wiggleSpeed = 1.5f + starSeed * 3.0f;
+                    const float wiggleAmount = scatter * 8.0f;
+                    starX += std::sin(time * wiggleSpeed + starSeed * 20.0f) * wiggleAmount;
+                    starY += std::cos(time * wiggleSpeed * 0.7f + starSeed * 15.0f) * wiggleAmount;
+                }
+
+                const int sx = static_cast<int>(starX);
+                const int sy = static_cast<int>(starY);
 
                 if (sx < 0 || sx >= kRenderWidth || sy < 0 || sy >= kRenderHeight)
                     continue;
 
+                // WIDTH: controls brightness spread (0 = bright near center, 1 = bright everywhere)
+                const float starDx = static_cast<float>(sx) - cx;
+                const float starDy = static_cast<float>(sy) - cy;
+                const float starDist = std::sqrt(starDx * starDx + starDy * starDy) / maxDist;
+                const float distFade = widthSpread + (1.0f - widthSpread) * (1.0f - starDist);
+
                 const float twinkle = hash(static_cast<float>(gx) * 7.3f + layerSeed, static_cast<float>(gy) * 5.1f);
-                const float bright = sl.brightMul * visualIntensity
+                const float bright = sl.brightMul * visualIntensity * distFade
                     * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
 
                 auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
@@ -255,31 +275,60 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             }
         }
     }
+  } // end GRANULAR
 
-    // ---- Warp / Glitch (scatter only, no audio) ----
-    const float warpAmount = scatter * 6.0f;
-    if (warpAmount > 0.5f)
+    // ---- Kaleidoscope (MULTIPLY) ----
+    if (params.multiplyEnabled && params.chorusMix > 0.01f)
     {
-        std::vector<float> warped(pixelData.size(), 0.0f);
-        const float warpFreq = 0.04f + scatter * 0.03f;
-        const float warpSpeed = 3.0f;
+        const float chorusMix = params.chorusMix;
+        const int segments = 2 + static_cast<int>(chorusMix * 6.0f);
+        const float wedgeAngle = juce::MathConstants<float>::twoPi / static_cast<float>(segments);
+
+        std::vector<float> source(pixelData);
+        std::vector<float> kaleidoscope(pixelData.size(), 0.0f);
 
         for (int y = 0; y < kRenderHeight; ++y)
         {
-            float offset = std::sin(static_cast<float>(y) * warpFreq + time * warpSpeed) * warpAmount;
-            const float tearChance = scatter * 0.05f;
-            if (hash(static_cast<float>(y) * 0.1f, time * 10.0f) < tearChance)
-                offset += (hash(static_cast<float>(y), time) - 0.5f) * (20.0f * scatter);
-
-            const int intOffset = static_cast<int>(offset);
             for (int x = 0; x < kRenderWidth; ++x)
             {
-                int srcX = ((x + intOffset) % kRenderWidth + kRenderWidth) % kRenderWidth;
-                warped[static_cast<size_t>(y * kRenderWidth + x)] =
-                    pixelData[static_cast<size_t>(y * kRenderWidth + srcX)];
+                const float dx = static_cast<float>(x) - cx;
+                const float dy = static_cast<float>(y) - cy;
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                float angle = std::atan2(dy, dx);
+
+                // Fold angle into first wedge
+                angle = std::fmod(angle + juce::MathConstants<float>::twoPi, wedgeAngle);
+
+                // Mirror for seamless reflection
+                if (angle > wedgeAngle * 0.5f)
+                    angle = wedgeAngle - angle;
+
+                // Map back to source coordinates
+                const float srcXf = cx + std::cos(angle) * dist;
+                const float srcYf = cy + std::sin(angle) * dist;
+
+                // Bilinear interpolation with clamping (no black edges)
+                const float clampedX = juce::jlimit(0.0f, static_cast<float>(kRenderWidth - 2), srcXf);
+                const float clampedY = juce::jlimit(0.0f, static_cast<float>(kRenderHeight - 2), srcYf);
+                const int x0 = static_cast<int>(clampedX);
+                const int y0 = static_cast<int>(clampedY);
+                const int x1 = x0 + 1;
+                const int y1 = y0 + 1;
+                const float fx = clampedX - static_cast<float>(x0);
+                const float fy = clampedY - static_cast<float>(y0);
+
+                float val = source[static_cast<size_t>(y0 * kRenderWidth + x0)] * (1.0f - fx) * (1.0f - fy)
+                    + source[static_cast<size_t>(y0 * kRenderWidth + x1)] * fx * (1.0f - fy)
+                    + source[static_cast<size_t>(y1 * kRenderWidth + x0)] * (1.0f - fx) * fy
+                    + source[static_cast<size_t>(y1 * kRenderWidth + x1)] * fx * fy;
+
+                kaleidoscope[static_cast<size_t>(y * kRenderWidth + x)] = val;
             }
         }
-        pixelData = std::move(warped);
+
+        // Crossfade between original and kaleidoscope
+        for (size_t i = 0; i < pixelData.size(); ++i)
+            pixelData[i] = source[i] * (1.0f - chorusMix) + kaleidoscope[i] * chorusMix;
     }
 
     // ---- Bayer dithering + scanlines + vignette ----
@@ -294,11 +343,22 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             float value = juce::jlimit(0.0f, 1.0f,
                 pixelData[static_cast<size_t>(y * kRenderWidth + x)]);
 
+            // Edge distance (0 at center, 1 at corners)
             const float vdx = static_cast<float>(x) - cx;
             const float vdy = static_cast<float>(y) - cy;
             const float vdist = std::sqrt(vdx * vdx + vdy * vdy);
-            const float vignette = 1.0f - 0.55f * (vdist / maxDist) * (vdist / maxDist);
+            const float edgeNorm = vdist / maxDist;
+
+            // Dark vignette (always applied)
+            const float vignette = 1.0f - 0.55f * edgeNorm * edgeNorm;
             value *= vignette;
+
+            // DRIVE: white glow on borders — brighter edges as drive increases
+            if (params.drive > 0.01f)
+            {
+                const float edgeFade = edgeNorm * edgeNorm * edgeNorm; // cubic falloff from center
+                value += edgeFade * params.drive * 0.8f;
+            }
 
             value *= scanlineMul;
             value *= visualIntensity;

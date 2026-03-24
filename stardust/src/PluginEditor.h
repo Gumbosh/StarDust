@@ -17,6 +17,10 @@ public:
                           float sliderPos, float minSliderPos, float maxSliderPos,
                           juce::Slider::SliderStyle style, juce::Slider& slider) override;
 
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override;
+
     // Monochrome galaxy palette
     static inline const juce::Colour kBg { 0xFF050505 };
     static inline const juce::Colour kFg { 0xFFE0E0E0 };
@@ -38,6 +42,9 @@ public:
 private:
     std::atomic<float>& level;
     float displayLevel = 0.0f;
+    float peakLevel = 0.0f;
+    int peakHoldCounter = 0;
+    static constexpr int kPeakHoldFrames = 45; // ~1.5s at 30Hz
 };
 
 class StarDustEditor : public juce::AudioProcessorEditor
@@ -49,9 +56,11 @@ public:
     void paint(juce::Graphics& g) override;
     void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& e) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     struct LabeledKnob
     {
@@ -71,10 +80,14 @@ private:
 
     LabeledKnob bitsKnob, rateKnob, cutoffKnob, driveKnob, mixKnob;
     LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
+    LabeledKnob chorusMixKnob;
 
     juce::Slider tuneFader;
     juce::Label tuneLabel, tuneValueLabel;
     std::unique_ptr<SliderAttachment> tuneAttachment;
+
+    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle;
+    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
 
     LevelMeter inputMeterL, inputMeterR, outputMeterL, outputMeterR;
 
@@ -83,6 +96,7 @@ private:
     juce::Rectangle<int> screenBounds;
     juce::Rectangle<int> bottomBarBounds;
     juce::Image logoImage;
+    float currentScale = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StarDustEditor)
 };

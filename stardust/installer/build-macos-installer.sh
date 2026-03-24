@@ -14,7 +14,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 ARTEFACTS="$BUILD_DIR/StarDust_artefacts/Release"
 PKG_ROOT="$BUILD_DIR/pkg-root"
 PKG_OUTPUT="$BUILD_DIR/StarDust-Installer.pkg"
-VERSION="1.0.0"
+VERSION=$(grep 'project(StarDust VERSION' "$PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
 
 # Optional: set DEVELOPER_ID for signing (e.g. "Developer ID Installer: Your Name (TEAMID)")
 SIGN_IDENTITY="${DEVELOPER_ID_INSTALLER:-}"

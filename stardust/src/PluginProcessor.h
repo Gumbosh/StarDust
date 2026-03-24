@@ -2,9 +2,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
-#include "dsp/DetuneEngine.h"
 #include "dsp/GranularEngine.h"
 #include "dsp/ButterworthFilter.h"
+#include "dsp/ChorusEngine.h"
 
 struct Preset
 {
@@ -57,9 +57,9 @@ private:
 
     Saturation saturation;
     BitCrusher bitCrusher;
-    DetuneEngine detuneEngine;
     GranularEngine granularEngine;
     ButterworthFilter butterworthFilter;
+    ChorusEngine chorusEngine;
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;

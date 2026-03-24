@@ -15,6 +15,10 @@ struct StarfieldParams
     float drive = 0.0f;
     float grainTune = 0.0f;
     float mix = 1.0f;
+    float chorusMix = 0.0f;
+    bool destroyEnabled = true;
+    bool granularEnabled = true;
+    bool multiplyEnabled = true;
 };
 
 class StarfieldBackground : public juce::Component, public juce::Timer

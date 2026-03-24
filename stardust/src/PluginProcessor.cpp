@@ -58,6 +58,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createPar
         juce::ParameterID("mix", 1), "Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("chorusMix", 1), "Chorus Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("destroyEnabled", 1), "Destroy Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("granularEnabled", 1), "Granular Enabled", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("multiplyEnabled", 1), "Multiply Enabled", true));
+
     return { params.begin(), params.end() };
 }
 
@@ -66,9 +77,9 @@ void StarDustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     currentSampleRate = sampleRate;
     saturation.prepare(sampleRate, samplesPerBlock);
     bitCrusher.prepare(sampleRate, samplesPerBlock);
-    detuneEngine.prepare(sampleRate, samplesPerBlock);
     granularEngine.prepare(sampleRate, samplesPerBlock);
     butterworthFilter.prepare(sampleRate, samplesPerBlock);
+    chorusEngine.prepare(sampleRate, samplesPerBlock);
 
     dryBuffer.setSize(2, samplesPerBlock, false, true, true);
     setLatencySamples(0);
@@ -110,40 +121,49 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float cutoffVal      = *apvts.getRawParameterValue("filterCutoff");
     const float driveVal       = *apvts.getRawParameterValue("drive");
     const float mixVal         = *apvts.getRawParameterValue("mix");
+    const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
+    const bool destroyOn  = *apvts.getRawParameterValue("destroyEnabled") >= 0.5f;
+    const bool granularOn = *apvts.getRawParameterValue("granularEnabled") >= 0.5f;
+    const bool multiplyOn = *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f;
 
-    // 1. Input gain + saturation
-    saturation.setInputGain(driveVal * 6.0f);
-    saturation.setDrive(driveVal);
-    saturation.processInput(buffer);
+    // 1. DESTROY section
+    if (destroyOn)
+    {
+        saturation.setInputGain(driveVal * 6.0f);
+        saturation.setDrive(driveVal);
+        saturation.processInput(buffer);
 
-    // 2. BitCrusher
-    bitCrusher.setBitDepth(bitDepthVal);
-    bitCrusher.setSampleRate(sampleRateVal);
-    bitCrusher.process(buffer);
+        const float pitchRatio = std::pow(2.0f, grainTuneVal / 12.0f);
+        const float effectiveRate = sampleRateVal * pitchRatio;
+        bitCrusher.setBitDepth(bitDepthVal);
+        bitCrusher.setSampleRate(effectiveRate);
+        bitCrusher.process(buffer);
 
-    // 3. Detune — bypassed (detune=0)
-    detuneEngine.setDetune(0.0f);
+        butterworthFilter.setCutoff(cutoffVal);
+        butterworthFilter.setResonance(0.0f);
+        butterworthFilter.setLFO(1.0f, 0.0f);
+        butterworthFilter.process(buffer);
 
-    // 4. Granular engine
-    granularEngine.setBasePitch(grainTuneVal);
-    granularEngine.setParameters(
-        grainSizeVal, grainDensityVal, grainScatterVal,
-        0.0f,         // pitchJitter = 0
-        grainMixVal,
-        0.0f,         // feedback = 0
-        0.0f,         // reverse = 0
-        stereoWidthVal);
-    granularEngine.process(buffer);
+        saturation.setOutputGain(-driveVal * 6.0f);
+        saturation.processOutput(buffer);
+    }
 
-    // 5. Filter
-    butterworthFilter.setCutoff(cutoffVal);
-    butterworthFilter.setResonance(0.0f);
-    butterworthFilter.setLFO(1.0f, 0.0f);
-    butterworthFilter.process(buffer);
+    // 2. GRANULAR section
+    if (granularOn)
+    {
+        granularEngine.setBasePitch(0.0f);
+        granularEngine.setParameters(
+            grainSizeVal, grainDensityVal, grainScatterVal,
+            grainMixVal, stereoWidthVal);
+        granularEngine.process(buffer);
+    }
 
-    // 6. Output gain (compensate drive)
-    saturation.setOutputGain(-driveVal * 3.0f);
-    saturation.processOutput(buffer);
+    // 3. MULTIPLY section
+    if (multiplyOn)
+    {
+        chorusEngine.setMix(chorusMixVal);
+        chorusEngine.process(buffer);
+    }
 
     // 7. Dry/wet mix
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -216,19 +236,21 @@ void StarDustProcessor::initFactoryPresets()
             {"bitDepth", 16.0f}, {"sampleRate", 48000.0f},
             {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"mix", 1.0f}
+            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Classic SP", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"mix", 1.0f}
+            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Lo-Fi", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
-            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"mix", 0.75f}
+            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"mix", 0.75f}, {"chorusMix", 0.0f}
         }}
     };
 }

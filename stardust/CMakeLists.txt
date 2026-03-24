@@ -25,12 +25,12 @@ target_sources(StarDust PRIVATE
     src/PluginEditor.h
     src/dsp/BitCrusher.cpp
     src/dsp/BitCrusher.h
-    src/dsp/DetuneEngine.cpp
-    src/dsp/DetuneEngine.h
     src/dsp/GranularEngine.cpp
     src/dsp/GranularEngine.h
     src/dsp/ButterworthFilter.cpp
     src/dsp/ButterworthFilter.h
+    src/dsp/ChorusEngine.cpp
+    src/dsp/ChorusEngine.h
     src/dsp/Saturation.cpp
     src/dsp/Saturation.h
     src/gui/StarfieldBackground.cpp
@@ -45,6 +45,7 @@ target_compile_definitions(StarDust PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    STARDUST_VERSION="${PROJECT_VERSION}"
 )
 
 target_compile_features(StarDust PUBLIC cxx_std_17)

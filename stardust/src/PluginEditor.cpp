@@ -153,6 +153,49 @@ void StarDustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
     g.fillRect(sliderPos - 0.5f, thumbY2 + 3.0f, 1.0f, thumbH - 6.0f);
 }
 
+void StarDustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+                                            bool shouldDrawButtonAsHighlighted,
+                                            bool /*shouldDrawButtonAsDown*/)
+{
+    auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+    const float h = bounds.getHeight();
+    const float w = h * 1.6f; // pill aspect ratio
+    const float pillX = bounds.getCentreX() - w * 0.5f;
+    const float pillY = bounds.getCentreY() - h * 0.5f;
+    const float radius = h * 0.5f;
+    const float knobSize = h - 4.0f;
+    const bool on = button.getToggleState();
+
+    // Track background
+    g.setColour(on ? kAccent.withAlpha(0.25f) : kFgGhost.withAlpha(0.2f));
+    g.fillRoundedRectangle(pillX, pillY, w, h, radius);
+
+    // Track border
+    g.setColour(on ? kAccent.withAlpha(0.6f) : kFgGhost.withAlpha(0.4f));
+    g.drawRoundedRectangle(pillX, pillY, w, h, radius, 1.0f);
+
+    // Sliding knob
+    const float knobX = on ? (pillX + w - knobSize - 2.0f) : (pillX + 2.0f);
+    const float knobY = pillY + (h - knobSize) * 0.5f;
+
+    if (on)
+    {
+        // Glow
+        g.setColour(kAccent.withAlpha(0.15f));
+        g.fillEllipse(knobX - 1.0f, knobY - 1.0f, knobSize + 2.0f, knobSize + 2.0f);
+    }
+
+    g.setColour(on ? kAccent : kFgGhost.withAlpha(0.6f));
+    g.fillEllipse(knobX, knobY, knobSize, knobSize);
+
+    // Hover highlight
+    if (shouldDrawButtonAsHighlighted)
+    {
+        g.setColour(kAccent.withAlpha(0.05f));
+        g.fillRoundedRectangle(pillX, pillY, w, h, radius);
+    }
+}
+
 // ============================================================================
 // LevelMeter
 // ============================================================================
@@ -170,7 +213,8 @@ void LevelMeter::paint(juce::Graphics& g)
     g.fillRoundedRectangle(bounds, 1.0f);
 
     const float meterHeight = bounds.getHeight() * displayLevel;
-    auto meterBounds = bounds.removeFromBottom(meterHeight);
+    auto meterArea = bounds;
+    auto meterBounds = meterArea.removeFromBottom(meterHeight);
 
     if (displayLevel < 0.7f)
         g.setColour(StarDustLookAndFeel::kFgGhost.brighter(0.3f));
@@ -180,12 +224,36 @@ void LevelMeter::paint(juce::Graphics& g)
         g.setColour(StarDustLookAndFeel::kAccent);
 
     g.fillRoundedRectangle(meterBounds, 1.0f);
+
+    // Peak hold indicator
+    if (peakLevel > 0.01f)
+    {
+        const float peakY = bounds.getBottom() - bounds.getHeight() * peakLevel;
+        g.setColour(StarDustLookAndFeel::kAccent.withAlpha(0.8f));
+        g.fillRect(bounds.getX(), peakY, bounds.getWidth(), 1.0f);
+    }
 }
 
 void LevelMeter::timerCallback()
 {
     const float newLevel = juce::jlimit(0.0f, 1.0f, level.load());
     displayLevel = (newLevel > displayLevel) ? newLevel : displayLevel * 0.92f;
+
+    // Peak hold
+    if (newLevel > peakLevel)
+    {
+        peakLevel = newLevel;
+        peakHoldCounter = kPeakHoldFrames;
+    }
+    else if (peakHoldCounter > 0)
+    {
+        --peakHoldCounter;
+    }
+    else
+    {
+        peakLevel *= 0.95f;
+    }
+
     repaint();
 }
 
@@ -203,7 +271,7 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
       outputMeterR(p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(560, 480);
+    setSize(560, 560);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
@@ -221,6 +289,8 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
     setupKnob(grainScatterKnob, "grainScatter", "SCATTER");
     setupKnob(widthKnob, "stereoWidth", "WIDTH");
 
+    setupKnob(chorusMixKnob, "chorusMix", "MULTIPLY");
+
     tuneFader.setSliderStyle(juce::Slider::LinearHorizontal);
     tuneFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     tuneAttachment = std::make_unique<SliderAttachment>(processorRef.apvts, "grainTune", tuneFader);
@@ -232,7 +302,7 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
     };
     addAndMakeVisible(tuneFader);
 
-    tuneLabel.setText("TUNE", juce::dontSendNotification);
+    tuneLabel.setText("PITCH", juce::dontSendNotification);
     tuneLabel.setJustificationType(juce::Justification::centredLeft);
     tuneLabel.setFont(juce::FontOptions(11.0f).withStyle("Bold"));
     tuneLabel.setColour(juce::Label::textColourId, StarDustLookAndFeel::kFgGhost);
@@ -252,6 +322,17 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
         processorRef.loadPreset(presetSelector.getSelectedId() - 1);
     };
     addAndMakeVisible(presetSelector);
+
+    // Section toggle buttons — minimal dot style
+    auto setupToggle = [this](juce::ToggleButton& btn, std::unique_ptr<ButtonAttachment>& attach,
+                              const juce::String& paramId) {
+        btn.setButtonText("");
+        attach = std::make_unique<ButtonAttachment>(processorRef.apvts, paramId, btn);
+        addAndMakeVisible(btn);
+    };
+    setupToggle(destroyToggle, destroyToggleAttach, "destroyEnabled");
+    setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
+    setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
 
     addAndMakeVisible(inputMeterL);
     addAndMakeVisible(inputMeterR);
@@ -313,17 +394,26 @@ void StarDustEditor::paint(juce::Graphics& g)
     g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
 
     const int innerX = controlsBounds.getX() + 14;
-    g.drawText("DESTROY", innerX, controlsBounds.getY() + 50, 55, 10, juce::Justification::centredLeft);
+    const int labelOffset = 22; // space for toggle on the left
+    g.drawText("DESTROY", innerX + labelOffset, controlsBounds.getY() + 50, 55, 10, juce::Justification::centredLeft);
 
     // Divider between sections
-    const float divY = cpf.getY() + 132.0f;
+    const float divY = cpf.getY() + 166.0f;
     g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
     g.drawHorizontalLine(static_cast<int>(divY), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
 
     g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
     g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
-    g.drawText("GRANULAR", innerX, controlsBounds.getY() + 135, 65, 10, juce::Justification::centredLeft);
+    g.drawText("GRANULAR", innerX + labelOffset, controlsBounds.getY() + 169, 65, 10, juce::Justification::centredLeft);
 
+    // Divider before MULTIPLY
+    const float div2Y = cpf.getY() + 250.0f;
+    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
+    g.drawHorizontalLine(static_cast<int>(div2Y), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
+
+    g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
+    g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
+    g.drawText("MULTIPLY", innerX + labelOffset, controlsBounds.getY() + 253, 65, 10, juce::Justification::centredLeft);
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -408,7 +498,7 @@ void StarDustEditor::paint(juce::Graphics& g)
 
     // Version on right
     g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
-    g.drawText("v1.0.0", bbf.getRight() - 60, bbf.getY(), 50, bbf.getHeight(),
+    g.drawText("v" STARDUST_VERSION, bbf.getRight() - 60, bbf.getY(), 50, bbf.getHeight(),
                juce::Justification::centredRight);
 }
 
@@ -423,7 +513,7 @@ void StarDustEditor::paintOverChildren(juce::Graphics& g)
 
     // IN/OUT labels in the padding gaps
     g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.0f, juce::Font::bold));
-    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.5f));
+    g.setColour(StarDustLookAndFeel::kAccent);
 
     // "IN" label above left meters
     g.drawText("IN", static_cast<int>(gvf.getX()) + 4, screenBounds.getY() + 4, 20, 10, juce::Justification::centred);
@@ -433,6 +523,28 @@ void StarDustEditor::paintOverChildren(juce::Graphics& g)
 
 }
 
+void StarDustEditor::mouseDown(const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader("UI Scale");
+        menu.addItem(1, "100%", true, currentScale < 1.1f);
+        menu.addItem(2, "125%", true, currentScale >= 1.1f && currentScale < 1.4f);
+        menu.addItem(3, "150%", true, currentScale >= 1.4f);
+
+        menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
+            if (result == 0) return;
+            const float scale = (result == 1) ? 1.0f : (result == 2) ? 1.25f : 1.5f;
+            currentScale = scale;
+            setScaleFactor(scale);
+        });
+        return;
+    }
+
+    AudioProcessorEditor::mouseDown(e);
+}
+
 void StarDustEditor::resized()
 {
     const int margin = 8;
@@ -440,7 +552,7 @@ void StarDustEditor::resized()
 
     // Controls panel
     const int panelW = getWidth() - margin * 2;
-    const int panelH = 288;
+    const int panelH = 330;
     controlsBounds = { margin, margin, panelW, panelH };
 
     // Bottom bar
@@ -470,7 +582,7 @@ void StarDustEditor::resized()
     const int totalW = knobW * numCols;
     const int gridX = controlsBounds.getX() + (controlsBounds.getWidth() - totalW) / 2;
 
-    // DESTROY section — row 1
+    // DESTROY section — row 1 knobs
     const int row1Y = controlsBounds.getY() + 62;
 
     layoutKnobInBounds(bitsKnob,   { gridX,              row1Y, knobW, knobH });
@@ -479,23 +591,33 @@ void StarDustEditor::resized()
     layoutKnobInBounds(driveKnob,  { gridX + knobW * 3,  row1Y, knobW, knobH });
     layoutKnobInBounds(mixKnob,    { gridX + knobW * 4,  row1Y, knobW, knobH });
 
-    // GRANULAR section — tune slider + grain knobs
-    const int grainSectionY = controlsBounds.getY() + 146;
+    // PITCH slider — in DESTROY section, below knobs
     const int tunePad = 16;
+    const int pitchY = controlsBounds.getY() + 132;
+    tuneLabel.setBounds(gridX + tunePad, pitchY, 42, 14);
+    tuneValueLabel.setBounds(gridX + totalW - tunePad - 60, pitchY, 60, 14);
+    tuneFader.setBounds(gridX + tunePad, pitchY + 13, totalW - tunePad * 2, 18);
 
-    // Tune slider at top of granular section
-    tuneLabel.setBounds(gridX + tunePad, grainSectionY, 42, 14);
-    tuneValueLabel.setBounds(gridX + totalW - tunePad - 60, grainSectionY, 60, 14);
-    tuneFader.setBounds(gridX + tunePad, grainSectionY + 13, totalW - tunePad * 2, 18);
-
-    // Grain knobs — same knobW and knobH as DESTROY, same grid X positions
-    const int grainRowY = grainSectionY + 36;
+    // GRANULAR section — grain knobs
+    const int grainRowY = controlsBounds.getY() + 182;
 
     layoutKnobInBounds(grainMixKnob,     { gridX,              grainRowY, knobW, knobH });
     layoutKnobInBounds(grainDensityKnob, { gridX + knobW,      grainRowY, knobW, knobH });
     layoutKnobInBounds(grainSizeKnob,    { gridX + knobW * 2,  grainRowY, knobW, knobH });
     layoutKnobInBounds(grainScatterKnob, { gridX + knobW * 3,  grainRowY, knobW, knobH });
     layoutKnobInBounds(widthKnob,        { gridX + knobW * 4,  grainRowY, knobW, knobH });
+
+    // MULTIPLY section — single knob, centered
+    const int multiplyY = controlsBounds.getY() + 264;
+    layoutKnobInBounds(chorusMixKnob, { gridX + knobW * 2, multiplyY, knobW, knobH });
+
+    // Section toggle buttons (left of section labels)
+    const int toggleH = 12;
+    const int toggleW = 20;
+    const int tInnerX = controlsBounds.getX() + 12;
+    destroyToggle.setBounds(tInnerX, controlsBounds.getY() + 49, toggleW, toggleH);
+    granularToggle.setBounds(tInnerX, controlsBounds.getY() + 168, toggleW, toggleH);
+    multiplyToggle.setBounds(tInnerX, controlsBounds.getY() + 252, toggleW, toggleH);
 
     // Meters in the left/right padding gaps
     const int meterPadX = 8;

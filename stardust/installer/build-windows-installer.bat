@@ -98,9 +98,9 @@ if errorlevel 1 (
 
 echo.
 echo === Done! ===
-echo   Installer: %BUILD_DIR%\StarDust-Setup-1.0.0.exe
+echo   Installer: %BUILD_DIR%\StarDust-Setup.exe
 echo.
-echo   To install silently: StarDust-Setup-1.0.0.exe /SILENT
+echo   To install silently: StarDust-Setup.exe /SILENT
 echo.
 
 endlocal
