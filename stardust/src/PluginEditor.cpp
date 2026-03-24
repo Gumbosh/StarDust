@@ -271,17 +271,19 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
       outputMeterR(p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(560, 560);
+    setSize(560, 670);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
     starfield.toBack();
 
+    setupKnob(driveKnob, "drive", "DRIVE");
+    setupKnob(toneKnob, "tone", "TONE");
+
     setupKnob(bitsKnob, "bitDepth", "BITS");
     setupKnob(rateKnob, "sampleRate", "RATE");
     setupKnob(cutoffKnob, "filterCutoff", "CUTOFF");
-    setupKnob(driveKnob, "drive", "DRIVE");
-    setupKnob(mixKnob, "mix", "DRY/WET");
+    setupKnob(mixKnob, "mix", "MIX");
 
     setupKnob(grainMixKnob, "grainMix", "GRAIN");
     setupKnob(grainDensityKnob, "grainDensity", "DENSITY");
@@ -290,6 +292,8 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
     setupKnob(widthKnob, "stereoWidth", "WIDTH");
 
     setupKnob(chorusMixKnob, "chorusMix", "MULTIPLY");
+    setupKnob(panOuterKnob, "multiplyPanOuter", "PAN OUT");
+    setupKnob(panInnerKnob, "multiplyPanInner", "PAN IN");
 
     tuneFader.setSliderStyle(juce::Slider::LinearHorizontal);
     tuneFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
@@ -330,6 +334,7 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
         attach = std::make_unique<ButtonAttachment>(processorRef.apvts, paramId, btn);
         addAndMakeVisible(btn);
     };
+    setupToggle(distortionToggle, distortionToggleAttach, "distortionEnabled");
     setupToggle(destroyToggle, destroyToggleAttach, "destroyEnabled");
     setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
@@ -394,26 +399,25 @@ void StarDustEditor::paint(juce::Graphics& g)
     g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
 
     const int innerX = controlsBounds.getX() + 14;
-    const int labelOffset = 22; // space for toggle on the left
-    g.drawText("DESTROY", innerX + labelOffset, controlsBounds.getY() + 50, 55, 10, juce::Justification::centredLeft);
+    const int labelOffset = 22;
+    const auto drawSection = [&](const char* name, int yOff) {
+        g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
+        g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
+        g.drawText(name, innerX + labelOffset, controlsBounds.getY() + yOff, 75, 10, juce::Justification::centredLeft);
+    };
+    const auto drawDivider = [&](float yOff) {
+        g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
+        g.drawHorizontalLine(static_cast<int>(cpf.getY() + yOff), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
+    };
 
-    // Divider between sections
-    const float divY = cpf.getY() + 166.0f;
-    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
-    g.drawHorizontalLine(static_cast<int>(divY), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
-
-    g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
-    g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
-    g.drawText("GRANULAR", innerX + labelOffset, controlsBounds.getY() + 169, 65, 10, juce::Justification::centredLeft);
-
-    // Divider before MULTIPLY
-    const float div2Y = cpf.getY() + 250.0f;
-    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
-    g.drawHorizontalLine(static_cast<int>(div2Y), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
-
-    g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
-    g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
-    g.drawText("MULTIPLY", innerX + labelOffset, controlsBounds.getY() + 253, 65, 10, juce::Justification::centredLeft);
+    // Section labels + dividers
+    drawSection("DESTROY", 28);
+    drawDivider(165.0f);
+    drawSection("GRANULAR", 168);
+    drawDivider(257.0f);
+    drawSection("DISTORTION", 260);
+    drawDivider(343.0f);
+    drawSection("MULTIPLY", 346);
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -552,7 +556,7 @@ void StarDustEditor::resized()
 
     // Controls panel
     const int panelW = getWidth() - margin * 2;
-    const int panelH = 330;
+    const int panelH = 430;
     controlsBounds = { margin, margin, panelW, panelH };
 
     // Bottom bar
@@ -582,42 +586,50 @@ void StarDustEditor::resized()
     const int totalW = knobW * numCols;
     const int gridX = controlsBounds.getX() + (controlsBounds.getWidth() - totalW) / 2;
 
-    // DESTROY section — row 1 knobs
-    const int row1Y = controlsBounds.getY() + 62;
+    // All sections use the same 5-column grid for alignment
+    // Columns: gridX, gridX+87, gridX+174, gridX+261, gridX+348
 
-    layoutKnobInBounds(bitsKnob,   { gridX,              row1Y, knobW, knobH });
-    layoutKnobInBounds(rateKnob,   { gridX + knobW,      row1Y, knobW, knobH });
-    layoutKnobInBounds(cutoffKnob, { gridX + knobW * 2,  row1Y, knobW, knobH });
-    layoutKnobInBounds(driveKnob,  { gridX + knobW * 3,  row1Y, knobW, knobH });
-    layoutKnobInBounds(mixKnob,    { gridX + knobW * 4,  row1Y, knobW, knobH });
+    // DESTROY section — 4 knobs on columns 1-4 (centered)
+    const int secGap = 24; // consistent gap between sections
+    const int row1Y = controlsBounds.getY() + 40;
+    layoutKnobInBounds(bitsKnob,   { gridX + knobW / 2,              row1Y, knobW, knobH });
+    layoutKnobInBounds(rateKnob,   { gridX + knobW / 2 + knobW,      row1Y, knobW, knobH });
+    layoutKnobInBounds(cutoffKnob, { gridX + knobW / 2 + knobW * 2,  row1Y, knobW, knobH });
+    layoutKnobInBounds(mixKnob,    { gridX + knobW / 2 + knobW * 3,  row1Y, knobW, knobH });
 
-    // PITCH slider — in DESTROY section, below knobs
     const int tunePad = 16;
-    const int pitchY = controlsBounds.getY() + 132;
+    const int pitchY = controlsBounds.getY() + 110;
     tuneLabel.setBounds(gridX + tunePad, pitchY, 42, 14);
     tuneValueLabel.setBounds(gridX + totalW - tunePad - 60, pitchY, 60, 14);
     tuneFader.setBounds(gridX + tunePad, pitchY + 13, totalW - tunePad * 2, 18);
 
-    // GRANULAR section — grain knobs
-    const int grainRowY = controlsBounds.getY() + 182;
-
+    // GRANULAR section — 5 knobs on all 5 columns
+    const int grainRowY = controlsBounds.getY() + 180;
     layoutKnobInBounds(grainMixKnob,     { gridX,              grainRowY, knobW, knobH });
     layoutKnobInBounds(grainDensityKnob, { gridX + knobW,      grainRowY, knobW, knobH });
     layoutKnobInBounds(grainSizeKnob,    { gridX + knobW * 2,  grainRowY, knobW, knobH });
     layoutKnobInBounds(grainScatterKnob, { gridX + knobW * 3,  grainRowY, knobW, knobH });
     layoutKnobInBounds(widthKnob,        { gridX + knobW * 4,  grainRowY, knobW, knobH });
 
-    // MULTIPLY section — single knob, centered
-    const int multiplyY = controlsBounds.getY() + 264;
-    layoutKnobInBounds(chorusMixKnob, { gridX + knobW * 2, multiplyY, knobW, knobH });
+    // DISTORTION section — 2 knobs on columns 2-3 (aligned with DESTROY cols 2-3)
+    const int distY = controlsBounds.getY() + 272;
+    layoutKnobInBounds(driveKnob, { gridX + knobW / 2 + knobW,      distY, knobW, knobH });
+    layoutKnobInBounds(toneKnob,  { gridX + knobW / 2 + knobW * 2,  distY, knobW, knobH });
 
-    // Section toggle buttons (left of section labels)
+    // MULTIPLY section — 3 knobs on columns 2-4
+    const int multiplyY = controlsBounds.getY() + 358;
+    layoutKnobInBounds(chorusMixKnob, { gridX + knobW,      multiplyY, knobW, knobH });
+    layoutKnobInBounds(panOuterKnob,  { gridX + knobW * 2,  multiplyY, knobW, knobH });
+    layoutKnobInBounds(panInnerKnob,  { gridX + knobW * 3,  multiplyY, knobW, knobH });
+
+    // Section toggle buttons
     const int toggleH = 12;
     const int toggleW = 20;
     const int tInnerX = controlsBounds.getX() + 12;
-    destroyToggle.setBounds(tInnerX, controlsBounds.getY() + 49, toggleW, toggleH);
-    granularToggle.setBounds(tInnerX, controlsBounds.getY() + 168, toggleW, toggleH);
-    multiplyToggle.setBounds(tInnerX, controlsBounds.getY() + 252, toggleW, toggleH);
+    destroyToggle.setBounds(tInnerX, controlsBounds.getY() + 27, toggleW, toggleH);
+    granularToggle.setBounds(tInnerX, controlsBounds.getY() + 167, toggleW, toggleH);
+    distortionToggle.setBounds(tInnerX, controlsBounds.getY() + 259, toggleW, toggleH);
+    multiplyToggle.setBounds(tInnerX, controlsBounds.getY() + 345, toggleW, toggleH);
 
     // Meters in the left/right padding gaps
     const int meterPadX = 8;

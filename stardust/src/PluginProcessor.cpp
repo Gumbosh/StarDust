@@ -55,6 +55,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tone", 1), "Tone",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("mix", 1), "Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
@@ -62,6 +66,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createPar
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyPanOuter", 1), "Multiply Pan Outer",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyPanInner", 1), "Multiply Pan Inner",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", true));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("destroyEnabled", 1), "Destroy Enabled", true));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -101,13 +115,8 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (buffer.getNumChannels() > 1)
         inputLevelRight.store(buffer.getMagnitude(1, 0, buffer.getNumSamples()));
 
-    // Save dry copy
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
-    if (dryBuffer.getNumChannels() < numChannels || dryBuffer.getNumSamples() < numSamples)
-        dryBuffer.setSize(numChannels, numSamples, false, false, true);
-    for (int ch = 0; ch < numChannels; ++ch)
-        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
     // Read parameters
     const float bitDepthVal    = *apvts.getRawParameterValue("bitDepth");
@@ -122,16 +131,49 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float driveVal       = *apvts.getRawParameterValue("drive");
     const float mixVal         = *apvts.getRawParameterValue("mix");
     const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
+    const float toneVal        = *apvts.getRawParameterValue("tone");
+    const bool distortionOn = *apvts.getRawParameterValue("distortionEnabled") >= 0.5f;
     const bool destroyOn  = *apvts.getRawParameterValue("destroyEnabled") >= 0.5f;
     const bool granularOn = *apvts.getRawParameterValue("granularEnabled") >= 0.5f;
     const bool multiplyOn = *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f;
 
-    // 1. DESTROY section
-    if (destroyOn)
+    // 1. DISTORTION section (DRIVE + TONE)
+    if (distortionOn && driveVal > 0.001f)
     {
         saturation.setInputGain(driveVal * 6.0f);
         saturation.setDrive(driveVal);
         saturation.processInput(buffer);
+
+        // TONE: 1-pole low-pass (0=1kHz dark, 0.5=10kHz neutral, 1=20kHz bright)
+        const float toneFreq = 1000.0f * std::pow(20.0f, toneVal);
+        const float toneAlpha = 1.0f - std::exp(-2.0f * juce::MathConstants<float>::pi * toneFreq
+                                                  / static_cast<float>(currentSampleRate));
+        for (int i = 0; i < numSamples; ++i)
+        {
+            auto* dataL = buffer.getWritePointer(0);
+            toneStateL += toneAlpha * (dataL[i] - toneStateL);
+            dataL[i] = toneStateL;
+
+            if (numChannels > 1)
+            {
+                auto* dataR = buffer.getWritePointer(1);
+                toneStateR += toneAlpha * (dataR[i] - toneStateR);
+                dataR[i] = toneStateR;
+            }
+        }
+
+        saturation.setOutputGain(-driveVal * 6.0f);
+        saturation.processOutput(buffer);
+    }
+
+    // 2. DESTROY section (BITS, RATE, CUTOFF, PITCH, MIX)
+    if (destroyOn && mixVal > 0.001f)
+    {
+        // Save pre-destroy copy for blending
+        if (dryBuffer.getNumChannels() < numChannels || dryBuffer.getNumSamples() < numSamples)
+            dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        for (int ch = 0; ch < numChannels; ++ch)
+            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
         const float pitchRatio = std::pow(2.0f, grainTuneVal / 12.0f);
         const float effectiveRate = sampleRateVal * pitchRatio;
@@ -144,8 +186,17 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         butterworthFilter.setLFO(1.0f, 0.0f);
         butterworthFilter.process(buffer);
 
-        saturation.setOutputGain(-driveVal * 6.0f);
-        saturation.processOutput(buffer);
+        // Blend destroy wet with dry
+        if (mixVal < 0.999f)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* wet = buffer.getWritePointer(ch);
+                const auto* dry = dryBuffer.getReadPointer(ch);
+                for (int i = 0; i < numSamples; ++i)
+                    wet[i] = dry[i] * (1.0f - mixVal) + wet[i] * mixVal;
+            }
+        }
     }
 
     // 2. GRANULAR section
@@ -161,17 +212,11 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // 3. MULTIPLY section
     if (multiplyOn)
     {
+        const float panOuter = *apvts.getRawParameterValue("multiplyPanOuter");
+        const float panInner = *apvts.getRawParameterValue("multiplyPanInner");
         chorusEngine.setMix(chorusMixVal);
+        chorusEngine.setPans(panOuter, panInner);
         chorusEngine.process(buffer);
-    }
-
-    // 7. Dry/wet mix
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-    {
-        auto* wet = buffer.getWritePointer(ch);
-        const auto* dry = dryBuffer.getReadPointer(ch);
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-            wet[i] = dry[i] * (1.0f - mixVal) + wet[i] * mixVal;
     }
 
     // Measure output levels
@@ -236,21 +281,22 @@ void StarDustProcessor::initFactoryPresets()
             {"bitDepth", 16.0f}, {"sampleRate", 48000.0f},
             {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
+            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Classic SP", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
+            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Lo-Fi", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
-            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"mix", 0.75f}, {"chorusMix", 0.0f}
+            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }}
     };
 }

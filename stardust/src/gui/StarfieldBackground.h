@@ -13,6 +13,7 @@ struct StarfieldParams
     float stereoWidth = 0.0f;
     float filterCutoff = 99.0f;
     float drive = 0.0f;
+    float tone = 0.5f;
     float grainTune = 0.0f;
     float mix = 1.0f;
     float chorusMix = 0.0f;

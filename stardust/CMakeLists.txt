@@ -8,7 +8,7 @@ juce_add_plugin(StarDust
     PLUGIN_MANUFACTURER_CODE Stdt
     PLUGIN_CODE Sdt1
     FORMATS VST3 Standalone
-    PRODUCT_NAME "StarDust"
+    PRODUCT_NAME "Stardust"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE

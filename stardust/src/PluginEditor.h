@@ -78,16 +78,18 @@ private:
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
 
-    LabeledKnob bitsKnob, rateKnob, cutoffKnob, driveKnob, mixKnob;
+    LabeledKnob driveKnob, toneKnob;
+    LabeledKnob bitsKnob, rateKnob, cutoffKnob, mixKnob;
     LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
     LabeledKnob chorusMixKnob;
+    LabeledKnob panOuterKnob, panInnerKnob; // temp
 
     juce::Slider tuneFader;
     juce::Label tuneLabel, tuneValueLabel;
     std::unique_ptr<SliderAttachment> tuneAttachment;
 
-    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle;
-    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
+    juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle;
+    std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
 
     LevelMeter inputMeterL, inputMeterR, outputMeterL, outputMeterR;
 

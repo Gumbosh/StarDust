@@ -50,6 +50,7 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("stereoWidth"),
         *apvts.getRawParameterValue("filterCutoff"),
         *apvts.getRawParameterValue("drive"),
+        *apvts.getRawParameterValue("tone"),
         *apvts.getRawParameterValue("grainTune"),
         *apvts.getRawParameterValue("mix"),
         *apvts.getRawParameterValue("chorusMix"),
@@ -71,7 +72,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     juce::Image img(juce::Image::ARGB, kRenderWidth, kRenderHeight, false);
 
     const float crushAmount = (16.0f - params.bitDepth) / 12.0f;
-    const float visualIntensity = 0.3f + params.mix * 0.7f;
+    const float galaxyIntensity = 0.3f + params.mix * 0.7f;   // DESTROY mix → galaxy opacity
+    const float starIntensity = 0.3f + params.grain * 0.7f;   // GRAIN → star opacity
     const float scatter = params.grainScatter;
     const float rateNorm = (params.sampleRate - 4000.0f) / 44000.0f;
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
@@ -90,13 +92,27 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     const float tiltAmount = params.grainTune / 24.0f;
     const float spiralTightness = 0.03f;
     const float coreRadius = 25.0f;
-    const float coreBrightness = 0.7f * visualIntensity;
-    const float armBrightness = (0.15f + crushAmount * 0.2f) * visualIntensity;
+    const float coreBrightness = 0.7f * galaxyIntensity;
+    const float armBrightness = (0.15f + crushAmount * 0.2f) * galaxyIntensity;
 
     const float densityNorm = (params.grainDensity - 1.0f) / 19.0f;
     const float sizeNorm = (params.grainSize - 5.0f) / 95.0f;
 
     std::vector<float> pixelData(static_cast<size_t>(kRenderWidth * kRenderHeight), 0.0f);
+
+    // Ambient glow for MULTIPLY-only mode (when DESTROY + GRANULAR are off)
+    if (params.multiplyEnabled && !params.destroyEnabled && !params.granularEnabled && params.chorusMix > 0.01f)
+    {
+        for (int y = 0; y < kRenderHeight; ++y)
+            for (int x = 0; x < kRenderWidth; ++x)
+            {
+                const float dx = static_cast<float>(x) - cx;
+                const float dy = static_cast<float>(y) - cy;
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                const float glow = 0.15f * std::exp(-dist * 0.02f) * params.chorusMix;
+                pixelData[static_cast<size_t>(y * kRenderWidth + x)] += glow;
+            }
+    }
 
     // ---- Galaxy: Core + Spiral Arms (DESTROY) ----
   if (params.destroyEnabled)
@@ -130,7 +146,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
             float pixel = coreGlow + std::max(0.0f, armGlow);
             pixel *= dustLane;
-            pixel += 0.01f * visualIntensity;
+            pixel += 0.01f * galaxyIntensity;
 
             pixelData[static_cast<size_t>(y * kRenderWidth + x)] = pixel;
         }
@@ -248,7 +264,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 const float distFade = widthSpread + (1.0f - widthSpread) * (1.0f - starDist);
 
                 const float twinkle = hash(static_cast<float>(gx) * 7.3f + layerSeed, static_cast<float>(gy) * 5.1f);
-                const float bright = sl.brightMul * visualIntensity * distFade
+                const float bright = sl.brightMul * starIntensity * distFade
                     * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
 
                 auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
@@ -361,7 +377,13 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             }
 
             value *= scanlineMul;
-            value *= visualIntensity;
+
+            // TONE: contrast (0=washed out/low contrast, 0.5=neutral, 1=punchy/high contrast)
+            {
+                const float contrast = 1.0f + (params.tone - 0.5f) * 3.0f; // range 0.5 to 2.5
+                value = 0.5f + (value - 0.5f) * contrast;
+                value = juce::jlimit(0.0f, 1.0f, value);
+            }
 
             const float threshold = kBayerMatrix[y % kBayerSize][x % kBayerSize];
             const float scaled = value * static_cast<float>(kNumShades - 1);

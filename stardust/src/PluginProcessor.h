@@ -68,5 +68,9 @@ private:
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
 
+    // Tone filter state (1-pole low-pass per channel)
+    float toneStateL = 0.0f;
+    float toneStateR = 0.0f;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StarDustProcessor)
 };

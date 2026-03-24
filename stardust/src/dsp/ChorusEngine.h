@@ -3,9 +3,10 @@
 #include <array>
 #include <cmath>
 
-// Chorus/ensemble effect matching Acon Digital Multiply defaults:
-// 4 voices, 100% stereo spread, 0ms pre-delay,
-// FM: 1Hz rate / 20% depth, AM: 1Hz rate / 50% depth
+// Ensemble effect matching Acon Digital Multiply:
+// 4 voices with phase-randomizing allpass chains.
+// EQ on wet signal (low cut ~50Hz, high shelf rolloff ~5kHz).
+// Subtle FM for life, AM for shimmer.
 class ChorusEngine
 {
 public:
@@ -13,6 +14,7 @@ public:
 
     void prepare(double sampleRate, int samplesPerBlock);
     void setMix(float mix);
+    void setPans(float outer, float inner);
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
@@ -24,26 +26,54 @@ private:
     static constexpr int kNumVoices = 4;
     static constexpr int kMaxChannels = 2;
     static constexpr int kDelayBufferSize = 4096;
+    static constexpr int kAllpassStages = 8;
+
+    struct AllpassStage
+    {
+        float coeff = 0.5f;
+        float bufferL = 0.0f;
+        float bufferR = 0.0f;
+    };
 
     struct Voice
     {
-        // Frequency modulation LFO (pitch wobble via delay modulation)
+        float baseDelaySamples = 0.0f;
+        float pan = 0.5f;
+
+        // FM LFO (subtle — just prevents static comb filtering)
         float fmLfoPhase = 0.0f;
         float fmLfoRate = 0.0f;
         float fmDepthSamples = 0.0f;
 
-        // Amplitude modulation LFO (volume wobble)
+        // AM LFO
         float amLfoPhase = 0.0f;
         float amLfoRate = 0.0f;
         float amDepth = 0.0f;
 
-        float baseDelaySamples = 0.0f;
-        float pan = 0.5f;
+        // Phase-randomizing allpass chain
+        std::array<AllpassStage, kAllpassStages> allpass {};
     };
 
     std::array<Voice, kNumVoices> voices {};
     std::array<std::array<float, kDelayBufferSize>, kMaxChannels> delayBuffer {};
     int writePos = 0;
 
+    // EQ on wet signal: 1-pole high-pass (low cut) + 1-pole low-pass (high shelf)
+    struct BiquadState
+    {
+        float z1 = 0.0f;
+        float z2 = 0.0f;
+    };
+
+    // High-pass filter coefficients (low cut ~50Hz)
+    float hpB0 = 1.0f, hpB1 = 0.0f, hpB2 = 0.0f, hpA1 = 0.0f, hpA2 = 0.0f;
+    std::array<BiquadState, kMaxChannels> hpState {};
+
+    // Low-pass filter coefficients (high shelf rolloff ~5kHz)
+    float lpB0 = 1.0f, lpB1 = 0.0f, lpB2 = 0.0f, lpA1 = 0.0f, lpA2 = 0.0f;
+    std::array<BiquadState, kMaxChannels> lpState {};
+
     float readInterpolated(int channel, float delaySamples) const;
+    static float processBiquad(float input, float b0, float b1, float b2,
+                               float a1, float a2, BiquadState& state);
 };
