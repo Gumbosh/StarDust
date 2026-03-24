@@ -7,6 +7,12 @@ void Saturation::prepare(double newSampleRate, int /*samplesPerBlock*/)
     inputGainSmoothed.reset(sampleRate, rampTimeSec);
     outputGainSmoothed.reset(sampleRate, rampTimeSec);
     driveSmoothed.reset(sampleRate, rampTimeSec);
+
+    for (int ch = 0; ch < kMaxChannels; ++ch)
+    {
+        dcX1[ch] = 0.0f;
+        dcY1[ch] = 0.0f;
+    }
 }
 
 void Saturation::setInputGain(float gainDb)
@@ -38,7 +44,24 @@ void Saturation::setDrive(float driveAmount)
 
 void Saturation::processInput(juce::AudioBuffer<float>& buffer)
 {
+    juce::ScopedNoDenormals noDenormals;
     applyGainAndSaturation(buffer, inputGainSmoothed, driveSmoothed);
+
+    // DC blocker: y[n] = x[n] - x[n-1] + R * y[n-1], R = 0.995
+    const auto numChannels = buffer.getNumChannels();
+    const auto numSamples = buffer.getNumSamples();
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float x = data[i];
+            const float y = x - dcX1[ch] + kDcCoeff * dcY1[ch];
+            dcX1[ch] = x;
+            dcY1[ch] = y;
+            data[i] = y;
+        }
+    }
 }
 
 void Saturation::processOutput(juce::AudioBuffer<float>& buffer)

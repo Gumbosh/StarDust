@@ -55,6 +55,7 @@ float GranularEngine::readFromBuffer(int channel, float position) const
 
 void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 {
+    juce::ScopedNoDenormals noDenormals;
     const auto numChannels = buffer.getNumChannels();
     const auto numSamples = buffer.getNumSamples();
     const bool isStereo = numChannels > 1;

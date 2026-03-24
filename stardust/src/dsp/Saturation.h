@@ -32,4 +32,10 @@ private:
     float currentDrive = 0.0f;
 
     double sampleRate = 44100.0;
+
+    // DC blocker state per channel
+    static constexpr int kMaxChannels = 2;
+    float dcX1[kMaxChannels] = {};
+    float dcY1[kMaxChannels] = {};
+    static constexpr float kDcCoeff = 0.995f;
 };

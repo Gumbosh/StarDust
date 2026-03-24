@@ -18,6 +18,29 @@ StardustLookAndFeel::StardustLookAndFeel()
     setColour(juce::PopupMenu::textColourId, kFg);
     setColour(juce::PopupMenu::highlightedBackgroundColourId, kAccent.withAlpha(0.08f));
     setColour(juce::PopupMenu::highlightedTextColourId, kAccent);
+
+    // AlertWindow (Save/Rename dialogs)
+    setColour(juce::AlertWindow::backgroundColourId, juce::Colour(0xFF0A0A0A));
+    setColour(juce::AlertWindow::textColourId, kFg);
+    setColour(juce::AlertWindow::outlineColourId, kFgGhost.withAlpha(0.5f));
+
+    // TextEditor inside AlertWindow
+    setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF151515));
+    setColour(juce::TextEditor::textColourId, kAccent);
+    setColour(juce::TextEditor::outlineColourId, kFgGhost.withAlpha(0.4f));
+    setColour(juce::TextEditor::focusedOutlineColourId, kAccent.withAlpha(0.5f));
+    setColour(juce::CaretComponent::caretColourId, kAccent);
+
+    // Slider popup tooltip
+    setColour(juce::BubbleComponent::backgroundColourId, juce::Colour(0xFF0A0A0A));
+    setColour(juce::BubbleComponent::outlineColourId, kFgGhost.withAlpha(0.4f));
+    setColour(juce::TooltipWindow::textColourId, kAccent);
+
+    // Buttons inside AlertWindow
+    setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF1A1A1A));
+    setColour(juce::TextButton::buttonOnColourId, kAccent.withAlpha(0.15f));
+    setColour(juce::TextButton::textColourOffId, kFg);
+    setColour(juce::TextButton::textColourOnId, kAccent);
 }
 
 void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
@@ -196,6 +219,109 @@ void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
     }
 }
 
+void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                                                const juce::Colour& /*backgroundColour*/,
+                                                bool shouldDrawButtonAsHighlighted,
+                                                bool /*shouldDrawButtonAsDown*/)
+{
+    auto bounds = button.getLocalBounds().toFloat();
+
+    bool isPresetBarBtn = button.getButtonText() == "..."
+                          || button.getButtonText() == "<"
+                          || button.getButtonText() == ">";
+    bool isAlertBtn = dynamic_cast<juce::AlertWindow*>(button.getParentComponent()) != nullptr;
+
+    if (isAlertBtn)
+    {
+        // AlertWindow buttons — rounded dark buttons with border
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent.withAlpha(0.12f) : juce::Colour(0xFF151515));
+        g.fillRoundedRectangle(bounds.reduced(1.0f), 4.0f);
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent.withAlpha(0.5f) : kFgGhost.withAlpha(0.4f));
+        g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 1.0f);
+        return;
+    }
+
+    // Shared hover effect for all preset bar buttons
+    if (shouldDrawButtonAsHighlighted && (isPresetBarBtn))
+    {
+        g.setColour(kAccent.withAlpha(0.08f));
+        g.fillRoundedRectangle(bounds.reduced(1.0f), 3.0f);
+    }
+
+    if (button.getButtonText() == "...")
+    {
+        // Draw circle border
+        const float size = juce::jmin(bounds.getWidth(), bounds.getHeight()) - 8.0f;
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : kFgDim);
+        g.drawEllipse(cx - size * 0.5f, cy - size * 0.5f, size, size, 1.2f);
+    }
+}
+
+void StardustLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                                          bool shouldDrawButtonAsHighlighted,
+                                          bool /*shouldDrawButtonAsDown*/)
+{
+    auto bounds = button.getLocalBounds().toFloat();
+
+    bool isAlertBtn = dynamic_cast<juce::AlertWindow*>(button.getParentComponent()) != nullptr;
+
+    if (isAlertBtn)
+    {
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : kFg);
+        g.setFont(juce::FontOptions(12.0f).withStyle("Bold"));
+        g.drawText(button.getButtonText(), bounds, juce::Justification::centred);
+    }
+    else if (button.getButtonText() == "...")
+    {
+        // Draw 3 horizontal dots inside the circle
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        const float dotR = 1.2f;
+        const float spacing = 3.0f;
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : kFg);
+        g.fillEllipse(cx - spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
+        g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
+        g.fillEllipse(cx + spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
+    }
+    else
+    {
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : button.findColour(juce::TextButton::textColourOffId));
+        g.setFont(juce::FontOptions(16.0f).withStyle("Bold"));
+        g.drawText(button.getButtonText(), bounds, juce::Justification::centred);
+    }
+}
+
+void StardustLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& window,
+                                        const juce::Rectangle<int>& textArea, juce::TextLayout& layout)
+{
+    auto bounds = window.getLocalBounds().toFloat();
+
+    // Background
+    g.setColour(juce::Colour(0xFF0A0A0A));
+    g.fillRoundedRectangle(bounds, 6.0f);
+
+    // Border — same style as plugin sections
+    g.setColour(kFgGhost.withAlpha(0.4f));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.5f);
+
+    // Inner subtle line below title
+    const float titleBottom = static_cast<float>(textArea.getY());
+    g.setColour(kFgGhost.withAlpha(0.2f));
+    g.drawHorizontalLine(static_cast<int>(titleBottom), bounds.getX() + 12.0f, bounds.getRight() - 12.0f);
+
+    // Title text
+    g.setColour(kAccent);
+    g.setFont(juce::FontOptions(14.0f).withStyle("Bold"));
+    g.drawText(window.getName(), bounds.getX() + 14, bounds.getY() + 8, bounds.getWidth() - 28, 20,
+               juce::Justification::centredLeft);
+
+    // Message layout
+    g.setColour(kFg);
+    layout.draw(g, textArea.toFloat());
+}
+
 void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
                                         bool /*isButtonDown*/,
                                         int /*buttonX*/, int /*buttonY*/,
@@ -204,16 +330,25 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
 {
     auto bounds = juce::Rectangle<float>(0, 0, static_cast<float>(width), static_cast<float>(height));
 
-    // Transparent background — no border, no fill
-    g.setColour(juce::Colours::transparentBlack);
-    g.fillRect(bounds);
+    // Hover highlight — same as preset bar buttons
+    if (box.isMouseOver(true))
+    {
+        g.setColour(kAccent.withAlpha(0.08f));
+        g.fillRoundedRectangle(bounds.reduced(1.0f), 3.0f);
+    }
 
     // Measure text width to place chevron right after centered text
     auto font = getComboBoxFont(box);
     g.setFont(font);
-    const float textW = font.getStringWidthFloat(box.getText());
+    const bool isDirty = box.getName() == "dirty";
+    auto displayText = box.getText() + (isDirty ? " *" : "");
+    const float textW = font.getStringWidthFloat(displayText);
     const float centerX = static_cast<float>(width) * 0.5f;
-    const float arrowGap = 5.0f;
+
+    // Draw text centered in full width
+    g.setColour(box.findColour(juce::ComboBox::textColourId));
+    g.drawText(displayText, 0, 0, width, height, juce::Justification::centred);
+    const float arrowGap = 6.0f;
 
     // Arrow — chevron right after centered text
     const float arrowSize = 6.0f;
@@ -233,6 +368,138 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
 juce::Font StardustLookAndFeel::getComboBoxFont(juce::ComboBox& /*box*/)
 {
     return juce::Font(juce::FontOptions(13.0f).withStyle("Bold"));
+}
+
+void StardustLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+{
+    // Hide the default label — we draw text ourselves in drawComboBox
+    label.setBounds(0, 0, 0, 0);
+    label.setVisible(false);
+}
+
+void StardustLookAndFeel::drawBubble(juce::Graphics& g, juce::BubbleComponent& /*bubble*/,
+                                      const juce::Point<float>& /*tip*/,
+                                      const juce::Rectangle<float>& body)
+{
+    // Dark rounded tooltip matching plugin style
+    g.setColour(juce::Colour(0xFF0A0A0A));
+    g.fillRoundedRectangle(body, 4.0f);
+    g.setColour(kFgGhost.withAlpha(0.4f));
+    g.drawRoundedRectangle(body, 4.0f, 1.0f);
+}
+
+juce::Font StardustLookAndFeel::getSliderPopupFont(juce::Slider& /*slider*/)
+{
+    return juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::bold));
+}
+
+int StardustLookAndFeel::getSliderPopupPlacement(juce::Slider& /*slider*/)
+{
+    // Always show tooltip above the knob, centered
+    return juce::BubbleComponent::above;
+}
+
+// ============================================================================
+// StardustDialog
+// ============================================================================
+
+StardustDialog::StardustDialog(const juce::String& title, const juce::String& defaultText,
+                               std::function<void(const juce::String&)> onConfirm)
+    : callback(std::move(onConfirm))
+{
+    setSize(280, 130);
+    setWantsKeyboardFocus(true);
+
+    titleLabel.setText(title, juce::dontSendNotification);
+    titleLabel.setFont(juce::FontOptions(13.0f).withStyle("Bold"));
+    titleLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kAccent);
+    titleLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(titleLabel);
+
+    textInput.setText(defaultText);
+    textInput.setFont(juce::FontOptions(12.0f));
+    textInput.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF111111));
+    textInput.setColour(juce::TextEditor::textColourId, StardustLookAndFeel::kAccent);
+    textInput.setColour(juce::TextEditor::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.4f));
+    textInput.setColour(juce::TextEditor::focusedOutlineColourId, StardustLookAndFeel::kAccent.withAlpha(0.4f));
+    textInput.setColour(juce::CaretComponent::caretColourId, StardustLookAndFeel::kAccent);
+    textInput.setJustification(juce::Justification::centred);
+    addAndMakeVisible(textInput);
+
+    confirmBtn.setButtonText("Save");
+    confirmBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    confirmBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
+    confirmBtn.onClick = [this] {
+        auto text = textInput.getText().trim();
+        if (text.isNotEmpty() && callback)
+            callback(text);
+        if (auto* parent = getParentComponent())
+            parent->removeChildComponent(this);
+        delete this;
+    };
+    addAndMakeVisible(confirmBtn);
+
+    cancelBtn.setButtonText("Cancel");
+    cancelBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    cancelBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFgDim);
+    cancelBtn.onClick = [this] {
+        if (auto* parent = getParentComponent())
+            parent->removeChildComponent(this);
+        delete this;
+    };
+    addAndMakeVisible(cancelBtn);
+}
+
+void StardustDialog::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+
+    // Dark background
+    g.setColour(juce::Colour(0xFF050505));
+    g.fillRoundedRectangle(bounds, 4.0f);
+
+    // Border — same as plugin sections
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+    g.drawRoundedRectangle(bounds, 4.0f, 2.0f);
+
+    // Divider under title
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
+    g.drawHorizontalLine(32, bounds.getX() + 12.0f, bounds.getRight() - 12.0f);
+
+    // Divider above buttons
+    g.drawHorizontalLine(getHeight() - 40, bounds.getX() + 12.0f, bounds.getRight() - 12.0f);
+}
+
+void StardustDialog::resized()
+{
+    auto area = getLocalBounds().reduced(14, 0);
+    titleLabel.setBounds(area.removeFromTop(32));
+    area.removeFromTop(6);
+    textInput.setBounds(area.removeFromTop(26).reduced(10, 0));
+
+    auto btnArea = getLocalBounds().reduced(14, 0).removeFromBottom(36);
+    btnArea.removeFromBottom(4);
+    const int btnW = 80;
+    const int gap = 10;
+    const int totalW = btnW * 2 + gap;
+    const int startX = btnArea.getX() + (btnArea.getWidth() - totalW) / 2;
+    cancelBtn.setBounds(startX, btnArea.getY(), btnW, 28);
+    confirmBtn.setBounds(startX + btnW + gap, btnArea.getY(), btnW, 28);
+}
+
+bool StardustDialog::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        confirmBtn.triggerClick();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey)
+    {
+        cancelBtn.triggerClick();
+        return true;
+    }
+    return false;
 }
 
 // ============================================================================
@@ -357,11 +624,115 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     tuneValueLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kAccent);
     addAndMakeVisible(tuneValueLabel);
 
-    int presetIdx = 1;
-    for (const auto& preset : processorRef.getFactoryPresets())
-        presetSelector.addItem(preset.name, presetIdx++);
-    presetSelector.setSelectedId(processorRef.getCurrentProgram() + 1, juce::dontSendNotification);
+    refreshPresetList();
+    presetSelector.setRepaintsOnMouseActivity(true);
+    presetSelector.setMouseClickGrabsKeyboardFocus(false);
     addAndMakeVisible(presetSelector);
+
+    // Force ComboBox repaint at 30Hz so hover state always reflects actual mouse position
+    startTimerHz(30);
+
+    // Preset navigation buttons
+    prevPresetBtn.setButtonText("<");
+    prevPresetBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    prevPresetBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
+    prevPresetBtn.onClick = [this] {
+        int idx = processorRef.getCurrentProgram() - 1;
+        if (idx < 0) idx = processorRef.getPresetCount() - 1;
+        processorRef.loadPreset(idx);
+        presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
+        updateDoubleClickDefaults();
+    };
+    addAndMakeVisible(prevPresetBtn);
+
+    nextPresetBtn.setButtonText(">");
+    nextPresetBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    nextPresetBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
+    nextPresetBtn.onClick = [this] {
+        int idx = processorRef.getCurrentProgram() + 1;
+        if (idx >= processorRef.getPresetCount()) idx = 0;
+        processorRef.loadPreset(idx);
+        presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
+        updateDoubleClickDefaults();
+    };
+    addAndMakeVisible(nextPresetBtn);
+
+    savePresetBtn.setButtonText("...");
+    savePresetBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    savePresetBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
+    savePresetBtn.onClick = [this] {
+        juce::PopupMenu menu;
+        menu.setLookAndFeel(&lookAndFeel);
+
+        menu.addItem(1, "Save as...");
+        int idx = processorRef.getCurrentProgram();
+        bool isFactory = processorRef.isFactoryPreset(idx);
+        menu.addItem(2, "Rename...", !isFactory);
+        menu.addItem(3, "Delete", !isFactory);
+        menu.addSeparator();
+        menu.addItem(4, "Initialize");
+
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&savePresetBtn),
+            [this](int result) {
+                if (result == 1)
+                {
+                    auto* dlg = new StardustDialog("Save Preset", "", [this](const juce::String& name) {
+                        processorRef.saveUserPreset(name);
+                        refreshPresetList();
+                        // Find the preset by name and select it
+                        for (int i = 0; i < processorRef.getPresetCount(); ++i)
+                        {
+                            if (processorRef.getProgramName(i) == name)
+                            {
+                                presetSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                                processorRef.loadPreset(i);
+                                break;
+                            }
+                        }
+                    });
+                    addAndMakeVisible(dlg);
+                    dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
+                    dlg->toFront(true);
+                    dlg->grabKeyboardFocus();
+                }
+                else if (result == 2)
+                {
+                    int idx2 = processorRef.getCurrentProgram();
+                    auto oldName = processorRef.getProgramName(idx2);
+                    auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName](const juce::String& newName) {
+                        processorRef.saveUserPreset(newName);
+                        auto oldFile = StardustProcessor::getUserPresetsDir().getChildFile(oldName + ".xml");
+                        if (oldFile.existsAsFile())
+                            oldFile.deleteFile();
+                        processorRef.refreshPresets();
+                        refreshPresetList();
+                        presetSelector.setSelectedId(processorRef.getPresetCount(), juce::dontSendNotification);
+                        processorRef.loadPreset(processorRef.getPresetCount() - 1);
+                    });
+                    dlg->confirmBtn.setButtonText("Rename");
+                    addAndMakeVisible(dlg);
+                    dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
+                    dlg->toFront(true);
+                    dlg->grabKeyboardFocus();
+                }
+                else if (result == 3)
+                {
+                    int idx2 = processorRef.getCurrentProgram();
+                    processorRef.deleteUserPreset(idx2);
+                    refreshPresetList();
+                    presetSelector.setSelectedId(1, juce::dontSendNotification);
+                    processorRef.loadPreset(0);
+                }
+                else if (result == 4)
+                {
+                    // Initialize — load factory Default
+                    processorRef.loadPreset(0);
+                    refreshPresetList();
+                    presetSelector.setSelectedId(1, juce::dontSendNotification);
+                }
+            });
+    };
+    addAndMakeVisible(savePresetBtn);
 
     // Section toggle buttons — minimal dot style
     auto setupToggle = [this](juce::ToggleButton& btn, std::unique_ptr<ButtonAttachment>& attach,
@@ -381,10 +752,25 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     addAndMakeVisible(outputMeterR);
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
+
+    // Listen to all parameter changes for dirty state tracking
+    for (auto* param : processorRef.getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+            processorRef.apvts.addParameterListener(ranged->getParameterID(), this);
+    }
+
+    // Clear dirty flag — construction/attachment triggers parameterChanged spuriously
+    processorRef.presetDirty.store(false);
 }
 
 StardustEditor::~StardustEditor()
 {
+    for (auto* param : processorRef.getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+            processorRef.apvts.removeParameterListener(ranged->getParameterID(), this);
+    }
     setLookAndFeel(nullptr);
 }
 
@@ -394,6 +780,14 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     knob.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     knob.slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     knob.attachment = std::make_unique<SliderAttachment>(processorRef.apvts, paramId, knob.slider);
+    // Double-click resets to loaded preset value (set in updateDoubleClickDefaults)
+    if (auto* param = processorRef.apvts.getParameter(paramId))
+    {
+        const float defaultVal = param->convertFrom0to1(param->getDefaultValue());
+        knob.slider.setDoubleClickReturnValue(true, defaultVal);
+        knob.slider.setPopupDisplayEnabled(true, true, this);
+    }
+    paramToKnob[paramId] = &knob;
     addAndMakeVisible(knob.slider);
 
     knob.label.setText(labelText, juce::dontSendNotification);
@@ -408,6 +802,32 @@ void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> 
     const auto labelHeight = 14;
     knob.slider.setBounds(bounds.removeFromTop(bounds.getHeight() - labelHeight));
     knob.label.setBounds(bounds);
+}
+
+void StardustEditor::refreshPresetList()
+{
+    presetSelector.clear(juce::dontSendNotification);
+    int idx = 1;
+    for (const auto& preset : processorRef.getAllPresets())
+        presetSelector.addItem(preset.name, idx++);
+    presetSelector.setSelectedId(processorRef.getCurrentProgram() + 1, juce::dontSendNotification);
+    updateDoubleClickDefaults();
+}
+
+void StardustEditor::updateDoubleClickDefaults()
+{
+    const int procIdx = processorRef.getCurrentProgram();
+    const auto& allPresets = processorRef.getAllPresets();
+    if (procIdx < 0 || procIdx >= static_cast<int>(allPresets.size()))
+        return;
+
+    const auto& preset = allPresets[static_cast<size_t>(procIdx)];
+    for (const auto& [paramId, presetVal] : preset.values)
+    {
+        auto it = paramToKnob.find(paramId);
+        if (it != paramToKnob.end())
+            it->second->slider.setDoubleClickReturnValue(true, presetVal);
+    }
 }
 
 void StardustEditor::paint(juce::Graphics& g)
@@ -563,6 +983,58 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     g.drawText("S t a r d u s t", gvf.getX() - 1, gvf.getY() + 4, gvf.getWidth(), 18, juce::Justification::centred);
 }
 
+void StardustEditor::parameterChanged(const juce::String& /*parameterID*/, float /*newValue*/)
+{
+    // Dirty state is now computed by comparing current values to loaded preset in timerCallback
+}
+
+void StardustEditor::mouseMove(const juce::MouseEvent& /*e*/)
+{
+    presetSelector.repaint();
+}
+
+void StardustEditor::timerCallback()
+{
+    presetSelector.repaint();
+
+    // Sync preset selection with processor (for DAW session restore)
+    const int procIdx = processorRef.getCurrentProgram();
+    if (presetSelector.getSelectedId() != procIdx + 1)
+        presetSelector.setSelectedId(procIdx + 1, juce::dontSendNotification);
+
+    // Compute dirty by comparing current param values to loaded preset
+    bool dirty = false;
+    const auto& allPresets = processorRef.getAllPresets();
+    if (procIdx >= 0 && procIdx < static_cast<int>(allPresets.size()))
+    {
+        const auto& preset = allPresets[static_cast<size_t>(procIdx)];
+        for (const auto& [paramId, presetVal] : preset.values)
+        {
+            if (auto* param = processorRef.apvts.getParameter(paramId))
+            {
+                const float currentVal = param->convertFrom0to1(param->getValue());
+                if (std::abs(currentVal - presetVal) > 0.01f)
+                {
+                    dirty = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Update dirty indicator
+    if (dirty && presetSelector.getName() != "dirty")
+    {
+        presetSelector.setName("dirty");
+        presetSelector.repaint();
+    }
+    else if (!dirty && presetSelector.getName() == "dirty")
+    {
+        presetSelector.setName("");
+        presetSelector.repaint();
+    }
+}
+
 void StardustEditor::mouseDown(const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu())
@@ -613,17 +1085,29 @@ void StardustEditor::resized()
     starfield.setBounds(screenBounds);
     starfield.setExcludeRect({});
 
-    // Preset selector centered below the visualizer screen, in the galaxy padding
+    // Preset bar: preset name centered in galaxy, arrows + menu to the right
     const int presetH = 22;
     const int presetY = screenBounds.getBottom() + (galaxyBounds.getBottom() - screenBounds.getBottom() - presetH) / 2;
-    // Fixed width centered in galaxy — text is centred within by setJustificationType
-    const int presetW = 200;
-    const int presetX = galaxyBounds.getX() + (galaxyBounds.getWidth() - presetW) / 2;
-    presetSelector.setBounds(presetX, presetY, presetW, presetH);
+    const int arrowW = 26;
+    const int menuBtnW = 28;
+    const int selectorW = 180;
+    const int pGap = 4;
+
+    // Center the selector in the galaxy width
+    const int selectorX = galaxyBounds.getX() + (galaxyBounds.getWidth() - selectorW) / 2;
+    presetSelector.setBounds(selectorX, presetY, selectorW, presetH);
     presetSelector.setJustificationType(juce::Justification::centred);
-    // Re-center when preset changes
+
+    // Arrows + menu right of the selector
+    int cx = selectorX + selectorW + pGap;
+    prevPresetBtn.setBounds(cx, presetY, arrowW, presetH);      cx += arrowW;
+    nextPresetBtn.setBounds(cx, presetY, arrowW, presetH);      cx += arrowW + pGap;
+    savePresetBtn.setBounds(cx, presetY, menuBtnW, presetH);
+    deletePresetBtn.setVisible(false);
+
     presetSelector.onChange = [this] {
         processorRef.loadPreset(presetSelector.getSelectedId() - 1);
+        updateDoubleClickDefaults();
     };
 
     // Shared grid: 5 columns, equal spacing, both rows use same X positions

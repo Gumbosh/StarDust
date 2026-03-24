@@ -10,6 +10,7 @@ struct Preset
 {
     juce::String name;
     std::map<juce::String, float> values;
+    bool isFactory = false;
 };
 
 class StardustProcessor : public juce::AudioProcessor
@@ -29,9 +30,9 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return 0.1; } // chorus/grain tail
 
-    int getNumPrograms() override { return static_cast<int>(factoryPresets.size()); }
+    int getNumPrograms() override { return static_cast<int>(allPresets.size()); }
     int getCurrentProgram() override { return currentPresetIndex; }
     void setCurrentProgram(int index) override;
     const juce::String getProgramName(int index) override;
@@ -40,6 +41,7 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
 
     // For level metering (read from GUI thread)
@@ -48,8 +50,18 @@ public:
     std::atomic<float> outputLevelLeft { 0.0f };
     std::atomic<float> outputLevelRight { 0.0f };
 
-    const std::vector<Preset>& getFactoryPresets() const { return factoryPresets; }
+    const std::vector<Preset>& getAllPresets() const { return allPresets; }
+    std::atomic<bool> presetDirty { false };
+    std::atomic<bool> loadingPreset { false };
+    std::atomic<int> ignoreParamChanges { 0 };
+    int getPresetCount() const { return static_cast<int>(allPresets.size()); }
+    bool isFactoryPreset(int index) const;
     void loadPreset(int index);
+    void saveUserPreset(const juce::String& name);
+    void deleteUserPreset(int index);
+    void refreshPresets();
+
+    static juce::File getUserPresetsDir();
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -63,7 +75,11 @@ private:
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;
+    std::vector<Preset> allPresets; // factory + user
     int currentPresetIndex = 0;
+
+    void scanUserPresets();
+    void rebuildAllPresets();
 
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;

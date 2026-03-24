@@ -5,9 +5,10 @@ StardustProcessor::StardustProcessor()
     : AudioProcessor(BusesProperties()
           .withInput("Input", juce::AudioChannelSet::stereo(), true)
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "Parameters", createParameterLayout())
+      apvts(*this, &undoManager, "Parameters", createParameterLayout())
 {
     initFactoryPresets();
+    refreshPresets();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createParameterLayout()
@@ -95,7 +96,8 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     butterworthFilter.prepare(sampleRate, samplesPerBlock);
     chorusEngine.prepare(sampleRate, samplesPerBlock);
 
-    dryBuffer.setSize(2, samplesPerBlock, false, true, true);
+    // Pre-allocate with extra headroom to avoid audio-thread allocation
+    dryBuffer.setSize(2, samplesPerBlock * 2, false, true, true);
     setLatencySamples(0);
 }
 
@@ -169,9 +171,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // 2. DESTROY section (BITS, RATE, CUTOFF, PITCH, MIX)
     if (destroyOn && mixVal > 0.001f)
     {
-        // Save pre-destroy copy for blending
-        if (dryBuffer.getNumChannels() < numChannels || dryBuffer.getNumSamples() < numSamples)
-            dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        // Save pre-destroy copy for blending (pre-allocated in prepareToPlay)
         for (int ch = 0; ch < numChannels; ++ch)
             dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
@@ -227,7 +227,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
 void StardustProcessor::setCurrentProgram(int index)
 {
-    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+    if (index >= 0 && index < static_cast<int>(allPresets.size()))
     {
         currentPresetIndex = index;
         loadPreset(index);
@@ -236,28 +236,142 @@ void StardustProcessor::setCurrentProgram(int index)
 
 const juce::String StardustProcessor::getProgramName(int index)
 {
-    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
-        return factoryPresets[static_cast<size_t>(index)].name;
+    if (index >= 0 && index < static_cast<int>(allPresets.size()))
+        return allPresets[static_cast<size_t>(index)].name;
     return {};
 }
 
 void StardustProcessor::loadPreset(int index)
 {
-    if (index < 0 || index >= static_cast<int>(factoryPresets.size()))
+    if (index < 0 || index >= static_cast<int>(allPresets.size()))
         return;
 
-    const auto& preset = factoryPresets[static_cast<size_t>(index)];
+    loadingPreset.store(true);
+    // Ignore upcoming parameter change callbacks from loading
+    ignoreParamChanges.store(static_cast<int>(allPresets[static_cast<size_t>(index)].values.size()) * 2 + 10);
+    const auto& preset = allPresets[static_cast<size_t>(index)];
     for (const auto& [paramId, value] : preset.values)
     {
         if (auto* param = apvts.getParameter(paramId))
             param->setValueNotifyingHost(param->convertTo0to1(value));
     }
     currentPresetIndex = index;
+    presetDirty.store(false);
+    loadingPreset.store(false);
+}
+
+bool StardustProcessor::isFactoryPreset(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(allPresets.size()))
+        return false;
+    return allPresets[static_cast<size_t>(index)].isFactory;
+}
+
+juce::File StardustProcessor::getUserPresetsDir()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("Stardust")
+                   .getChildFile("Presets");
+    if (!dir.exists())
+        dir.createDirectory();
+    return dir;
+}
+
+void StardustProcessor::saveUserPreset(const juce::String& name)
+{
+    auto xml = std::make_unique<juce::XmlElement>("StardustPreset");
+    xml->setAttribute("name", name);
+    xml->setAttribute("version", STARDUST_VERSION);
+
+    for (auto* param : getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+        {
+            auto* child = xml->createNewChildElement("Parameter");
+            child->setAttribute("id", ranged->getParameterID());
+            child->setAttribute("value", ranged->convertFrom0to1(ranged->getValue()));
+        }
+    }
+
+    auto file = getUserPresetsDir().getChildFile(name + ".xml");
+    xml->writeTo(file);
+    presetDirty.store(false);
+    refreshPresets();
+}
+
+void StardustProcessor::deleteUserPreset(int index)
+{
+    if (index < 0 || index >= static_cast<int>(allPresets.size()))
+        return;
+    if (allPresets[static_cast<size_t>(index)].isFactory)
+        return;
+
+    auto file = getUserPresetsDir().getChildFile(allPresets[static_cast<size_t>(index)].name + ".xml");
+    if (file.existsAsFile())
+        file.deleteFile();
+
+    refreshPresets();
+    if (currentPresetIndex >= static_cast<int>(allPresets.size()))
+        currentPresetIndex = 0;
+}
+
+void StardustProcessor::scanUserPresets()
+{
+    auto dir = getUserPresetsDir();
+    auto files = dir.findChildFiles(juce::File::findFiles, false, "*.xml");
+    files.sort();
+
+    for (const auto& file : files)
+    {
+        auto xml = juce::XmlDocument::parse(file);
+        if (xml == nullptr || !xml->hasTagName("StardustPreset"))
+            continue;
+
+        Preset preset;
+        preset.name = xml->getStringAttribute("name", file.getFileNameWithoutExtension());
+        preset.isFactory = false;
+
+        for (auto* child : xml->getChildIterator())
+        {
+            if (child->hasTagName("Parameter"))
+            {
+                auto id = child->getStringAttribute("id");
+                auto val = static_cast<float>(child->getDoubleAttribute("value"));
+                if (id.isNotEmpty())
+                    preset.values[id] = val;
+            }
+        }
+
+        allPresets.push_back(std::move(preset));
+    }
+}
+
+void StardustProcessor::rebuildAllPresets()
+{
+    allPresets.clear();
+    for (const auto& fp : factoryPresets)
+    {
+        Preset p = { fp.name, fp.values, true };
+        allPresets.push_back(std::move(p));
+    }
+    scanUserPresets();
+}
+
+void StardustProcessor::refreshPresets()
+{
+    rebuildAllPresets();
+    // Validate current index
+    if (currentPresetIndex >= static_cast<int>(allPresets.size()))
+        currentPresetIndex = 0;
 }
 
 void StardustProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    // Store preset index and name in the state tree
+    state.setProperty("presetIndex", currentPresetIndex, nullptr);
+    if (currentPresetIndex >= 0 && currentPresetIndex < static_cast<int>(allPresets.size()))
+        state.setProperty("presetName", allPresets[static_cast<size_t>(currentPresetIndex)].name, nullptr);
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -266,7 +380,33 @@ void StardustProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
-        apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+    {
+        auto tree = juce::ValueTree::fromXml(*xmlState);
+        int savedIndex = tree.getProperty("presetIndex", 0);
+        juce::String savedName = tree.getProperty("presetName", "");
+
+        apvts.replaceState(tree);
+
+        // Try to find preset by name first, fall back to index
+        refreshPresets();
+        bool found = false;
+        if (savedName.isNotEmpty())
+        {
+            for (int i = 0; i < static_cast<int>(allPresets.size()); ++i)
+            {
+                if (allPresets[static_cast<size_t>(i)].name == savedName)
+                {
+                    currentPresetIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found)
+        {
+            currentPresetIndex = juce::jlimit(0, juce::jmax(0, static_cast<int>(allPresets.size()) - 1), savedIndex);
+        }
+    }
 }
 
 juce::AudioProcessorEditor* StardustProcessor::createEditor()
@@ -282,6 +422,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
             {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Classic SP", {
@@ -289,6 +430,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
             {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
         { "Lo-Fi", {
@@ -296,6 +438,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
             {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }}
     };

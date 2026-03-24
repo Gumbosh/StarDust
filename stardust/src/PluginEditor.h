@@ -21,11 +21,24 @@ public:
                           bool shouldDrawButtonAsHighlighted,
                           bool shouldDrawButtonAsDown) override;
 
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
+                              bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
+    void drawAlertBox(juce::Graphics& g, juce::AlertWindow& window,
+                      const juce::Rectangle<int>& textArea, juce::TextLayout& layout) override;
+
     void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
                       int buttonX, int buttonY, int buttonW, int buttonH,
                       juce::ComboBox& box) override;
 
     juce::Font getComboBoxFont(juce::ComboBox& box) override;
+    void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;
+
+    void drawBubble(juce::Graphics& g, juce::BubbleComponent& bubble,
+                    const juce::Point<float>& tip, const juce::Rectangle<float>& body) override;
+    juce::Font getSliderPopupFont(juce::Slider& slider) override;
+    int getSliderPopupPlacement(juce::Slider& slider) override;
 
     // Monochrome galaxy palette
     static inline const juce::Colour kBg { 0xFF050505 };
@@ -53,7 +66,26 @@ private:
     static constexpr int kPeakHoldFrames = 45; // ~1.5s at 30Hz
 };
 
-class StardustEditor : public juce::AudioProcessorEditor
+class StardustDialog : public juce::Component
+{
+public:
+    StardustDialog(const juce::String& title, const juce::String& defaultText,
+                   std::function<void(const juce::String&)> onConfirm);
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
+
+    juce::TextButton confirmBtn, cancelBtn;
+
+private:
+    juce::Label titleLabel;
+    juce::TextEditor textInput;
+    std::function<void(const juce::String&)> callback;
+};
+
+class StardustEditor : public juce::AudioProcessorEditor,
+                       private juce::Timer,
+                       private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     explicit StardustEditor(StardustProcessor& p);
@@ -63,6 +95,9 @@ public:
     void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void timerCallback() override;
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -77,12 +112,16 @@ private:
 
     void setupKnob(LabeledKnob& knob, const juce::String& paramId, const juce::String& labelText);
     void layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds);
+    void updateDoubleClickDefaults();
+    std::map<juce::String, LabeledKnob*> paramToKnob;
 
     StardustProcessor& processorRef;
     StardustLookAndFeel lookAndFeel;
 
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
+    juce::TextButton prevPresetBtn, nextPresetBtn, savePresetBtn, deletePresetBtn;
+    void refreshPresetList();
 
     LabeledKnob driveKnob, toneKnob;
     LabeledKnob bitsKnob, rateKnob, cutoffKnob, mixKnob;

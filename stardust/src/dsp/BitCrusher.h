@@ -25,4 +25,9 @@ private:
     static constexpr int kMaxChannels = 2;
     float holdCounter[kMaxChannels] = {};
     float holdSample[kMaxChannels] = {};
+
+    // Anti-aliasing: simple 1-pole low-pass before sample-and-hold
+    float aaState[kMaxChannels] = {};
+    float aaAlpha = 1.0f;
+    float lastTargetRate = 0.0f;
 };

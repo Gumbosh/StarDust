@@ -87,6 +87,7 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
 
 void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
 {
+    juce::ScopedNoDenormals noDenormals;
     const float cutoffVal = cutoffSmoothed.getCurrentValue();
     const float lfoDepth = lfoDepthSmoothed.getCurrentValue();
 

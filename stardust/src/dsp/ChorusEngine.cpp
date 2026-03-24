@@ -134,6 +134,7 @@ float ChorusEngine::processBiquad(float input, float b0, float b1, float b2,
 
 void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
 {
+    juce::ScopedNoDenormals noDenormals;
     const auto numChannels = buffer.getNumChannels();
     const auto numSamples = buffer.getNumSamples();
     const bool isStereo = numChannels > 1;
