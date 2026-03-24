@@ -24,15 +24,15 @@ echo ""
 
 # ---- Step 1: Build if needed ------------------------------------------------
 if [ ! -d "$ARTEFACTS/VST3/StarDust.vst3" ]; then
-    echo "[1/5] Building StarDust..."
+    echo "[1/6] Building StarDust..."
     cmake -B "$BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PROJECT_DIR"
     cmake --build "$BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
 else
-    echo "[1/5] Build artefacts found, skipping build."
+    echo "[1/6] Build artefacts found, skipping build."
 fi
 
 # ---- Step 2: Verify artefacts exist -----------------------------------------
-echo "[2/5] Verifying build artefacts..."
+echo "[2/6] Verifying build artefacts..."
 
 VST3_BUNDLE="$ARTEFACTS/VST3/StarDust.vst3"
 APP_BUNDLE="$ARTEFACTS/Standalone/StarDust.app"
@@ -50,8 +50,25 @@ fi
 echo "  VST3: $VST3_BUNDLE"
 echo "  App:  $APP_BUNDLE"
 
-# ---- Step 3: Create package root hierarchy -----------------------------------
-echo "[3/5] Preparing package root..."
+# ---- Step 3: Clean up old installations --------------------------------------
+echo "[3/6] Removing old installations..."
+
+# Remove user-level VST3 copy (created by COPY_PLUGIN_AFTER_BUILD or previous installs)
+USER_VST3="$HOME/Library/Audio/Plug-Ins/VST3/StarDust.vst3"
+if [ -d "$USER_VST3" ]; then
+    rm -rf "$USER_VST3"
+    echo "  Removed user-level VST3: $USER_VST3"
+fi
+
+# Remove system-level VST3 if it exists (will be replaced by installer)
+SYSTEM_VST3="/Library/Audio/Plug-Ins/VST3/StarDust.vst3"
+if [ -d "$SYSTEM_VST3" ]; then
+    rm -rf "$SYSTEM_VST3" 2>/dev/null || sudo rm -rf "$SYSTEM_VST3" 2>/dev/null || true
+    echo "  Removed system-level VST3: $SYSTEM_VST3"
+fi
+
+# ---- Step 4: Create package root hierarchy -----------------------------------
+echo "[4/6] Preparing package root..."
 
 rm -rf "$PKG_ROOT"
 mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
@@ -61,8 +78,8 @@ mkdir -p "$PKG_ROOT/Applications"
 cp -R "$VST3_BUNDLE" "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
 cp -R "$APP_BUNDLE"  "$PKG_ROOT/Applications/"
 
-# ---- Step 4: Build the .pkg -------------------------------------------------
-echo "[4/5] Building .pkg installer..."
+# ---- Step 5: Build the .pkg -------------------------------------------------
+echo "[5/6] Building .pkg installer..."
 
 # Create a component plist for customization
 COMPONENT_PLIST="$BUILD_DIR/component.plist"
@@ -118,8 +135,8 @@ if [ -n "$SIGN_IDENTITY" ]; then
     echo "  Package signed successfully."
 fi
 
-# ---- Step 5: Summary --------------------------------------------------------
-echo "[5/5] Done!"
+# ---- Step 6: Summary --------------------------------------------------------
+echo "[6/6] Done!"
 echo ""
 echo "  Installer: $PKG_OUTPUT"
 echo "  Size:      $(du -sh "$PKG_OUTPUT" | cut -f1)"

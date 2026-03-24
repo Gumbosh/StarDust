@@ -10,7 +10,7 @@ REM   - CMake 3.22+ (in PATH)
 REM   - Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 REM
 REM Usage:
-REM   cd fl-studio-plugin
+REM   cd stardust
 REM   installer\build-windows-installer.bat
 REM =============================================================================
 

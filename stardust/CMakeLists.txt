@@ -15,7 +15,7 @@ juce_add_plugin(StarDust
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_AUTO_MANIFEST TRUE
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
 target_sources(StarDust PRIVATE
@@ -37,6 +37,10 @@ target_sources(StarDust PRIVATE
     src/gui/StarfieldBackground.h
 )
 
+juce_add_binary_data(StarDustAssets SOURCES
+    assets/logo.png
+)
+
 target_compile_definitions(StarDust PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_WEB_BROWSER=0
@@ -47,6 +51,7 @@ target_compile_features(StarDust PUBLIC cxx_std_17)
 
 target_link_libraries(StarDust
     PRIVATE
+        StarDustAssets
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC

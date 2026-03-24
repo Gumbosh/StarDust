@@ -17,18 +17,15 @@ public:
                           float sliderPos, float minSliderPos, float maxSliderPos,
                           juce::Slider::SliderStyle style, juce::Slider& slider) override;
 
-    // Vintage warm palette
-    static inline const juce::Colour kPanel { 0xFF1C1A18 };        // warm dark charcoal
-    static inline const juce::Colour kPanelLight { 0xFF2A2724 };   // lighter panel
-    static inline const juce::Colour kAccent { 0xFFD4A24C };       // warm amber/gold
-    static inline const juce::Colour kAccentDim { 0xFF8B6A30 };    // dim amber
-    static inline const juce::Colour kKnobBody { 0xFF3D3935 };     // warm dark gray
-    static inline const juce::Colour kKnobRing { 0xFF504A44 };     // knob outer ring
-    static inline const juce::Colour kKnobHighlight { 0xFF5A5248 };// knob highlight
-    static inline const juce::Colour kLabel { 0xFFB8A88A };        // cream/tan label
-    static inline const juce::Colour kTextBright { 0xFFE8D8C0 };   // bright cream
-    static inline const juce::Colour kScrewHead { 0xFF444038 };    // screw accent
-    static inline const juce::Colour kInset { 0xFF141210 };        // inset/recessed
+    // Monochrome galaxy palette
+    static inline const juce::Colour kBg { 0xFF050505 };
+    static inline const juce::Colour kFg { 0xFFE0E0E0 };
+    static inline const juce::Colour kFgDim { 0xFF888888 };
+    static inline const juce::Colour kFgGhost { 0xFF3A3A3A };
+    static inline const juce::Colour kKnobBody { 0xFF0A0A0A };
+    static inline const juce::Colour kKnobRing { 0xFF2A2A2A };
+    static inline const juce::Colour kAccent { 0xFFFFFFFF };
+    static inline const juce::Colour kInset { 0xFF060606 };
 };
 
 class LevelMeter : public juce::Component, public juce::Timer
@@ -50,6 +47,7 @@ public:
     ~StarDustEditor() override;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
 
 private:
@@ -64,7 +62,6 @@ private:
 
     void setupKnob(LabeledKnob& knob, const juce::String& paramId, const juce::String& labelText);
     void layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds);
-    void drawScrew(juce::Graphics& g, float x, float y);
 
     StarDustProcessor& processorRef;
     StarDustLookAndFeel lookAndFeel;
@@ -72,25 +69,20 @@ private:
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
 
-    LabeledKnob bitsKnob;
-    LabeledKnob rateKnob;
-    LabeledKnob cutoffKnob;
-    LabeledKnob driveKnob;
-    LabeledKnob mixKnob;
+    LabeledKnob bitsKnob, rateKnob, cutoffKnob, driveKnob, mixKnob;
+    LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
 
     juce::Slider tuneFader;
-    juce::Label tuneLabel;
-    juce::Label tuneValueLabel;
+    juce::Label tuneLabel, tuneValueLabel;
     std::unique_ptr<SliderAttachment> tuneAttachment;
 
-    LabeledKnob grainMixKnob;
-    LabeledKnob grainDensityKnob;
-    LabeledKnob grainSizeKnob;
-    LabeledKnob grainScatterKnob;
-    LabeledKnob widthKnob;
+    LevelMeter inputMeterL, inputMeterR, outputMeterL, outputMeterR;
 
-    LevelMeter inputMeterL, inputMeterR;
-    LevelMeter outputMeterL, outputMeterR;
+    juce::Rectangle<int> controlsBounds;
+    juce::Rectangle<int> galaxyBounds;
+    juce::Rectangle<int> screenBounds;
+    juce::Rectangle<int> bottomBarBounds;
+    juce::Image logoImage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StarDustEditor)
 };
