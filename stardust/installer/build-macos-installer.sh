@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# StarDust — macOS .pkg Installer Builder
+# Stardust — macOS .pkg Installer Builder
 # Creates a signed .pkg that installs:
 #   - Stardust.vst3 → /Library/Audio/Plug-Ins/VST3/
 #   - Stardust.app  → /Applications/
@@ -11,20 +11,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-ARTEFACTS="$BUILD_DIR/StarDust_artefacts/Release"
+ARTEFACTS="$BUILD_DIR/Stardust_artefacts/Release"
 PKG_ROOT="$BUILD_DIR/pkg-root"
 PKG_OUTPUT="$BUILD_DIR/Stardust-Installer.pkg"
-VERSION=$(grep 'project(StarDust VERSION' "$PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
+VERSION=$(grep 'project(Stardust VERSION' "$PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
 
 # Optional: set DEVELOPER_ID for signing (e.g. "Developer ID Installer: Your Name (TEAMID)")
 SIGN_IDENTITY="${DEVELOPER_ID_INSTALLER:-}"
 
-echo "=== StarDust macOS Installer Builder ==="
+echo "=== Stardust macOS Installer Builder ==="
 echo ""
 
 # ---- Step 1: Build if needed ------------------------------------------------
 if [ ! -d "$ARTEFACTS/VST3/Stardust.vst3" ]; then
-    echo "[1/6] Building StarDust..."
+    echo "[1/6] Building Stardust..."
     cmake -B "$BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PROJECT_DIR"
     cmake --build "$BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
 else

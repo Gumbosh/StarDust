@@ -2,25 +2,25 @@
 #include "BinaryData.h"
 
 // ============================================================================
-// StarDustLookAndFeel — Orbital Galaxy Style
+// StardustLookAndFeel — Orbital Galaxy Style
 // ============================================================================
 
-StarDustLookAndFeel::StarDustLookAndFeel()
+StardustLookAndFeel::StardustLookAndFeel()
 {
     setColour(juce::Slider::rotarySliderFillColourId, kAccent);
     setColour(juce::Slider::thumbColourId, kAccent);
-    setColour(juce::Label::textColourId, kFgDim);
-    setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF0A0A0A));
-    setColour(juce::ComboBox::textColourId, kFgDim);
-    setColour(juce::ComboBox::outlineColourId, kFgGhost.withAlpha(0.35f));
-    setColour(juce::ComboBox::arrowColourId, kFgGhost);
+    setColour(juce::Label::textColourId, kFg);
+    setColour(juce::ComboBox::backgroundColourId, juce::Colours::transparentBlack);
+    setColour(juce::ComboBox::textColourId, kAccent);
+    setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+    setColour(juce::ComboBox::arrowColourId, kFg);
     setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xFF0E0E0E));
-    setColour(juce::PopupMenu::textColourId, kFgDim);
+    setColour(juce::PopupMenu::textColourId, kFg);
     setColour(juce::PopupMenu::highlightedBackgroundColourId, kAccent.withAlpha(0.08f));
     setColour(juce::PopupMenu::highlightedTextColourId, kAccent);
 }
 
-void StarDustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
+void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
                                             int width, int height,
                                             float sliderPos,
                                             float rotaryStartAngle,
@@ -91,7 +91,7 @@ void StarDustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
     g.fillEllipse(dotX - 2.5f, dotY - 2.5f, 5.0f, 5.0f);
 }
 
-void StarDustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
+void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
                                             int width, int height,
                                             float sliderPos,
                                             float /*minSliderPos*/,
@@ -153,7 +153,7 @@ void StarDustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
     g.fillRect(sliderPos - 0.5f, thumbY2 + 3.0f, 1.0f, thumbH - 6.0f);
 }
 
-void StarDustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
                                             bool shouldDrawButtonAsHighlighted,
                                             bool /*shouldDrawButtonAsDown*/)
 {
@@ -196,6 +196,45 @@ void StarDustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
     }
 }
 
+void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
+                                        bool /*isButtonDown*/,
+                                        int /*buttonX*/, int /*buttonY*/,
+                                        int /*buttonW*/, int /*buttonH*/,
+                                        juce::ComboBox& box)
+{
+    auto bounds = juce::Rectangle<float>(0, 0, static_cast<float>(width), static_cast<float>(height));
+
+    // Transparent background — no border, no fill
+    g.setColour(juce::Colours::transparentBlack);
+    g.fillRect(bounds);
+
+    // Measure text width to place chevron right after centered text
+    auto font = getComboBoxFont(box);
+    g.setFont(font);
+    const float textW = font.getStringWidthFloat(box.getText());
+    const float centerX = static_cast<float>(width) * 0.5f;
+    const float arrowGap = 5.0f;
+
+    // Arrow — chevron right after centered text
+    const float arrowSize = 6.0f;
+    const float arrowX = centerX + textW * 0.5f + arrowGap + arrowSize * 0.5f;
+    const float arrowY = static_cast<float>(height) * 0.5f;
+
+    juce::Path arrow;
+    arrow.startNewSubPath(arrowX - arrowSize * 0.5f, arrowY - arrowSize * 0.25f);
+    arrow.lineTo(arrowX, arrowY + arrowSize * 0.25f);
+    arrow.lineTo(arrowX + arrowSize * 0.5f, arrowY - arrowSize * 0.25f);
+
+    g.setColour(kAccent.withAlpha(0.6f));
+    g.strokePath(arrow, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved,
+                                              juce::PathStrokeType::rounded));
+}
+
+juce::Font StardustLookAndFeel::getComboBoxFont(juce::ComboBox& /*box*/)
+{
+    return juce::Font(juce::FontOptions(13.0f).withStyle("Bold"));
+}
+
 // ============================================================================
 // LevelMeter
 // ============================================================================
@@ -209,7 +248,7 @@ void LevelMeter::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    g.setColour(StarDustLookAndFeel::kInset);
+    g.setColour(StardustLookAndFeel::kInset);
     g.fillRoundedRectangle(bounds, 1.0f);
 
     const float meterHeight = bounds.getHeight() * displayLevel;
@@ -217,11 +256,11 @@ void LevelMeter::paint(juce::Graphics& g)
     auto meterBounds = meterArea.removeFromBottom(meterHeight);
 
     if (displayLevel < 0.7f)
-        g.setColour(StarDustLookAndFeel::kFgGhost.brighter(0.3f));
+        g.setColour(StardustLookAndFeel::kFgGhost.brighter(0.3f));
     else if (displayLevel < 0.9f)
-        g.setColour(StarDustLookAndFeel::kFgDim);
+        g.setColour(StardustLookAndFeel::kFgDim);
     else
-        g.setColour(StarDustLookAndFeel::kAccent);
+        g.setColour(StardustLookAndFeel::kAccent);
 
     g.fillRoundedRectangle(meterBounds, 1.0f);
 
@@ -229,7 +268,7 @@ void LevelMeter::paint(juce::Graphics& g)
     if (peakLevel > 0.01f)
     {
         const float peakY = bounds.getBottom() - bounds.getHeight() * peakLevel;
-        g.setColour(StarDustLookAndFeel::kAccent.withAlpha(0.8f));
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.8f));
         g.fillRect(bounds.getX(), peakY, bounds.getWidth(), 1.0f);
     }
 }
@@ -258,10 +297,10 @@ void LevelMeter::timerCallback()
 }
 
 // ============================================================================
-// StarDustEditor
+// StardustEditor
 // ============================================================================
 
-StarDustEditor::StarDustEditor(StarDustProcessor& p)
+StardustEditor::StardustEditor(StardustProcessor& p)
     : AudioProcessorEditor(&p),
       processorRef(p),
       starfield(p.apvts, p.outputLevelLeft, p.outputLevelRight),
@@ -292,8 +331,8 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
     setupKnob(widthKnob, "stereoWidth", "WIDTH");
 
     setupKnob(chorusMixKnob, "chorusMix", "MULTIPLY");
-    setupKnob(panOuterKnob, "multiplyPanOuter", "PAN OUT");
-    setupKnob(panInnerKnob, "multiplyPanInner", "PAN IN");
+    setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
+    setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
 
     tuneFader.setSliderStyle(juce::Slider::LinearHorizontal);
     tuneFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
@@ -308,23 +347,20 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
 
     tuneLabel.setText("PITCH", juce::dontSendNotification);
     tuneLabel.setJustificationType(juce::Justification::centredLeft);
-    tuneLabel.setFont(juce::FontOptions(11.0f).withStyle("Bold"));
-    tuneLabel.setColour(juce::Label::textColourId, StarDustLookAndFeel::kFgGhost);
+    tuneLabel.setFont(juce::FontOptions(13.0f).withStyle("Bold"));
+    tuneLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFg);
     addAndMakeVisible(tuneLabel);
 
     tuneValueLabel.setText("0.0 st", juce::dontSendNotification);
     tuneValueLabel.setJustificationType(juce::Justification::centredRight);
-    tuneValueLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
-    tuneValueLabel.setColour(juce::Label::textColourId, StarDustLookAndFeel::kFgDim);
+    tuneValueLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+    tuneValueLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kAccent);
     addAndMakeVisible(tuneValueLabel);
 
     int presetIdx = 1;
     for (const auto& preset : processorRef.getFactoryPresets())
         presetSelector.addItem(preset.name, presetIdx++);
     presetSelector.setSelectedId(processorRef.getCurrentProgram() + 1, juce::dontSendNotification);
-    presetSelector.onChange = [this] {
-        processorRef.loadPreset(presetSelector.getSelectedId() - 1);
-    };
     addAndMakeVisible(presetSelector);
 
     // Section toggle buttons — minimal dot style
@@ -347,12 +383,12 @@ StarDustEditor::StarDustEditor(StarDustProcessor& p)
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 }
 
-StarDustEditor::~StarDustEditor()
+StardustEditor::~StardustEditor()
 {
     setLookAndFeel(nullptr);
 }
 
-void StarDustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
+void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
                                const juce::String& labelText)
 {
     knob.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -363,18 +399,18 @@ void StarDustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     knob.label.setText(labelText, juce::dontSendNotification);
     knob.label.setJustificationType(juce::Justification::centred);
     knob.label.setFont(juce::FontOptions(9.0f).withStyle("Bold"));
-    knob.label.setColour(juce::Label::textColourId, StarDustLookAndFeel::kFgDim);
+    knob.label.setColour(juce::Label::textColourId, StardustLookAndFeel::kFg);
     addAndMakeVisible(knob.label);
 }
 
-void StarDustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds)
+void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds)
 {
     const auto labelHeight = 14;
     knob.slider.setBounds(bounds.removeFromTop(bounds.getHeight() - labelHeight));
     knob.label.setBounds(bounds);
 }
 
-void StarDustEditor::paint(juce::Graphics& g)
+void StardustEditor::paint(juce::Graphics& g)
 {
     // Static black background
     g.fillAll(juce::Colours::black);
@@ -384,29 +420,20 @@ void StarDustEditor::paint(juce::Graphics& g)
 
     g.setColour(juce::Colours::black);
     g.fillRoundedRectangle(cpf, 4.0f);
-    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.35f));
-    g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
-
-    // Title: "S T A R D U S T" with letter spacing — top-left of panel
-    g.setFont(juce::FontOptions(14.0f).withStyle("Bold"));
-    g.setColour(StarDustLookAndFeel::kAccent.withAlpha(0.05f));
-    g.drawText("S T A R D U S T", cpf.getX() + 13, cpf.getY() + 4, 200, 16, juce::Justification::centredLeft);
-    g.setColour(StarDustLookAndFeel::kAccent.withAlpha(0.8f));
-    g.drawText("S T A R D U S T", cpf.getX() + 12, cpf.getY() + 3, 200, 16, juce::Justification::centredLeft);
 
     // Section labels
     g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
-    g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
+    g.setColour(StardustLookAndFeel::kFgDim.withAlpha(0.6f));
 
     const int innerX = controlsBounds.getX() + 14;
     const int labelOffset = 22;
     const auto drawSection = [&](const char* name, int yOff) {
-        g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
-        g.setColour(StarDustLookAndFeel::kFgDim.withAlpha(0.6f));
-        g.drawText(name, innerX + labelOffset, controlsBounds.getY() + yOff, 75, 10, juce::Justification::centredLeft);
+        g.setFont(juce::FontOptions(11.0f).withStyle("Bold"));
+        g.setColour(StardustLookAndFeel::kFg);
+        g.drawText(name, innerX + labelOffset, controlsBounds.getY() + yOff - 1, 90, 14, juce::Justification::centredLeft);
     };
     const auto drawDivider = [&](float yOff) {
-        g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.2f));
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
         g.drawHorizontalLine(static_cast<int>(cpf.getY() + yOff), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
     };
 
@@ -465,7 +492,7 @@ void StarDustEditor::paint(juce::Graphics& g)
     }
 
     // 3. Draw ALL borders and lines ON TOP of fills
-    const auto borderCol = StarDustLookAndFeel::kFgGhost.withAlpha(0.35f);
+    const auto borderCol = StardustLookAndFeel::kFgGhost.withAlpha(0.35f);
 
     // Outer border
     g.setColour(borderCol);
@@ -477,14 +504,16 @@ void StarDustEditor::paint(juce::Graphics& g)
     g.drawLine(gvf.getX(), gvf.getBottom(), screenf.getX(), screenf.getBottom(), 2.0f);
     g.drawLine(gvf.getRight(), gvf.getBottom(), screenf.getRight(), screenf.getBottom(), 2.0f);
 
-    // ---- Bottom bar — white strip with logo+name left, version right ----
+    // ---- Bottom bar — black with border, logo+name left, version right ----
     const auto bbf = bottomBarBounds.toFloat();
 
-    g.setColour(StarDustLookAndFeel::kAccent);
+    g.setColour(juce::Colours::black);
     g.fillRoundedRectangle(bbf, 3.0f);
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+    g.drawRoundedRectangle(bbf, 3.0f, 2.0f);
 
     // Logo + name on left
-    g.setColour(juce::Colours::black);
+    g.setColour(StardustLookAndFeel::kAccent);
     const float logoH = bbf.getHeight() - 4.0f;
     const float logoW = logoImage.isValid()
         ? logoH * (static_cast<float>(logoImage.getWidth()) / static_cast<float>(logoImage.getHeight()))
@@ -501,33 +530,40 @@ void StarDustEditor::paint(juce::Graphics& g)
                juce::Justification::centredLeft);
 
     // Version on right
+    g.setColour(StardustLookAndFeel::kAccent);
     g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
     g.drawText("v" STARDUST_VERSION, bbf.getRight() - 60, bbf.getY(), 50, bbf.getHeight(),
                juce::Justification::centredRight);
 }
 
-void StarDustEditor::paintOverChildren(juce::Graphics& g)
+void StardustEditor::paintOverChildren(juce::Graphics& g)
 {
     // Draw inner screen border ON TOP of the starfield child component
     const auto screenf = screenBounds.toFloat();
     const auto gvf = galaxyBounds.toFloat();
 
-    g.setColour(StarDustLookAndFeel::kFgGhost.withAlpha(0.35f));
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
     g.drawRoundedRectangle(screenf, 3.0f, 2.0f);
 
     // IN/OUT labels in the padding gaps
-    g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 7.0f, juce::Font::bold));
-    g.setColour(StarDustLookAndFeel::kAccent);
+    g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+    g.setColour(StardustLookAndFeel::kAccent);
 
     // "IN" label above left meters
-    g.drawText("IN", static_cast<int>(gvf.getX()) + 4, screenBounds.getY() + 4, 20, 10, juce::Justification::centred);
+    g.drawText("IN", static_cast<int>(gvf.getX()) + 2, screenBounds.getY() + 2, 24, 14, juce::Justification::centred);
 
     // "OUT" label above right meters
-    g.drawText("OUT", galaxyBounds.getRight() - 24, screenBounds.getY() + 4, 20, 10, juce::Justification::centred);
+    g.drawText("OUT", galaxyBounds.getRight() - 28, screenBounds.getY() + 2, 26, 14, juce::Justification::centred);
 
+    // Title "S t a r d u s t" centered on the galaxy viewport — fully white
+    g.setFont(juce::FontOptions(17.0f).withStyle("Bold"));
+    g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.05f));
+    g.drawText("S t a r d u s t", gvf.getX(), gvf.getY() + 5, gvf.getWidth(), 18, juce::Justification::centred);
+    g.setColour(StardustLookAndFeel::kAccent);
+    g.drawText("S t a r d u s t", gvf.getX() - 1, gvf.getY() + 4, gvf.getWidth(), 18, juce::Justification::centred);
 }
 
-void StarDustEditor::mouseDown(const juce::MouseEvent& e)
+void StardustEditor::mouseDown(const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu())
     {
@@ -549,23 +585,24 @@ void StarDustEditor::mouseDown(const juce::MouseEvent& e)
     AudioProcessorEditor::mouseDown(e);
 }
 
-void StarDustEditor::resized()
+void StardustEditor::resized()
 {
     const int margin = 8;
     const int gap = 6;
 
-    // Controls panel
     const int panelW = getWidth() - margin * 2;
     const int panelH = 430;
-    controlsBounds = { margin, margin, panelW, panelH };
 
     // Bottom bar
     const int barH = 22;
     bottomBarBounds = { margin, getHeight() - margin - barH, panelW, barH };
 
-    // Galaxy viewport: between controls and bottom bar
-    const int galaxyY = controlsBounds.getBottom() + gap;
-    const int galaxyH = bottomBarBounds.getY() - gap - galaxyY;
+    // Controls panel: above bottom bar
+    controlsBounds = { margin, bottomBarBounds.getY() - gap - panelH, panelW, panelH };
+
+    // Galaxy viewport: top, between top margin and controls
+    const int galaxyY = margin;
+    const int galaxyH = controlsBounds.getY() - gap - galaxyY;
     galaxyBounds = { margin, galaxyY, panelW, galaxyH };
 
     // Screen bounds: padded area inside viewport where visuals render
@@ -576,8 +613,18 @@ void StarDustEditor::resized()
     starfield.setBounds(screenBounds);
     starfield.setExcludeRect({});
 
-    // Preset selector top-right of panel
-    presetSelector.setBounds(controlsBounds.getRight() - 150, controlsBounds.getY() + 3, 140, 16);
+    // Preset selector centered below the visualizer screen, in the galaxy padding
+    const int presetH = 22;
+    const int presetY = screenBounds.getBottom() + (galaxyBounds.getBottom() - screenBounds.getBottom() - presetH) / 2;
+    // Fixed width centered in galaxy — text is centred within by setJustificationType
+    const int presetW = 200;
+    const int presetX = galaxyBounds.getX() + (galaxyBounds.getWidth() - presetW) / 2;
+    presetSelector.setBounds(presetX, presetY, presetW, presetH);
+    presetSelector.setJustificationType(juce::Justification::centred);
+    // Re-center when preset changes
+    presetSelector.onChange = [this] {
+        processorRef.loadPreset(presetSelector.getSelectedId() - 1);
+    };
 
     // Shared grid: 5 columns, equal spacing, both rows use same X positions
     const int knobW = 87;
@@ -598,10 +645,10 @@ void StarDustEditor::resized()
     layoutKnobInBounds(mixKnob,    { gridX + knobW / 2 + knobW * 3,  row1Y, knobW, knobH });
 
     const int tunePad = 16;
-    const int pitchY = controlsBounds.getY() + 110;
-    tuneLabel.setBounds(gridX + tunePad, pitchY, 42, 14);
-    tuneValueLabel.setBounds(gridX + totalW - tunePad - 60, pitchY, 60, 14);
-    tuneFader.setBounds(gridX + tunePad, pitchY + 13, totalW - tunePad * 2, 18);
+    const int pitchY = controlsBounds.getY() + 108;
+    tuneLabel.setBounds(gridX + tunePad, pitchY, 50, 18);
+    tuneValueLabel.setBounds(gridX + totalW - tunePad - 65, pitchY, 65, 18);
+    tuneFader.setBounds(gridX + tunePad, pitchY + 17, totalW - tunePad * 2, 24);
 
     // GRANULAR section — 5 knobs on all 5 columns
     const int grainRowY = controlsBounds.getY() + 180;

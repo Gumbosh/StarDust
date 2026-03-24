@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
-project(StarDust VERSION 1.0.0)
+project(Stardust VERSION 1.0.0)
 
 add_subdirectory(JUCE)
 
-juce_add_plugin(StarDust
-    COMPANY_NAME "StarDust"
+juce_add_plugin(Stardust
+    COMPANY_NAME "Stardust"
     PLUGIN_MANUFACTURER_CODE Stdt
     PLUGIN_CODE Sdt1
     FORMATS VST3 Standalone
@@ -18,7 +18,7 @@ juce_add_plugin(StarDust
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
-target_sources(StarDust PRIVATE
+target_sources(Stardust PRIVATE
     src/PluginProcessor.cpp
     src/PluginProcessor.h
     src/PluginEditor.cpp
@@ -37,22 +37,22 @@ target_sources(StarDust PRIVATE
     src/gui/StarfieldBackground.h
 )
 
-juce_add_binary_data(StarDustAssets SOURCES
+juce_add_binary_data(StardustAssets SOURCES
     assets/logo.png
 )
 
-target_compile_definitions(StarDust PUBLIC
+target_compile_definitions(Stardust PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     STARDUST_VERSION="${PROJECT_VERSION}"
 )
 
-target_compile_features(StarDust PUBLIC cxx_std_17)
+target_compile_features(Stardust PUBLIC cxx_std_17)
 
-target_link_libraries(StarDust
+target_link_libraries(Stardust
     PRIVATE
-        StarDustAssets
+        StardustAssets
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC

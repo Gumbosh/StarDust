@@ -4,10 +4,10 @@
 #include "PluginProcessor.h"
 #include "gui/StarfieldBackground.h"
 
-class StarDustLookAndFeel : public juce::LookAndFeel_V4
+class StardustLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    StarDustLookAndFeel();
+    StardustLookAndFeel();
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                           float sliderPos, float rotaryStartAngle,
@@ -20,6 +20,12 @@ public:
     void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
                           bool shouldDrawButtonAsHighlighted,
                           bool shouldDrawButtonAsDown) override;
+
+    void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                      int buttonX, int buttonY, int buttonW, int buttonH,
+                      juce::ComboBox& box) override;
+
+    juce::Font getComboBoxFont(juce::ComboBox& box) override;
 
     // Monochrome galaxy palette
     static inline const juce::Colour kBg { 0xFF050505 };
@@ -47,11 +53,11 @@ private:
     static constexpr int kPeakHoldFrames = 45; // ~1.5s at 30Hz
 };
 
-class StarDustEditor : public juce::AudioProcessorEditor
+class StardustEditor : public juce::AudioProcessorEditor
 {
 public:
-    explicit StarDustEditor(StarDustProcessor& p);
-    ~StarDustEditor() override;
+    explicit StardustEditor(StardustProcessor& p);
+    ~StardustEditor() override;
 
     void paint(juce::Graphics& g) override;
     void paintOverChildren(juce::Graphics& g) override;
@@ -72,8 +78,8 @@ private:
     void setupKnob(LabeledKnob& knob, const juce::String& paramId, const juce::String& labelText);
     void layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds);
 
-    StarDustProcessor& processorRef;
-    StarDustLookAndFeel lookAndFeel;
+    StardustProcessor& processorRef;
+    StardustLookAndFeel lookAndFeel;
 
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
@@ -100,5 +106,5 @@ private:
     juce::Image logoImage;
     float currentScale = 1.0f;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StarDustEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustEditor)
 };

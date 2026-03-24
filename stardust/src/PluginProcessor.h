@@ -12,11 +12,11 @@ struct Preset
     std::map<juce::String, float> values;
 };
 
-class StarDustProcessor : public juce::AudioProcessor
+class StardustProcessor : public juce::AudioProcessor
 {
 public:
-    StarDustProcessor();
-    ~StarDustProcessor() override = default;
+    StardustProcessor();
+    ~StardustProcessor() override = default;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -72,5 +72,5 @@ private:
     float toneStateL = 0.0f;
     float toneStateR = 0.0f;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StarDustProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
 };

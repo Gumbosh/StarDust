@@ -1,7 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-StarDustProcessor::StarDustProcessor()
+StardustProcessor::StardustProcessor()
     : AudioProcessor(BusesProperties()
           .withInput("Input", juce::AudioChannelSet::stereo(), true)
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
@@ -10,7 +10,7 @@ StarDustProcessor::StarDustProcessor()
     initFactoryPresets();
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
@@ -86,7 +86,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StarDustProcessor::createPar
     return { params.begin(), params.end() };
 }
 
-void StarDustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     saturation.prepare(sampleRate, samplesPerBlock);
@@ -99,7 +99,7 @@ void StarDustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     setLatencySamples(0);
 }
 
-void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
+void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                      juce::MidiBuffer& /*midiMessages*/)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -225,7 +225,7 @@ void StarDustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         outputLevelRight.store(buffer.getMagnitude(1, 0, buffer.getNumSamples()));
 }
 
-void StarDustProcessor::setCurrentProgram(int index)
+void StardustProcessor::setCurrentProgram(int index)
 {
     if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
     {
@@ -234,14 +234,14 @@ void StarDustProcessor::setCurrentProgram(int index)
     }
 }
 
-const juce::String StarDustProcessor::getProgramName(int index)
+const juce::String StardustProcessor::getProgramName(int index)
 {
     if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
         return factoryPresets[static_cast<size_t>(index)].name;
     return {};
 }
 
-void StarDustProcessor::loadPreset(int index)
+void StardustProcessor::loadPreset(int index)
 {
     if (index < 0 || index >= static_cast<int>(factoryPresets.size()))
         return;
@@ -255,26 +255,26 @@ void StarDustProcessor::loadPreset(int index)
     currentPresetIndex = index;
 }
 
-void StarDustProcessor::getStateInformation(juce::MemoryBlock& destData)
+void StardustProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
 
-void StarDustProcessor::setStateInformation(const void* data, int sizeInBytes)
+void StardustProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
         apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
 }
 
-juce::AudioProcessorEditor* StarDustProcessor::createEditor()
+juce::AudioProcessorEditor* StardustProcessor::createEditor()
 {
-    return new StarDustEditor(*this);
+    return new StardustEditor(*this);
 }
 
-void StarDustProcessor::initFactoryPresets()
+void StardustProcessor::initFactoryPresets()
 {
     factoryPresets = {
         { "Default", {
@@ -303,5 +303,5 @@ void StarDustProcessor::initFactoryPresets()
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new StarDustProcessor();
+    return new StardustProcessor();
 }

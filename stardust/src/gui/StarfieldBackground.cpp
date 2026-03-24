@@ -369,21 +369,17 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             const float vignette = 1.0f - 0.55f * edgeNorm * edgeNorm;
             value *= vignette;
 
-            // DRIVE: white glow on borders — brighter edges as drive increases
+            // DRIVE + TONE: white vignette on borders
+            // DRIVE controls intensity, TONE controls edge sharpness
             if (params.drive > 0.01f)
             {
-                const float edgeFade = edgeNorm * edgeNorm * edgeNorm; // cubic falloff from center
+                // TONE: 0=soft fuzzy glow, 0.5=moderate, 1=crisp hard edge
+                const float sharpness = 1.0f + params.tone * 4.0f; // exponent range 1.0 to 5.0
+                const float edgeFade = std::pow(edgeNorm, sharpness);
                 value += edgeFade * params.drive * 0.8f;
             }
 
             value *= scanlineMul;
-
-            // TONE: contrast (0=washed out/low contrast, 0.5=neutral, 1=punchy/high contrast)
-            {
-                const float contrast = 1.0f + (params.tone - 0.5f) * 3.0f; // range 0.5 to 2.5
-                value = 0.5f + (value - 0.5f) * contrast;
-                value = juce::jlimit(0.0f, 1.0f, value);
-            }
 
             const float threshold = kBayerMatrix[y % kBayerSize][x % kBayerSize];
             const float scaled = value * static_cast<float>(kNumShades - 1);

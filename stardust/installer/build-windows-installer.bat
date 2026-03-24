@@ -1,6 +1,6 @@
 @echo off
 REM =============================================================================
-REM StarDust — Windows Installer Builder
+REM Stardust — Windows Installer Builder
 REM Builds the plugin and creates an installer using Inno Setup
 REM =============================================================================
 REM
@@ -16,7 +16,7 @@ REM ============================================================================
 
 setlocal enabledelayedexpansion
 
-echo === StarDust Windows Installer Builder ===
+echo === Stardust Windows Installer Builder ===
 echo.
 
 REM ---- Find project root ----------------------------------------------------
@@ -27,12 +27,12 @@ set "PROJECT_DIR=%CD%"
 popd
 
 set "BUILD_DIR=%PROJECT_DIR%\build"
-set "ARTEFACTS=%BUILD_DIR%\StarDust_artefacts\Release"
+set "ARTEFACTS=%BUILD_DIR%\Stardust_artefacts\Release"
 
 REM ---- Step 1: Build --------------------------------------------------------
-echo [1/3] Building StarDust...
+echo [1/3] Building Stardust...
 
-if not exist "%ARTEFACTS%\VST3\StarDust.vst3" (
+if not exist "%ARTEFACTS%\VST3\Stardust.vst3" (
     cmake -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 "%PROJECT_DIR%"
     if errorlevel 1 (
         echo ERROR: CMake configuration failed.
@@ -50,13 +50,13 @@ if not exist "%ARTEFACTS%\VST3\StarDust.vst3" (
 REM ---- Step 2: Verify artefacts ---------------------------------------------
 echo [2/3] Verifying build artefacts...
 
-if not exist "%ARTEFACTS%\VST3\StarDust.vst3" (
+if not exist "%ARTEFACTS%\VST3\Stardust.vst3" (
     echo ERROR: VST3 bundle not found.
     exit /b 1
 )
 echo   VST3: OK
 
-if not exist "%ARTEFACTS%\Standalone\StarDust.exe" (
+if not exist "%ARTEFACTS%\Standalone\Stardust.exe" (
     echo WARNING: Standalone exe not found. Installer will include VST3 only.
 )
 
@@ -90,7 +90,7 @@ if "!ISCC!"=="" (
 
 echo   Using: !ISCC!
 
-"!ISCC!" "%SCRIPT_DIR%StarDust-installer.iss"
+"!ISCC!" "%SCRIPT_DIR%Stardust-installer.iss"
 if errorlevel 1 (
     echo ERROR: Inno Setup compilation failed.
     exit /b 1
@@ -98,9 +98,9 @@ if errorlevel 1 (
 
 echo.
 echo === Done! ===
-echo   Installer: %BUILD_DIR%\StarDust-Setup.exe
+echo   Installer: %BUILD_DIR%\Stardust-Setup.exe
 echo.
-echo   To install silently: StarDust-Setup.exe /SILENT
+echo   To install silently: Stardust-Setup.exe /SILENT
 echo.
 
 endlocal
