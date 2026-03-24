@@ -1,7 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
-#include <array>
 
 struct StarfieldParams
 {
@@ -16,21 +15,6 @@ struct StarfieldParams
     float drive = 0.0f;
     float grainTune = 0.0f;
     float mix = 1.0f;
-    float outputLevel = 0.0f;
-};
-
-struct Particle
-{
-    float x = 0.0f;
-    float y = 0.0f;
-    float vx = 0.0f;
-    float vy = 0.0f;
-    float life = 0.0f;
-    float brightness = 0.0f;
-    static constexpr int kTrailLen = 6;
-    float trailX[kTrailLen] = {};
-    float trailY[kTrailLen] = {};
-    int trailCount = 0;
 };
 
 class StarfieldBackground : public juce::Component, public juce::Timer
@@ -50,9 +34,6 @@ private:
     StarfieldParams readParams() const;
     juce::Image renderStarfield(const StarfieldParams& params, float time);
 
-    void spawnParticles(int count);
-    void updateParticles(float dt);
-
     static float hash(float x, float y);
 
     static constexpr int kBayerSize = 4;
@@ -69,13 +50,6 @@ private:
     juce::Image cachedImage;
     juce::Rectangle<int> excludeRect;
     float timeCounter = 0.0f;
-    float smoothedLevel = 0.0f;
-    float previousLevel = 0.0f;
-
-    // Particle system
-    static constexpr int kMaxParticles = 30;
-    std::array<Particle, kMaxParticles> particles {};
-    juce::Random rng;
 
     static constexpr int kRenderWidth = 260;
     static constexpr int kRenderHeight = 190;

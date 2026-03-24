@@ -212,41 +212,23 @@ juce::AudioProcessorEditor* StarDustProcessor::createEditor()
 void StarDustProcessor::initFactoryPresets()
 {
     factoryPresets = {
+        { "Default", {
+            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f},
+            {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
+            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"mix", 1.0f}
+        }},
         { "Classic SP", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
             {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"mix", 1.0f}
         }},
-        { "Dusty Vinyl", {
-            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
-            {"grainMix", 0.35f}, {"grainDensity", 3.0f}, {"grainSize", 50.0f},
-            {"grainScatter", 0.4f}, {"grainTune", -3.0f}, {"stereoWidth", 0.3f},
-            {"filterCutoff", 72.0f}, {"drive", 0.25f}, {"mix", 0.85f}
-        }},
-        { "Tape Wobble", {
-            {"bitDepth", 14.0f}, {"sampleRate", 33000.0f},
-            {"grainMix", 0.7f}, {"grainDensity", 6.0f}, {"grainSize", 80.0f},
-            {"grainScatter", 0.6f}, {"grainTune", -7.0f}, {"stereoWidth", 0.5f},
-            {"filterCutoff", 60.0f}, {"drive", 0.1f}, {"mix", 0.9f}
-        }},
-        { "Granular Haze", {
-            {"bitDepth", 10.0f}, {"sampleRate", 22000.0f},
-            {"grainMix", 0.9f}, {"grainDensity", 15.0f}, {"grainSize", 20.0f},
-            {"grainScatter", 0.8f}, {"grainTune", -12.0f}, {"stereoWidth", 0.7f},
-            {"filterCutoff", 50.0f}, {"drive", 0.35f}, {"mix", 1.0f}
-        }},
-        { "Lo-Fi Melody", {
+        { "Lo-Fi", {
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
             {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"mix", 0.75f}
-        }},
-        { "Destroyed", {
-            {"bitDepth", 6.0f}, {"sampleRate", 11000.0f},
-            {"grainMix", 1.0f}, {"grainDensity", 20.0f}, {"grainSize", 10.0f},
-            {"grainScatter", 1.0f}, {"grainTune", -24.0f}, {"stereoWidth", 0.9f},
-            {"filterCutoff", 35.0f}, {"drive", 0.7f}, {"mix", 1.0f}
         }}
     };
 }
