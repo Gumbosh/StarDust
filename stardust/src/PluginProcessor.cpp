@@ -49,7 +49,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("filterCutoff", 1), "Filter Cutoff",
-        juce::NormalisableRange<float>(0.0f, 99.0f, 0.01f), 99.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("drive", 1), "Drive",
@@ -566,7 +566,7 @@ void StardustProcessor::initFactoryPresets()
             {"bitDepth", 16.0f}, {"sampleRate", 48000.0f},
             {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
@@ -574,7 +574,7 @@ void StardustProcessor::initFactoryPresets()
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f},
-            {"filterCutoff", 99.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+            {"filterCutoff", 1.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }},
@@ -582,7 +582,7 @@ void StardustProcessor::initFactoryPresets()
             {"bitDepth", 12.0f}, {"sampleRate", 26040.0f},
             {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
             {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f},
-            {"filterCutoff", 78.0f}, {"drive", 0.2f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
+            {"filterCutoff", 0.79f}, {"drive", 0.2f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}
         }}

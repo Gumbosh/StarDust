@@ -45,8 +45,8 @@ void ButterworthFilter::setLFO(float rate, float depth)
 
 void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonanceVal)
 {
-    // Map 0-99 to frequency: 200 Hz to 20000 Hz (squared curve)
-    const float normalized = cutoffVal / 99.0f;
+    // Map 0-1 to frequency: 200 Hz to 20000 Hz (squared curve)
+    const float normalized = cutoffVal;
     const float freq = 200.0f + normalized * normalized * 19800.0f;
 
     // Clamp frequency to Nyquist - margin

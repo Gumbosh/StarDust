@@ -1573,8 +1573,8 @@ void StardustEditor::resized()
     layoutKnobInBounds(bitsKnob,   { gridX,              row1Y, knobW, knobH });
     layoutKnobInBounds(rateKnob,   { gridX + knobW,      row1Y, knobW, knobH });
     layoutKnobInBounds(cutoffKnob, { gridX + knobW * 2,  row1Y, knobW, knobH });
-    layoutKnobInBounds(mixKnob,    { gridX + knobW * 3,  row1Y, knobW, knobH });
-    layoutKnobInBounds(tuneKnob,   { gridX + knobW * 4,  row1Y, knobW, knobH });
+    layoutKnobInBounds(tuneKnob,   { gridX + knobW * 3,  row1Y, knobW, knobH });
+    layoutKnobInBounds(mixKnob,    { gridX + knobW * 4,  row1Y, knobW, knobH });
 
     // Bottom padding below knob labels (matches MULTIPLY's natural bottom padding)
     const int sectionBottomPad = 20;
