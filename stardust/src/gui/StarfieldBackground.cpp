@@ -158,7 +158,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     // ---- Blur ----
     if (blurAmount > 0.05f)
     {
-        const int blurPasses = static_cast<int>(blurAmount * 3.0f);
+        const int blurPasses = static_cast<int>(blurAmount * 8.0f);
         auto& temp = tempBuffer_;
 
         for (int pass = 0; pass < blurPasses; ++pass)
@@ -167,7 +167,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 for (int x = 0; x < kRenderWidth; ++x)
                 {
                     float sum = 0.0f; int count = 0;
-                    for (int dx = -1; dx <= 1; ++dx)
+                    for (int dx = -2; dx <= 2; ++dx)
                     {
                         const int nx = x + dx;
                         if (nx >= 0 && nx < kRenderWidth)
@@ -180,7 +180,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 for (int x = 0; x < kRenderWidth; ++x)
                 {
                     float sum = 0.0f; int count = 0;
-                    for (int dy = -1; dy <= 1; ++dy)
+                    for (int dy = -2; dy <= 2; ++dy)
                     {
                         const int ny = y + dy;
                         if (ny >= 0 && ny < kRenderHeight)

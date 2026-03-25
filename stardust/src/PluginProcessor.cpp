@@ -49,7 +49,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("filterCutoff", 1), "Filter Cutoff",
-        juce::NormalisableRange<float>(0.0f, 99.0f, 1.0f), 99.0f));
+        juce::NormalisableRange<float>(0.0f, 99.0f, 0.01f), 99.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("drive", 1), "Drive",

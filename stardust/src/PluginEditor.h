@@ -147,9 +147,7 @@ private:
     LabeledKnob chorusMixKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
 
-    juce::Slider tuneFader;
-    juce::Label tuneLabel, tuneValueLabel;
-    std::unique_ptr<SliderAttachment> tuneAttachment;
+    LabeledKnob tuneKnob;
 
     juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle;
     std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
@@ -161,6 +159,8 @@ private:
     juce::Rectangle<int> screenBounds;
     juce::Rectangle<int> bottomBarBounds;
     juce::Image logoImage;
+    juce::Image backgroundTexture;
+    void generateBackgroundTexture();
     float currentScale = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustEditor)

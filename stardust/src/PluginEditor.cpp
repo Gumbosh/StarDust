@@ -386,7 +386,7 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
 
 juce::Font StardustLookAndFeel::getComboBoxFont(juce::ComboBox& /*box*/)
 {
-    return juce::Font(juce::FontOptions(13.0f).withStyle("Bold"));
+    return juce::Font(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), 13.0f, juce::Font::bold));
 }
 
 void StardustLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
@@ -679,7 +679,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
       outputMeterR(p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(560, 670);
+    setSize(560, 730);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
@@ -703,28 +703,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
     setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
 
-    tuneFader.setSliderStyle(juce::Slider::LinearHorizontal);
-    tuneFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    tuneAttachment = std::make_unique<SliderAttachment>(processorRef.apvts, "grainTune", tuneFader);
-    tuneFader.onValueChange = [this] {
-        const float val = static_cast<float>(tuneFader.getValue());
-        tuneValueLabel.setText(
-            (val >= 0 ? "+" : "") + juce::String(val, 1) + " st",
-            juce::dontSendNotification);
-    };
-    addAndMakeVisible(tuneFader);
-
-    tuneLabel.setText("PITCH", juce::dontSendNotification);
-    tuneLabel.setJustificationType(juce::Justification::centredLeft);
-    tuneLabel.setFont(juce::FontOptions(13.0f).withStyle("Bold"));
-    tuneLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFg);
-    addAndMakeVisible(tuneLabel);
-
-    tuneValueLabel.setText("0.0 st", juce::dontSendNotification);
-    tuneValueLabel.setJustificationType(juce::Justification::centredRight);
-    tuneValueLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
-    tuneValueLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kAccent);
-    addAndMakeVisible(tuneValueLabel);
+    setupKnob(tuneKnob, "grainTune", "PITCH");
 
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
@@ -889,12 +868,36 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
 
+    // Dim knobs when their section toggle is off
+    auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobs) {
+        toggle.onClick = [&toggle, knobs = std::vector<LabeledKnob*>(knobs)]() {
+            const float alpha = toggle.getToggleState() ? 1.0f : 0.4f;
+            for (auto* k : knobs)
+            {
+                k->slider.setAlpha(alpha);
+                k->label.setAlpha(alpha);
+            }
+        };
+    };
+    dimSection(destroyToggle, { &bitsKnob, &rateKnob, &cutoffKnob, &mixKnob, &tuneKnob });
+    dimSection(granularToggle, { &grainMixKnob, &grainDensityKnob, &grainSizeKnob, &grainScatterKnob, &widthKnob });
+    dimSection(distortionToggle, { &driveKnob, &toneKnob });
+    dimSection(multiplyToggle, { &chorusMixKnob, &panOuterKnob, &panInnerKnob });
+
+    // Apply initial dim state
+    destroyToggle.onClick();
+    granularToggle.onClick();
+    distortionToggle.onClick();
+    multiplyToggle.onClick();
+
     addAndMakeVisible(inputMeterL);
     addAndMakeVisible(inputMeterR);
     addAndMakeVisible(outputMeterL);
     addAndMakeVisible(outputMeterR);
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
+
+    generateBackgroundTexture();
 
     // Listen to all parameter changes for dirty state tracking
     for (auto* param : processorRef.getParameters())
@@ -1173,41 +1176,107 @@ void StardustEditor::updateDoubleClickDefaults()
     }
 }
 
+void StardustEditor::generateBackgroundTexture()
+{
+    constexpr int texW = 128;
+    constexpr int texH = 128;
+    backgroundTexture = juce::Image(juce::Image::ARGB, texW, texH, true);
+
+    juce::Random rng(42); // fixed seed for deterministic texture
+
+    for (int y = 0; y < texH; ++y)
+    {
+        for (int x = 0; x < texW; ++x)
+        {
+            // Combine fine noise with subtle cross-hatch pattern
+            const float noise = rng.nextFloat();
+            const float crossHatch = ((x + y) % 4 == 0 || (x - y + texH) % 6 == 0) ? 0.06f : 0.0f;
+            const float grain = noise * 0.02f + crossHatch * 0.5f;
+
+            const auto alpha = static_cast<uint8_t>(juce::jlimit(0.0f, 255.0f, grain * 255.0f));
+            backgroundTexture.setPixelAt(x, y, juce::Colour::fromRGBA(255, 255, 255, alpha));
+        }
+    }
+}
+
 void StardustEditor::paint(juce::Graphics& g)
 {
     // Static black background
     g.fillAll(juce::Colours::black);
+
+    // ---- Background texture (excludes visualizer screen and bottom bar) ----
+    if (backgroundTexture.isValid())
+    {
+        const auto totalBounds = getLocalBounds();
+        const auto screenf = screenBounds.toFloat();
+        const auto bbf = bottomBarBounds.toFloat();
+
+        // Build a clip region that excludes the screen and bottom bar
+        juce::RectangleList<int> clipRegion(totalBounds);
+        clipRegion.subtract(screenBounds);
+        clipRegion.subtract(bottomBarBounds);
+
+        juce::Graphics::ScopedSaveState saveState(g);
+        g.reduceClipRegion(clipRegion);
+
+        const int texW = backgroundTexture.getWidth();
+        const int texH = backgroundTexture.getHeight();
+
+        for (int ty = 0; ty < totalBounds.getHeight(); ty += texH)
+        {
+            for (int tx = 0; tx < totalBounds.getWidth(); tx += texW)
+            {
+                g.drawImageAt(backgroundTexture, tx, ty);
+            }
+        }
+    }
 
     // ---- Controls panel — rounded border matching viewport style ----
     const auto cpf = controlsBounds.toFloat();
 
     g.setColour(juce::Colours::black);
     g.fillRoundedRectangle(cpf, 4.0f);
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+    g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
-    // Section labels
-    g.setFont(juce::FontOptions(8.0f).withStyle("Bold"));
-    g.setColour(StardustLookAndFeel::kFgDim.withAlpha(0.6f));
+    // Section labels — positions match resized() layout
+    const int headerH = 14;
+    const int headerToKnob = 8;
+    const int sectionGap = 12;
+    const int topPad = 8;
+    const int knobH = 68;
+    const int cy = controlsBounds.getY();
 
-    const int innerX = controlsBounds.getX() + 14;
+    const int sectionBottomPad = 20;
+    const int destroyHdrY    = cy + topPad;
+    const int row1Y           = destroyHdrY + headerH + headerToKnob;
+    const int granularHdrY   = row1Y + knobH + sectionBottomPad + sectionGap;
+    const int grainRowY       = granularHdrY + headerH + headerToKnob;
+    const int distortionHdrY = grainRowY + knobH + sectionBottomPad + sectionGap;
+    const int distRowY        = distortionHdrY + headerH + headerToKnob;
+    const int multiplyHdrY   = distRowY + knobH + sectionBottomPad + sectionGap;
+
+    const int innerX = controlsBounds.getX() + 16;
     const int labelOffset = 22;
-    const auto drawSection = [&](const char* name, int yOff) {
+    const auto drawSection = [&](const char* name, int yPos) {
         g.setFont(juce::FontOptions(11.0f).withStyle("Bold"));
         g.setColour(StardustLookAndFeel::kFg);
-        g.drawText(name, innerX + labelOffset, controlsBounds.getY() + yOff - 1, 90, 14, juce::Justification::centredLeft);
+        g.drawText(name, innerX + labelOffset, yPos, 90, headerH, juce::Justification::centredLeft);
     };
-    const auto drawDivider = [&](float yOff) {
+    const auto drawDivider = [&](int yPos) {
         g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
-        g.drawHorizontalLine(static_cast<int>(cpf.getY() + yOff), cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
+        const int divY = yPos - sectionGap / 2;
+        g.drawHorizontalLine(divY, cpf.getX() + 12.0f, cpf.getRight() - 12.0f);
     };
 
     // Section labels + dividers
-    drawSection("DESTROY", 28);
-    drawDivider(165.0f);
-    drawSection("GRANULAR", 168);
-    drawDivider(257.0f);
-    drawSection("DISTORTION", 260);
-    drawDivider(343.0f);
-    drawSection("MULTIPLY", 346);
+    drawSection("DESTROY", destroyHdrY);
+    drawDivider(granularHdrY);
+    drawSection("GRANULAR", granularHdrY);
+    drawDivider(distortionHdrY);
+    drawSection("DISTORTION", distortionHdrY);
+    drawDivider(multiplyHdrY);
+    drawSection("MULTIPLY", multiplyHdrY);
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -1430,7 +1499,7 @@ void StardustEditor::resized()
     const int gap = 6;
 
     const int panelW = getWidth() - margin * 2;
-    const int panelH = 430;
+    const int panelH = 490;
 
     // Bottom bar
     const int barH = 22;
@@ -1490,50 +1559,56 @@ void StardustEditor::resized()
     const int totalW = knobW * numCols;
     const int gridX = controlsBounds.getX() + (controlsBounds.getWidth() - totalW) / 2;
 
-    // All sections use the same 5-column grid for alignment
-    // Columns: gridX, gridX+87, gridX+174, gridX+261, gridX+348
+    // Content-sized sections: 12px inter-section gap, 8px header-to-knob gap
+    // Each section: header(14px) + 8px + knobs(68px) = 90px content
+    const int headerH = 14;
+    const int headerToKnob = 8;
+    const int sectionGap = 12;
+    const int topPad = 8;
+    const int cy = controlsBounds.getY();
 
-    // DESTROY section — 4 knobs on columns 1-4 (centered)
-    const int secGap = 24; // consistent gap between sections
-    const int row1Y = controlsBounds.getY() + 40;
-    layoutKnobInBounds(bitsKnob,   { gridX + knobW / 2,              row1Y, knobW, knobH });
-    layoutKnobInBounds(rateKnob,   { gridX + knobW / 2 + knobW,      row1Y, knobW, knobH });
-    layoutKnobInBounds(cutoffKnob, { gridX + knobW / 2 + knobW * 2,  row1Y, knobW, knobH });
-    layoutKnobInBounds(mixKnob,    { gridX + knobW / 2 + knobW * 3,  row1Y, knobW, knobH });
+    // DESTROY section — 5 knobs on all 5 columns
+    const int destroyHeaderY = cy + topPad;
+    const int row1Y = destroyHeaderY + headerH + headerToKnob;
+    layoutKnobInBounds(bitsKnob,   { gridX,              row1Y, knobW, knobH });
+    layoutKnobInBounds(rateKnob,   { gridX + knobW,      row1Y, knobW, knobH });
+    layoutKnobInBounds(cutoffKnob, { gridX + knobW * 2,  row1Y, knobW, knobH });
+    layoutKnobInBounds(mixKnob,    { gridX + knobW * 3,  row1Y, knobW, knobH });
+    layoutKnobInBounds(tuneKnob,   { gridX + knobW * 4,  row1Y, knobW, knobH });
 
-    const int tunePad = 16;
-    const int pitchY = controlsBounds.getY() + 108;
-    tuneLabel.setBounds(gridX + tunePad, pitchY, 50, 18);
-    tuneValueLabel.setBounds(gridX + totalW - tunePad - 65, pitchY, 65, 18);
-    tuneFader.setBounds(gridX + tunePad, pitchY + 17, totalW - tunePad * 2, 24);
+    // Bottom padding below knob labels (matches MULTIPLY's natural bottom padding)
+    const int sectionBottomPad = 20;
 
     // GRANULAR section — 5 knobs on all 5 columns
-    const int grainRowY = controlsBounds.getY() + 180;
+    const int granularHeaderY = row1Y + knobH + sectionBottomPad + sectionGap;
+    const int grainRowY = granularHeaderY + headerH + headerToKnob;
     layoutKnobInBounds(grainMixKnob,     { gridX,              grainRowY, knobW, knobH });
     layoutKnobInBounds(grainDensityKnob, { gridX + knobW,      grainRowY, knobW, knobH });
     layoutKnobInBounds(grainSizeKnob,    { gridX + knobW * 2,  grainRowY, knobW, knobH });
     layoutKnobInBounds(grainScatterKnob, { gridX + knobW * 3,  grainRowY, knobW, knobH });
     layoutKnobInBounds(widthKnob,        { gridX + knobW * 4,  grainRowY, knobW, knobH });
 
-    // DISTORTION section — 2 knobs on columns 2-3 (aligned with DESTROY cols 2-3)
-    const int distY = controlsBounds.getY() + 272;
+    // DISTORTION section — 2 knobs on columns 2-3
+    const int distortionHeaderY = grainRowY + knobH + sectionBottomPad + sectionGap;
+    const int distY = distortionHeaderY + headerH + headerToKnob;
     layoutKnobInBounds(driveKnob, { gridX + knobW / 2 + knobW,      distY, knobW, knobH });
     layoutKnobInBounds(toneKnob,  { gridX + knobW / 2 + knobW * 2,  distY, knobW, knobH });
 
     // MULTIPLY section — 3 knobs on columns 2-4
-    const int multiplyY = controlsBounds.getY() + 358;
+    const int multiplyHeaderY = distY + knobH + sectionBottomPad + sectionGap;
+    const int multiplyY = multiplyHeaderY + headerH + headerToKnob;
     layoutKnobInBounds(chorusMixKnob, { gridX + knobW,      multiplyY, knobW, knobH });
     layoutKnobInBounds(panOuterKnob,  { gridX + knobW * 2,  multiplyY, knobW, knobH });
     layoutKnobInBounds(panInnerKnob,  { gridX + knobW * 3,  multiplyY, knobW, knobH });
 
-    // Section toggle buttons
+    // Section toggle buttons — vertically centered on their headers
     const int toggleH = 12;
     const int toggleW = 20;
-    const int tInnerX = controlsBounds.getX() + 12;
-    destroyToggle.setBounds(tInnerX, controlsBounds.getY() + 27, toggleW, toggleH);
-    granularToggle.setBounds(tInnerX, controlsBounds.getY() + 167, toggleW, toggleH);
-    distortionToggle.setBounds(tInnerX, controlsBounds.getY() + 259, toggleW, toggleH);
-    multiplyToggle.setBounds(tInnerX, controlsBounds.getY() + 345, toggleW, toggleH);
+    const int tInnerX = controlsBounds.getX() + 16;
+    destroyToggle.setBounds(tInnerX, destroyHeaderY + 1, toggleW, toggleH);
+    granularToggle.setBounds(tInnerX, granularHeaderY + 1, toggleW, toggleH);
+    distortionToggle.setBounds(tInnerX, distortionHeaderY + 1, toggleW, toggleH);
+    multiplyToggle.setBounds(tInnerX, multiplyHeaderY + 1, toggleW, toggleH);
 
     // Meters in the left/right padding gaps
     const int meterPadX = 8;
