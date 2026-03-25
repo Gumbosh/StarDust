@@ -139,6 +139,10 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const bool granularOn = *apvts.getRawParameterValue("granularEnabled") >= 0.5f;
     const bool multiplyOn = *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f;
 
+    // Ensure dryBuffer is large enough (host may exceed prepareToPlay block size)
+    if (dryBuffer.getNumSamples() < numSamples)
+        dryBuffer.setSize(2, numSamples, false, false, true);
+
     // 1. DISTORTION section (DRIVE + TONE)
     if (distortionOn && driveVal > 0.001f)
     {
@@ -227,6 +231,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
 void StardustProcessor::setCurrentProgram(int index)
 {
+    SpinLockGuard g(presetLock);
     if (index >= 0 && index < static_cast<int>(allPresets.size()))
     {
         currentPresetIndex = index;
@@ -236,6 +241,7 @@ void StardustProcessor::setCurrentProgram(int index)
 
 const juce::String StardustProcessor::getProgramName(int index)
 {
+    SpinLockGuard g(presetLock);
     if (index >= 0 && index < static_cast<int>(allPresets.size()))
         return allPresets[static_cast<size_t>(index)].name;
     return {};
@@ -243,14 +249,17 @@ const juce::String StardustProcessor::getProgramName(int index)
 
 void StardustProcessor::loadPreset(int index)
 {
+    // Caller must already hold presetLock, or call externally with lock
     if (index < 0 || index >= static_cast<int>(allPresets.size()))
         return;
 
     loadingPreset.store(true);
-    // Ignore upcoming parameter change callbacks from loading
     ignoreParamChanges.store(static_cast<int>(allPresets[static_cast<size_t>(index)].values.size()) * 2 + 10);
-    const auto& preset = allPresets[static_cast<size_t>(index)];
-    for (const auto& [paramId, value] : preset.values)
+
+    // Copy preset values under lock, then release before notifying host
+    const auto values = allPresets[static_cast<size_t>(index)].values;
+
+    for (const auto& [paramId, value] : values)
     {
         if (auto* param = apvts.getParameter(paramId))
             param->setValueNotifyingHost(param->convertTo0to1(value));
@@ -262,6 +271,7 @@ void StardustProcessor::loadPreset(int index)
 
 bool StardustProcessor::isFactoryPreset(int index) const
 {
+    SpinLockGuard g(presetLock);
     if (index < 0 || index >= static_cast<int>(allPresets.size()))
         return false;
     return allPresets[static_cast<size_t>(index)].isFactory;
@@ -273,11 +283,46 @@ juce::File StardustProcessor::getUserPresetsDir()
                    .getChildFile("Stardust")
                    .getChildFile("Presets");
     if (!dir.exists())
-        dir.createDirectory();
+    {
+        auto result = dir.createDirectory();
+        if (result.failed())
+            DBG("Failed to create presets directory: " + result.getErrorMessage());
+    }
     return dir;
 }
 
+std::set<juce::String> StardustProcessor::loadFavorites()
+{
+    std::set<juce::String> favs;
+    auto file = getUserPresetsDir().getChildFile("favorites.json");
+    if (!file.existsAsFile()) return favs;
+
+    auto text = file.loadFileAsString();
+    auto json = juce::JSON::parse(text);
+    if (auto* arr = json.getArray())
+    {
+        for (const auto& item : *arr)
+            favs.insert(item.toString());
+    }
+    return favs;
+}
+
+void StardustProcessor::saveFavorites(const std::set<juce::String>& favs)
+{
+    juce::Array<juce::var> arr;
+    for (const auto& name : favs)
+        arr.add(juce::var(name));
+
+    auto file = getUserPresetsDir().getChildFile("favorites.json");
+    file.replaceWithText(juce::JSON::toString(juce::var(arr)));
+}
+
 void StardustProcessor::saveUserPreset(const juce::String& name)
+{
+    saveUserPreset(name, "");
+}
+
+void StardustProcessor::saveUserPreset(const juce::String& name, const juce::String& bank)
 {
     auto xml = std::make_unique<juce::XmlElement>("StardustPreset");
     xml->setAttribute("name", name);
@@ -293,57 +338,95 @@ void StardustProcessor::saveUserPreset(const juce::String& name)
         }
     }
 
-    auto file = getUserPresetsDir().getChildFile(name + ".xml");
-    xml->writeTo(file);
+    auto dir = getUserPresetsDir();
+    if (bank.isNotEmpty())
+    {
+        dir = dir.getChildFile(bank);
+        if (!dir.exists())
+            dir.createDirectory();
+    }
+
+    auto file = dir.getChildFile(name + ".xml");
+    if (!xml->writeTo(file))
+        DBG("Failed to save preset: " + file.getFullPathName());
     presetDirty.store(false);
     refreshPresets();
 }
 
 void StardustProcessor::deleteUserPreset(int index)
 {
-    if (index < 0 || index >= static_cast<int>(allPresets.size()))
-        return;
-    if (allPresets[static_cast<size_t>(index)].isFactory)
-        return;
+    juce::String fileName;
+    juce::String bankName;
+    {
+        SpinLockGuard g(presetLock);
+        if (index < 0 || index >= static_cast<int>(allPresets.size()))
+            return;
+        if (allPresets[static_cast<size_t>(index)].isFactory)
+            return;
+        fileName = allPresets[static_cast<size_t>(index)].name;
+        bankName = allPresets[static_cast<size_t>(index)].bank;
+    }
 
-    auto file = getUserPresetsDir().getChildFile(allPresets[static_cast<size_t>(index)].name + ".xml");
-    if (file.existsAsFile())
-        file.deleteFile();
+    auto dir = getUserPresetsDir();
+    if (bankName.isNotEmpty())
+        dir = dir.getChildFile(bankName);
+
+    auto file = dir.getChildFile(fileName + ".xml");
+    if (file.existsAsFile() && !file.deleteFile())
+        DBG("Failed to delete preset: " + file.getFullPathName());
 
     refreshPresets();
-    if (currentPresetIndex >= static_cast<int>(allPresets.size()))
-        currentPresetIndex = 0;
+    {
+        SpinLockGuard g(presetLock);
+        if (currentPresetIndex >= static_cast<int>(allPresets.size()))
+            currentPresetIndex = 0;
+    }
 }
 
 void StardustProcessor::scanUserPresets()
 {
     auto dir = getUserPresetsDir();
-    auto files = dir.findChildFiles(juce::File::findFiles, false, "*.xml");
-    files.sort();
 
-    for (const auto& file : files)
+    // Helper: parse XML files from a directory into allPresets
+    auto scanDir = [this](const juce::File& folder, const juce::String& bankName)
     {
-        auto xml = juce::XmlDocument::parse(file);
-        if (xml == nullptr || !xml->hasTagName("StardustPreset"))
-            continue;
+        auto files = folder.findChildFiles(juce::File::findFiles, false, "*.xml");
+        files.sort();
 
-        Preset preset;
-        preset.name = xml->getStringAttribute("name", file.getFileNameWithoutExtension());
-        preset.isFactory = false;
-
-        for (auto* child : xml->getChildIterator())
+        for (const auto& file : files)
         {
-            if (child->hasTagName("Parameter"))
-            {
-                auto id = child->getStringAttribute("id");
-                auto val = static_cast<float>(child->getDoubleAttribute("value"));
-                if (id.isNotEmpty())
-                    preset.values[id] = val;
-            }
-        }
+            auto xml = juce::XmlDocument::parse(file);
+            if (xml == nullptr || !xml->hasTagName("StardustPreset"))
+                continue;
 
-        allPresets.push_back(std::move(preset));
-    }
+            Preset preset;
+            preset.name = xml->getStringAttribute("name", file.getFileNameWithoutExtension());
+            preset.isFactory = false;
+            preset.bank = bankName;
+
+            for (auto* child : xml->getChildIterator())
+            {
+                if (child->hasTagName("Parameter"))
+                {
+                    auto id = child->getStringAttribute("id");
+                    auto val = static_cast<float>(child->getDoubleAttribute("value"));
+                    if (id.isNotEmpty())
+                        preset.values[id] = val;
+                }
+            }
+
+            allPresets.push_back(std::move(preset));
+        }
+    };
+
+    // Scan root directory (USER bank)
+    scanDir(dir, "");
+
+    // Scan subdirectories (custom banks)
+    auto subdirs = dir.findChildFiles(juce::File::findDirectories, false);
+    subdirs.sort();
+    for (const auto& subdir : subdirs)
+        scanDir(subdir, subdir.getFileName());
 }
 
 void StardustProcessor::rebuildAllPresets()
@@ -359,19 +442,79 @@ void StardustProcessor::rebuildAllPresets()
 
 void StardustProcessor::refreshPresets()
 {
+    SpinLockGuard g(presetLock);
     rebuildAllPresets();
-    // Validate current index
     if (currentPresetIndex >= static_cast<int>(allPresets.size()))
         currentPresetIndex = 0;
+}
+
+std::vector<juce::String> StardustProcessor::getUserBanks() const
+{
+    std::vector<juce::String> banks;
+    auto dir = getUserPresetsDir();
+    auto subdirs = dir.findChildFiles(juce::File::findDirectories, false);
+    subdirs.sort();
+    for (const auto& subdir : subdirs)
+        banks.push_back(subdir.getFileName());
+    return banks;
+}
+
+void StardustProcessor::importBank(const juce::File& sourceFolder)
+{
+    if (!sourceFolder.isDirectory())
+        return;
+
+    auto dir = getUserPresetsDir();
+    auto bankName = sourceFolder.getFileName();
+
+    // Avoid name collision
+    auto target = dir.getChildFile(bankName);
+    int suffix = 2;
+    while (target.exists())
+    {
+        target = dir.getChildFile(bankName + " " + juce::String(suffix));
+        ++suffix;
+    }
+    target.createDirectory();
+
+    auto files = sourceFolder.findChildFiles(juce::File::findFiles, false, "*.xml");
+    for (const auto& file : files)
+        file.copyFileTo(target.getChildFile(file.getFileName()));
+
+    refreshPresets();
+}
+
+void StardustProcessor::deleteUserBank(const juce::String& bankName)
+{
+    if (bankName.isEmpty())
+        return;
+    auto dir = getUserPresetsDir().getChildFile(bankName);
+    if (dir.isDirectory())
+        dir.deleteRecursively();
+    refreshPresets();
+}
+
+void StardustProcessor::renameUserBank(const juce::String& oldName, const juce::String& newName)
+{
+    if (oldName.isEmpty() || newName.isEmpty() || oldName == newName)
+        return;
+    auto dir = getUserPresetsDir();
+    auto oldDir = dir.getChildFile(oldName);
+    auto newDir = dir.getChildFile(newName);
+    if (oldDir.isDirectory() && !newDir.exists())
+        oldDir.moveFileTo(newDir);
+    refreshPresets();
 }
 
 void StardustProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    // Store preset index and name in the state tree
-    state.setProperty("presetIndex", currentPresetIndex, nullptr);
-    if (currentPresetIndex >= 0 && currentPresetIndex < static_cast<int>(allPresets.size()))
-        state.setProperty("presetName", allPresets[static_cast<size_t>(currentPresetIndex)].name, nullptr);
+    {
+        SpinLockGuard g(presetLock);
+        state.setProperty("presetIndex", currentPresetIndex, nullptr);
+        if (currentPresetIndex >= 0 && currentPresetIndex < static_cast<int>(allPresets.size()))
+            state.setProperty("presetName", allPresets[static_cast<size_t>(currentPresetIndex)].name, nullptr);
+    }
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -387,24 +530,26 @@ void StardustProcessor::setStateInformation(const void* data, int sizeInBytes)
 
         apvts.replaceState(tree);
 
-        // Try to find preset by name first, fall back to index
         refreshPresets();
-        bool found = false;
-        if (savedName.isNotEmpty())
         {
-            for (int i = 0; i < static_cast<int>(allPresets.size()); ++i)
+            SpinLockGuard g(presetLock);
+            bool found = false;
+            if (savedName.isNotEmpty())
             {
-                if (allPresets[static_cast<size_t>(i)].name == savedName)
+                for (int i = 0; i < static_cast<int>(allPresets.size()); ++i)
                 {
-                    currentPresetIndex = i;
-                    found = true;
-                    break;
+                    if (allPresets[static_cast<size_t>(i)].name == savedName)
+                    {
+                        currentPresetIndex = i;
+                        found = true;
+                        break;
+                    }
                 }
             }
-        }
-        if (!found)
-        {
-            currentPresetIndex = juce::jlimit(0, juce::jmax(0, static_cast<int>(allPresets.size()) - 1), savedIndex);
+            if (!found)
+            {
+                currentPresetIndex = juce::jlimit(0, juce::jmax(0, static_cast<int>(allPresets.size()) - 1), savedIndex);
+            }
         }
     }
 }

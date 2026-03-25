@@ -46,7 +46,9 @@ void GranularEngine::setBasePitch(float semitones)
 
 float GranularEngine::readFromBuffer(int channel, float position) const
 {
-    const int pos0 = static_cast<int>(position) % kInputBufferSize;
+    // Ensure positive modulus even if position is negative
+    int pos0 = static_cast<int>(std::floor(position)) % kInputBufferSize;
+    if (pos0 < 0) pos0 += kInputBufferSize;
     const int pos1 = (pos0 + 1) % kInputBufferSize;
     const float frac = position - std::floor(position);
     return inputBuffer[static_cast<size_t>(channel)][static_cast<size_t>(pos0)] * (1.0f - frac)

@@ -226,9 +226,13 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
 {
     auto bounds = button.getLocalBounds().toFloat();
 
+    bool isLibraryBtn = button.getComponentID() == "libraryBtn";
+    bool isFavoriteBtn = button.getComponentID() == "favoriteBtn";
     bool isPresetBarBtn = button.getButtonText() == "..."
                           || button.getButtonText() == "<"
-                          || button.getButtonText() == ">";
+                          || button.getButtonText() == ">"
+                          || isLibraryBtn
+                          || isFavoriteBtn;
     bool isAlertBtn = dynamic_cast<juce::AlertWindow*>(button.getParentComponent()) != nullptr;
 
     if (isAlertBtn)
@@ -256,6 +260,21 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
         const float cy = bounds.getCentreY();
         g.setColour(shouldDrawButtonAsHighlighted ? kAccent : kFgDim);
         g.drawEllipse(cx - size * 0.5f, cy - size * 0.5f, size, size, 1.2f);
+    }
+
+    if (isLibraryBtn)
+    {
+        // Draw three horizontal lines (list icon)
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        const float lineW = 10.0f;
+        const float gap = 3.5f;
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : kFg);
+        for (int i = -1; i <= 1; ++i)
+        {
+            const float ly = cy + static_cast<float>(i) * gap;
+            g.drawLine(cx - lineW * 0.5f, ly, cx + lineW * 0.5f, ly, 1.5f);
+        }
     }
 }
 
@@ -429,14 +448,7 @@ StardustDialog::StardustDialog(const juce::String& title, const juce::String& de
     confirmBtn.setButtonText("Save");
     confirmBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     confirmBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
-    confirmBtn.onClick = [this] {
-        auto text = textInput.getText().trim();
-        if (text.isNotEmpty() && callback)
-            callback(text);
-        if (auto* parent = getParentComponent())
-            parent->removeChildComponent(this);
-        delete this;
-    };
+    confirmBtn.onClick = [this] { doConfirm(); };
     addAndMakeVisible(confirmBtn);
 
     cancelBtn.setButtonText("Cancel");
@@ -477,6 +489,18 @@ void StardustDialog::resized()
     area.removeFromTop(6);
     textInput.setBounds(area.removeFromTop(26).reduced(10, 0));
 
+    if (bankCombo != nullptr)
+    {
+        area.removeFromTop(6);
+        bankCombo->setBounds(area.removeFromTop(24).reduced(10, 0));
+
+        if (newBankInput != nullptr && newBankInput->isVisible())
+        {
+            area.removeFromTop(4);
+            newBankInput->setBounds(area.removeFromTop(24).reduced(10, 0));
+        }
+    }
+
     auto btnArea = getLocalBounds().reduced(14, 0).removeFromBottom(36);
     btnArea.removeFromBottom(4);
     const int btnW = 80;
@@ -500,6 +524,84 @@ bool StardustDialog::keyPressed(const juce::KeyPress& key)
         return true;
     }
     return false;
+}
+
+void StardustDialog::doConfirm()
+{
+    auto text = textInput.getText().trim();
+    text = text.removeCharacters("/\\:*?\"<>|");
+    text = text.substring(0, 64);
+    if (text.isEmpty()) return;
+
+    if (onConfirmWithBank)
+        onConfirmWithBank(text, getSelectedBank());
+    else if (callback)
+        callback(text);
+
+    if (auto* parent = getParentComponent())
+        parent->removeChildComponent(this);
+    delete this;
+}
+
+void StardustDialog::setBankOptions(const std::vector<juce::String>& banks)
+{
+    bankOptions = banks;
+    bankCombo = std::make_unique<juce::ComboBox>();
+    bankCombo->addItem("User", 1);
+    for (int i = 0; i < static_cast<int>(banks.size()); ++i)
+        bankCombo->addItem(banks[static_cast<size_t>(i)], i + 2);
+    bankCombo->addItem("+ New Bank...", static_cast<int>(banks.size()) + 2);
+    bankCombo->setSelectedId(1, juce::dontSendNotification);
+    bankCombo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF111111));
+    bankCombo->setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
+    bankCombo->setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.4f));
+    bankCombo->setColour(juce::ComboBox::arrowColourId, StardustLookAndFeel::kFg);
+    addAndMakeVisible(bankCombo.get());
+
+    newBankInput = std::make_unique<juce::TextEditor>();
+    newBankInput->setFont(juce::FontOptions(11.0f));
+    newBankInput->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF111111));
+    newBankInput->setColour(juce::TextEditor::textColourId, StardustLookAndFeel::kAccent);
+    newBankInput->setColour(juce::TextEditor::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.4f));
+    newBankInput->setColour(juce::TextEditor::focusedOutlineColourId, StardustLookAndFeel::kAccent.withAlpha(0.4f));
+    newBankInput->setColour(juce::CaretComponent::caretColourId, StardustLookAndFeel::kAccent);
+    newBankInput->setTextToShowWhenEmpty("Bank name...", StardustLookAndFeel::kFgDim);
+    newBankInput->setVisible(false);
+    addAndMakeVisible(newBankInput.get());
+
+    bankCombo->onChange = [this] {
+        const bool isNewBank = (bankCombo->getSelectedId() == static_cast<int>(bankOptions.size()) + 2);
+        newBankInput->setVisible(isNewBank);
+        resized();
+    };
+
+    // Resize to fit the extra row(s)
+    setSize(280, 170);
+    resized();
+}
+
+juce::String StardustDialog::getSelectedBank() const
+{
+    if (bankCombo == nullptr)
+        return {};
+
+    const int id = bankCombo->getSelectedId();
+    if (id == 1)
+        return {}; // User (root)
+
+    const int newBankId = static_cast<int>(bankOptions.size()) + 2;
+    if (id == newBankId && newBankInput != nullptr)
+    {
+        auto name = newBankInput->getText().trim();
+        return name.removeCharacters("/\\:*?\"<>|").substring(0, 64);
+    }
+
+    // Existing bank
+    const int bankIdx = id - 2;
+    if (bankIdx >= 0 && bankIdx < static_cast<int>(bankOptions.size()))
+        return bankOptions[static_cast<size_t>(bankIdx)];
+
+    return {};
 }
 
 // ============================================================================
@@ -627,6 +729,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
     presetSelector.setMouseClickGrabsKeyboardFocus(false);
+    presetSelector.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(presetSelector);
 
     // Force ComboBox repaint at 30Hz so hover state always reflects actual mouse position
@@ -642,6 +745,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         processorRef.loadPreset(idx);
         presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
         updateDoubleClickDefaults();
+        updateFavoriteButton();
     };
     addAndMakeVisible(prevPresetBtn);
 
@@ -654,6 +758,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         processorRef.loadPreset(idx);
         presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
         updateDoubleClickDefaults();
+        updateFavoriteButton();
     };
     addAndMakeVisible(nextPresetBtn);
 
@@ -676,10 +781,11 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             [this](int result) {
                 if (result == 1)
                 {
-                    auto* dlg = new StardustDialog("Save Preset", "", [this](const juce::String& name) {
-                        processorRef.saveUserPreset(name);
+                    auto* dlg = new StardustDialog("Save Preset", "", {});
+                    dlg->setBankOptions(processorRef.getUserBanks());
+                    dlg->onConfirmWithBank = [this](const juce::String& name, const juce::String& bank) {
+                        processorRef.saveUserPreset(name, bank);
                         refreshPresetList();
-                        // Find the preset by name and select it
                         for (int i = 0; i < processorRef.getPresetCount(); ++i)
                         {
                             if (processorRef.getProgramName(i) == name)
@@ -689,7 +795,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                                 break;
                             }
                         }
-                    });
+                    };
                     addAndMakeVisible(dlg);
                     dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
                     dlg->toFront(true);
@@ -699,9 +805,19 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                 {
                     int idx2 = processorRef.getCurrentProgram();
                     auto oldName = processorRef.getProgramName(idx2);
-                    auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName](const juce::String& newName) {
-                        processorRef.saveUserPreset(newName);
-                        auto oldFile = StardustProcessor::getUserPresetsDir().getChildFile(oldName + ".xml");
+                    juce::String presetBank;
+                    {
+                        SpinLockGuard g(processorRef.presetLock);
+                        const auto& presets = processorRef.getAllPresets();
+                        if (idx2 >= 0 && idx2 < static_cast<int>(presets.size()))
+                            presetBank = presets[static_cast<size_t>(idx2)].bank;
+                    }
+                    auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
+                        processorRef.saveUserPreset(newName, presetBank);
+                        auto dir = StardustProcessor::getUserPresetsDir();
+                        if (presetBank.isNotEmpty())
+                            dir = dir.getChildFile(presetBank);
+                        auto oldFile = dir.getChildFile(oldName + ".xml");
                         if (oldFile.existsAsFile())
                             oldFile.deleteFile();
                         processorRef.refreshPresets();
@@ -733,6 +849,33 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             });
     };
     addAndMakeVisible(savePresetBtn);
+
+    // Library icon button
+    libraryBtn.setComponentID("libraryBtn");
+    libraryBtn.setButtonText("");
+    libraryBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    libraryBtn.onClick = [this] { showPresetLibrary(); };
+    addAndMakeVisible(libraryBtn);
+
+    favoriteBtn.setComponentID("favoriteBtn");
+    favoriteBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    favoriteBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
+    favoriteBtn.onClick = [this] {
+        const auto& presets = processorRef.getAllPresets();
+        int idx = processorRef.getCurrentProgram();
+        if (idx < 0 || idx >= static_cast<int>(presets.size())) return;
+        const auto& name = presets[static_cast<size_t>(idx)].name;
+        auto favs = StardustProcessor::loadFavorites();
+        if (favs.count(name) > 0) favs.erase(name);
+        else                       favs.insert(name);
+        StardustProcessor::saveFavorites(favs);
+        updateFavoriteButton();
+        // Update library panel if open
+        if (presetLibraryPanel != nullptr && presetLibraryPanel->isVisible())
+            presetLibraryPanel->setFavorites(favs);
+    };
+    addAndMakeVisible(favoriteBtn);
+    updateFavoriteButton();
 
     // Section toggle buttons — minimal dot style
     auto setupToggle = [this](juce::ToggleButton& btn, std::unique_ptr<ButtonAttachment>& attach,
@@ -804,14 +947,214 @@ void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> 
     knob.label.setBounds(bounds);
 }
 
+void StardustEditor::showPresetDropdown()
+{
+    const auto& presets = processorRef.getAllPresets();
+    auto favs = StardustProcessor::loadFavorites();
+
+    juce::PopupMenu favMenu, factoryMenu, userMenu;
+
+    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+    {
+        const int itemId = i + 1;
+        const bool ticked = (i == processorRef.getCurrentProgram());
+        if (favs.count(presets[static_cast<size_t>(i)].name) > 0)
+            favMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
+        if (presets[static_cast<size_t>(i)].isFactory)
+            factoryMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
+        else
+            userMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
+    }
+
+    juce::PopupMenu menu;
+    if (favMenu.getNumItems() > 0)
+        menu.addSubMenu(juce::String::charToString(0x2605) + " Favorites", favMenu);
+    if (factoryMenu.getNumItems() > 0)
+        menu.addSubMenu("Factory", factoryMenu);
+    if (userMenu.getNumItems() > 0)
+        menu.addSubMenu("User", userMenu);
+
+    // Apply our look and feel + position below the preset selector
+    menu.setLookAndFeel(&lookAndFeel);
+    favMenu.setLookAndFeel(&lookAndFeel);
+    factoryMenu.setLookAndFeel(&lookAndFeel);
+    userMenu.setLookAndFeel(&lookAndFeel);
+    auto opts = juce::PopupMenu::Options()
+        .withTargetComponent(&presetSelector)
+        .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards)
+        .withMinimumWidth(presetSelector.getWidth());
+
+    menu.showMenuAsync(opts, [this](int result) {
+        if (result > 0)
+        {
+            processorRef.loadPreset(result - 1);
+            presetSelector.setSelectedId(result, juce::dontSendNotification);
+            updateDoubleClickDefaults();
+            updateFavoriteButton();
+        }
+    });
+}
+
 void StardustEditor::refreshPresetList()
 {
     presetSelector.clear(juce::dontSendNotification);
-    int idx = 1;
-    for (const auto& preset : processorRef.getAllPresets())
-        presetSelector.addItem(preset.name, idx++);
+    const auto& presets = processorRef.getAllPresets();
+
+    // Flat list for ComboBox ID mapping (prev/next buttons still use this)
+    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+        presetSelector.addItem(presets[static_cast<size_t>(i)].name, i + 1);
+
     presetSelector.setSelectedId(processorRef.getCurrentProgram() + 1, juce::dontSendNotification);
     updateDoubleClickDefaults();
+
+    // Update library panel if visible
+    if (presetLibraryPanel != nullptr && presetLibraryPanel->isVisible())
+    {
+        std::vector<PresetListItem> factory, user;
+        std::map<juce::String, std::vector<PresetListItem>> bankItems;
+        const auto& presets = processorRef.getAllPresets();
+        for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+        {
+            PresetListItem item { presets[i].name, i, presets[i].isFactory, false, presets[i].bank };
+            if (presets[i].isFactory)
+                factory.push_back(item);
+            else if (presets[i].bank.isEmpty())
+                user.push_back(item);
+            else
+                bankItems[presets[i].bank].push_back(item);
+        }
+        presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
+        presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
+    }
+}
+
+void StardustEditor::showPresetLibrary()
+{
+    if (presetLibraryPanel == nullptr)
+    {
+        presetLibraryPanel = std::make_unique<PresetLibraryPanel>();
+        presetLibraryPanel->setLookAndFeel(&lookAndFeel);
+
+        presetLibraryPanel->onPresetSelected = [this](int idx) {
+            processorRef.loadPreset(idx);
+            presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
+            updateDoubleClickDefaults();
+            updateFavoriteButton();
+            hidePresetLibrary();
+        };
+
+        presetLibraryPanel->onClose = [this] { hidePresetLibrary(); };
+
+        presetLibraryPanel->onRenamePreset = [this](int idx, const juce::String& oldName) {
+            // Get the bank of the preset being renamed
+            juce::String presetBank;
+            {
+                SpinLockGuard g(processorRef.presetLock);
+                const auto& presets = processorRef.getAllPresets();
+                if (idx >= 0 && idx < static_cast<int>(presets.size()))
+                    presetBank = presets[static_cast<size_t>(idx)].bank;
+            }
+            auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
+                processorRef.saveUserPreset(newName, presetBank);
+                auto dir = StardustProcessor::getUserPresetsDir();
+                if (presetBank.isNotEmpty())
+                    dir = dir.getChildFile(presetBank);
+                auto oldFile = dir.getChildFile(oldName + ".xml");
+                if (oldFile.existsAsFile()) oldFile.deleteFile();
+                processorRef.refreshPresets();
+                refreshPresetList();
+            });
+            dlg->confirmBtn.setButtonText("Rename");
+            addAndMakeVisible(dlg);
+            dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
+            dlg->toFront(true);
+            dlg->grabKeyboardFocus();
+        };
+
+        presetLibraryPanel->onDeletePreset = [this](int idx) {
+            processorRef.deleteUserPreset(idx);
+            refreshPresetList();
+            presetSelector.setSelectedId(1, juce::dontSendNotification);
+            processorRef.loadPreset(0);
+        };
+
+        presetLibraryPanel->onToggleFavorite = [this](const juce::String& name, bool fav) {
+            auto favs = StardustProcessor::loadFavorites();
+            if (fav) favs.insert(name);
+            else     favs.erase(name);
+            StardustProcessor::saveFavorites(favs);
+            presetLibraryPanel->setFavorites(favs);
+        };
+
+        presetLibraryPanel->onImportBank = [this](const juce::File& folder) {
+            processorRef.importBank(folder);
+            refreshPresetList();
+            showPresetLibrary();
+        };
+
+        presetLibraryPanel->onDeleteBank = [this](const juce::String& bankName) {
+            processorRef.deleteUserBank(bankName);
+            refreshPresetList();
+            showPresetLibrary();
+        };
+
+        presetLibraryPanel->onRenameBank = [this](const juce::String& oldName, const juce::String& newName) {
+            processorRef.renameUserBank(oldName, newName);
+            refreshPresetList();
+            showPresetLibrary();
+        };
+    }
+
+    // Build items
+    auto favs = StardustProcessor::loadFavorites();
+    std::vector<PresetListItem> factory, user;
+    std::map<juce::String, std::vector<PresetListItem>> bankItems;
+    const auto& presets = processorRef.getAllPresets();
+    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+    {
+        PresetListItem item { presets[i].name, i, presets[i].isFactory,
+                              favs.count(presets[i].name) > 0, presets[i].bank };
+        if (presets[i].isFactory)
+            factory.push_back(item);
+        else if (presets[i].bank.isEmpty())
+            user.push_back(item);
+        else
+            bankItems[presets[i].bank].push_back(item);
+    }
+    presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
+    presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
+
+    // Position: overlay on left side, from galaxy top to controls bottom
+    const int panelW = 300;
+    const int panelH = controlsBounds.getBottom() - galaxyBounds.getY();
+    presetLibraryPanel->setBounds(galaxyBounds.getX(), galaxyBounds.getY(), panelW, panelH);
+
+    addAndMakeVisible(presetLibraryPanel.get());
+    presetLibraryPanel->toFront(true);
+    presetLibraryPanel->grabKeyboardFocus();
+}
+
+void StardustEditor::hidePresetLibrary()
+{
+    if (presetLibraryPanel != nullptr)
+        presetLibraryPanel->setVisible(false);
+}
+
+void StardustEditor::updateFavoriteButton()
+{
+    const auto& presets = processorRef.getAllPresets();
+    int idx = processorRef.getCurrentProgram();
+    bool isFav = false;
+    if (idx >= 0 && idx < static_cast<int>(presets.size()))
+    {
+        auto favs = StardustProcessor::loadFavorites();
+        isFav = favs.count(presets[static_cast<size_t>(idx)].name) > 0;
+    }
+    favoriteBtn.setButtonText(isFav ? juce::String::charToString(0x2605)    // ★
+                                    : juce::String::charToString(0x2606));  // ☆
+    favoriteBtn.setColour(juce::TextButton::textColourOffId,
+                          isFav ? StardustLookAndFeel::kAccent : StardustLookAndFeel::kFg);
+    favoriteBtn.repaint();
 }
 
 void StardustEditor::updateDoubleClickDefaults()
@@ -958,29 +1301,35 @@ void StardustEditor::paint(juce::Graphics& g)
 
 void StardustEditor::paintOverChildren(juce::Graphics& g)
 {
+    // Skip overlay drawings if preset library panel is visible (it covers the galaxy area)
+    const bool libraryVisible = presetLibraryPanel != nullptr && presetLibraryPanel->isVisible();
+
     // Draw inner screen border ON TOP of the starfield child component
     const auto screenf = screenBounds.toFloat();
     const auto gvf = galaxyBounds.toFloat();
 
-    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
-    g.drawRoundedRectangle(screenf, 3.0f, 2.0f);
+    if (!libraryVisible)
+    {
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+        g.drawRoundedRectangle(screenf, 3.0f, 2.0f);
 
-    // IN/OUT labels in the padding gaps
-    g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
-    g.setColour(StardustLookAndFeel::kAccent);
+        // IN/OUT labels in the padding gaps
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+        g.setColour(StardustLookAndFeel::kAccent);
 
-    // "IN" label above left meters
-    g.drawText("IN", static_cast<int>(gvf.getX()) + 2, screenBounds.getY() + 2, 24, 14, juce::Justification::centred);
+        // "IN" label above left meters
+        g.drawText("IN", static_cast<int>(gvf.getX()) + 2, screenBounds.getY() + 2, 24, 14, juce::Justification::centred);
 
-    // "OUT" label above right meters
-    g.drawText("OUT", galaxyBounds.getRight() - 28, screenBounds.getY() + 2, 26, 14, juce::Justification::centred);
+        // "OUT" label above right meters
+        g.drawText("OUT", galaxyBounds.getRight() - 28, screenBounds.getY() + 2, 26, 14, juce::Justification::centred);
 
-    // Title "S t a r d u s t" centered on the galaxy viewport — fully white
-    g.setFont(juce::FontOptions(17.0f).withStyle("Bold"));
-    g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.05f));
-    g.drawText("S t a r d u s t", gvf.getX(), gvf.getY() + 5, gvf.getWidth(), 18, juce::Justification::centred);
-    g.setColour(StardustLookAndFeel::kAccent);
-    g.drawText("S t a r d u s t", gvf.getX() - 1, gvf.getY() + 4, gvf.getWidth(), 18, juce::Justification::centred);
+        // Title "S t a r d u s t" centered on the galaxy viewport — fully white
+        g.setFont(juce::FontOptions(17.0f).withStyle("Bold"));
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.05f));
+        g.drawText("S t a r d u s t", gvf.getX(), gvf.getY() + 5, gvf.getWidth(), 18, juce::Justification::centred);
+        g.setColour(StardustLookAndFeel::kAccent);
+        g.drawText("S t a r d u s t", gvf.getX() - 1, gvf.getY() + 4, gvf.getWidth(), 18, juce::Justification::centred);
+    }
 }
 
 void StardustEditor::parameterChanged(const juce::String& /*parameterID*/, float /*newValue*/)
@@ -1037,6 +1386,24 @@ void StardustEditor::timerCallback()
 
 void StardustEditor::mouseDown(const juce::MouseEvent& e)
 {
+    // Dismiss preset library if clicking outside it
+    if (presetLibraryPanel != nullptr && presetLibraryPanel->isVisible())
+    {
+        auto panelBounds = presetLibraryPanel->getBounds();
+        if (!panelBounds.contains(e.getPosition()))
+        {
+            hidePresetLibrary();
+            return;
+        }
+    }
+
+    // Intercept click on preset selector area → show custom dropdown
+    if (presetSelector.getBounds().contains(e.getPosition()) && !e.mods.isPopupMenu())
+    {
+        showPresetDropdown();
+        return;
+    }
+
     if (e.mods.isPopupMenu())
     {
         juce::PopupMenu menu;
@@ -1085,9 +1452,11 @@ void StardustEditor::resized()
     starfield.setBounds(screenBounds);
     starfield.setExcludeRect({});
 
-    // Preset bar: preset name centered in galaxy, arrows + menu to the right
+    // Preset bar: [icon] [Preset Name v][★] [<][>] [...] — selector centered on screen
     const int presetH = 22;
     const int presetY = screenBounds.getBottom() + (galaxyBounds.getBottom() - screenBounds.getBottom() - presetH) / 2;
+    const int iconW = 22;
+    const int starW = 20;
     const int arrowW = 26;
     const int menuBtnW = 28;
     const int selectorW = 180;
@@ -1095,11 +1464,14 @@ void StardustEditor::resized()
 
     // Center the selector in the galaxy width
     const int selectorX = galaxyBounds.getX() + (galaxyBounds.getWidth() - selectorW) / 2;
+
+    // Position elements relative to centered selector
+    libraryBtn.setBounds(selectorX - pGap - iconW, presetY, iconW, presetH);
     presetSelector.setBounds(selectorX, presetY, selectorW, presetH);
     presetSelector.setJustificationType(juce::Justification::centred);
 
-    // Arrows + menu right of the selector
-    int cx = selectorX + selectorW + pGap;
+    int cx = selectorX + selectorW;
+    favoriteBtn.setBounds(cx, presetY, starW, presetH);          cx += starW + pGap;
     prevPresetBtn.setBounds(cx, presetY, arrowW, presetH);      cx += arrowW;
     nextPresetBtn.setBounds(cx, presetY, arrowW, presetH);      cx += arrowW + pGap;
     savePresetBtn.setBounds(cx, presetY, menuBtnW, presetH);
@@ -1108,6 +1480,7 @@ void StardustEditor::resized()
     presetSelector.onChange = [this] {
         processorRef.loadPreset(presetSelector.getSelectedId() - 1);
         updateDoubleClickDefaults();
+        updateFavoriteButton();
     };
 
     // Shared grid: 5 columns, equal spacing, both rows use same X positions

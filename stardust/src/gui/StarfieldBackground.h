@@ -61,4 +61,9 @@ private:
     static constexpr int kRenderWidth = 260;
     static constexpr int kRenderHeight = 190;
     static constexpr int kNumShades = 16;
+    static constexpr size_t kPixelCount = kRenderWidth * kRenderHeight;
+
+    // Pre-allocated buffers to avoid heap allocation every frame
+    std::vector<float> pixelData_ = std::vector<float>(kPixelCount, 0.0f);
+    std::vector<float> tempBuffer_ = std::vector<float>(kPixelCount, 0.0f);
 };

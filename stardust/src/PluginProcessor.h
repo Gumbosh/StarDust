@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <set>
 #include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
 #include "dsp/GranularEngine.h"
@@ -11,6 +12,18 @@ struct Preset
     juce::String name;
     std::map<juce::String, float> values;
     bool isFactory = false;
+    juce::String bank;  // subfolder name, empty = root USER
+};
+
+// RAII guard for SpinLock
+struct SpinLockGuard
+{
+    explicit SpinLockGuard(juce::SpinLock& lock) : lockRef(lock) { lockRef.enter(); }
+    ~SpinLockGuard() { lockRef.exit(); }
+    SpinLockGuard(const SpinLockGuard&) = delete;
+    SpinLockGuard& operator=(const SpinLockGuard&) = delete;
+private:
+    juce::SpinLock& lockRef;
 };
 
 class StardustProcessor : public juce::AudioProcessor
@@ -32,7 +45,7 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.1; } // chorus/grain tail
 
-    int getNumPrograms() override { return static_cast<int>(allPresets.size()); }
+    int getNumPrograms() override { SpinLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     int getCurrentProgram() override { return currentPresetIndex; }
     void setCurrentProgram(int index) override;
     const juce::String getProgramName(int index) override;
@@ -50,18 +63,28 @@ public:
     std::atomic<float> outputLevelLeft { 0.0f };
     std::atomic<float> outputLevelRight { 0.0f };
 
+    // Callers must hold presetLock when iterating the returned reference
     const std::vector<Preset>& getAllPresets() const { return allPresets; }
+    mutable juce::SpinLock presetLock;
     std::atomic<bool> presetDirty { false };
     std::atomic<bool> loadingPreset { false };
     std::atomic<int> ignoreParamChanges { 0 };
-    int getPresetCount() const { return static_cast<int>(allPresets.size()); }
+    int getPresetCount() const { SpinLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     bool isFactoryPreset(int index) const;
     void loadPreset(int index);
     void saveUserPreset(const juce::String& name);
+    void saveUserPreset(const juce::String& name, const juce::String& bank);
     void deleteUserPreset(int index);
     void refreshPresets();
 
+    std::vector<juce::String> getUserBanks() const;
+    void importBank(const juce::File& sourceFolder);
+    void deleteUserBank(const juce::String& bankName);
+    void renameUserBank(const juce::String& oldName, const juce::String& newName);
+
     static juce::File getUserPresetsDir();
+    static std::set<juce::String> loadFavorites();
+    static void saveFavorites(const std::set<juce::String>& favs);
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

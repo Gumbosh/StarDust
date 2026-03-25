@@ -90,7 +90,12 @@ if "!ISCC!"=="" (
 
 echo   Using: !ISCC!
 
-"!ISCC!" "%SCRIPT_DIR%Stardust-installer.iss"
+REM Extract version from CMakeLists.txt
+for /f "tokens=3 delims= )" %%v in ('findstr /C:"project(Stardust VERSION" "%PROJECT_DIR%\CMakeLists.txt"') do set "APP_VERSION=%%v"
+if "!APP_VERSION!"=="" set "APP_VERSION=1.0.0"
+echo   Version: !APP_VERSION!
+
+"!ISCC!" /DMyAppVersion="!APP_VERSION!" "%SCRIPT_DIR%Stardust-installer.iss"
 if errorlevel 1 (
     echo ERROR: Inno Setup compilation failed.
     exit /b 1

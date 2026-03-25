@@ -35,6 +35,8 @@ target_sources(Stardust PRIVATE
     src/dsp/Saturation.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
+    src/gui/PresetLibraryPanel.cpp
+    src/gui/PresetLibraryPanel.h
 )
 
 juce_add_binary_data(StardustAssets SOURCES

@@ -105,12 +105,12 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
 
     // Always use sample-by-sample when LFO is active or parameters are smoothing
-    const bool needsSampleBySmple = cutoffSmoothed.isSmoothing()
+    const bool needsSampleBySample = cutoffSmoothed.isSmoothing()
         || resonanceSmoothed.isSmoothing()
         || needsRecalc
         || currentLfoDepth > 0.001f;
 
-    if (needsSampleBySmple)
+    if (needsSampleBySample)
     {
         for (int i = 0; i < numSamples; ++i)
         {

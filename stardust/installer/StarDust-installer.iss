@@ -17,7 +17,9 @@
 ; =============================================================================
 
 #define MyAppName "Stardust"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Stardust"
 #define MyAppURL "https://github.com/grainsp"
 

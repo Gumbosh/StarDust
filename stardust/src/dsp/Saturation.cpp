@@ -69,16 +69,11 @@ void Saturation::processOutput(juce::AudioBuffer<float>& buffer)
     const auto numChannels = buffer.getNumChannels();
     const auto numSamples = buffer.getNumSamples();
 
-    for (int ch = 0; ch < numChannels; ++ch)
+    for (int i = 0; i < numSamples; ++i)
     {
-        auto* data = buffer.getWritePointer(ch);
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float gain = (ch == 0)
-                ? outputGainSmoothed.getNextValue()
-                : outputGainSmoothed.getCurrentValue();
-            data[i] *= gain;
-        }
+        const float gain = outputGainSmoothed.getNextValue();
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.getWritePointer(ch)[i] *= gain;
     }
 }
 

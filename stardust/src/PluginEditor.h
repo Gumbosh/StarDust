@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
 #include "gui/StarfieldBackground.h"
+#include "gui/PresetLibraryPanel.h"
 
 class StardustLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -75,12 +76,23 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress& key) override;
 
+    void setBankOptions(const std::vector<juce::String>& banks);
+    juce::String getSelectedBank() const;
+
+    // Called with (presetName, bankName) when bank options are set, otherwise (presetName, "")
+    std::function<void(const juce::String&, const juce::String&)> onConfirmWithBank;
+
     juce::TextButton confirmBtn, cancelBtn;
 
 private:
+    void doConfirm();
+
     juce::Label titleLabel;
     juce::TextEditor textInput;
     std::function<void(const juce::String&)> callback;
+    std::unique_ptr<juce::ComboBox> bankCombo;
+    std::unique_ptr<juce::TextEditor> newBankInput;
+    std::vector<juce::String> bankOptions;
 };
 
 class StardustEditor : public juce::AudioProcessorEditor,
@@ -121,13 +133,19 @@ private:
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
     juce::TextButton prevPresetBtn, nextPresetBtn, savePresetBtn, deletePresetBtn;
+    juce::TextButton libraryBtn, favoriteBtn;
+    std::unique_ptr<PresetLibraryPanel> presetLibraryPanel;
     void refreshPresetList();
+    void showPresetLibrary();
+    void hidePresetLibrary();
+    void showPresetDropdown();
+    void updateFavoriteButton();
 
     LabeledKnob driveKnob, toneKnob;
     LabeledKnob bitsKnob, rateKnob, cutoffKnob, mixKnob;
     LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
     LabeledKnob chorusMixKnob;
-    LabeledKnob panOuterKnob, panInnerKnob; // temp
+    LabeledKnob panOuterKnob, panInnerKnob;
 
     juce::Slider tuneFader;
     juce::Label tuneLabel, tuneValueLabel;

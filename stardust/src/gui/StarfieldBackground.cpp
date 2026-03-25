@@ -6,7 +6,7 @@ StarfieldBackground::StarfieldBackground(juce::AudioProcessorValueTreeState& apv
                                            std::atomic<float>& outR)
     : apvts(apvtsRef), outputLevelL(outL), outputLevelR(outR)
 {
-    startTimerHz(18);
+    startTimerHz(30);
     cachedImage = juce::Image(juce::Image::ARGB, kRenderWidth, kRenderHeight, true);
 }
 
@@ -30,7 +30,7 @@ void StarfieldBackground::resized() {}
 
 void StarfieldBackground::timerCallback()
 {
-    const float dt = 1.0f / 18.0f;
+    const float dt = 1.0f / 30.0f;
     const auto params = readParams();
     timeCounter += dt;
 
@@ -100,7 +100,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     const float densityNorm = (params.grainDensity - 1.0f) / 19.0f;
     const float sizeNorm = (params.grainSize - 5.0f) / 95.0f;
 
-    std::vector<float> pixelData(static_cast<size_t>(kRenderWidth * kRenderHeight), 0.0f);
+    auto& pixelData = pixelData_;
+    std::fill(pixelData.begin(), pixelData.end(), 0.0f);
 
     // Ambient glow for MULTIPLY-only mode (when DESTROY + GRANULAR are off)
     if (params.multiplyEnabled && !params.destroyEnabled && !params.granularEnabled && params.chorusMix > 0.01f)
@@ -158,7 +159,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     if (blurAmount > 0.05f)
     {
         const int blurPasses = static_cast<int>(blurAmount * 3.0f);
-        std::vector<float> temp(pixelData.size());
+        auto& temp = tempBuffer_;
 
         for (int pass = 0; pass < blurPasses; ++pass)
         {
@@ -212,7 +213,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
   {
     // ---- Stars: 3 depth layers (GRAIN knobs only) ----
     // Save galaxy-only pixels so we can blend stars with uniform opacity
-    std::vector<float> galaxyOnly(pixelData);
+    auto& galaxyOnly = tempBuffer_;
+    std::copy(pixelData.begin(), pixelData.end(), galaxyOnly.begin());
 
     const float widthSpread = params.stereoWidth; // WIDTH: brightness spread from center
     const float densityMul = 1.0f + densityNorm * 2.0f; // DENSITY: just more stars
@@ -311,8 +313,11 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         const int segments = 2 + static_cast<int>(chorusMix * 6.0f);
         const float wedgeAngle = juce::MathConstants<float>::twoPi / static_cast<float>(segments);
 
-        std::vector<float> source(pixelData);
-        std::vector<float> kaleidoscope(pixelData.size(), 0.0f);
+        auto& source = tempBuffer_;
+        std::copy(pixelData.begin(), pixelData.end(), source.begin());
+        // Reuse pixelData as kaleidoscope output (we read from source, write to pixelData)
+        std::fill(pixelData.begin(), pixelData.end(), 0.0f);
+        auto& kaleidoscope = pixelData;
 
         for (int y = 0; y < kRenderHeight; ++y)
         {
@@ -368,7 +373,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         {
             // Blur pass — simple box blur to create soft haze layer
             const int blurRadius = 2 + static_cast<int>(spread * 4.0f);
-            std::vector<float> haze(pixelData.size(), 0.0f);
+            auto& haze = tempBuffer_;
+            std::fill(haze.begin(), haze.end(), 0.0f);
 
             for (int y = 0; y < kRenderHeight; ++y)
             {
