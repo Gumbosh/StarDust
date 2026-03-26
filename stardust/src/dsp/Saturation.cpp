@@ -8,6 +8,10 @@ void Saturation::prepare(double newSampleRate, int /*samplesPerBlock*/)
     outputGainSmoothed.reset(sampleRate, rampTimeSec);
     driveSmoothed.reset(sampleRate, rampTimeSec);
 
+    // DC blocker coefficient for ~20Hz high-pass, adaptive to sample rate
+    constexpr double dcCutoffHz = 20.0;
+    dcCoeff = static_cast<float>(std::exp(-2.0 * juce::MathConstants<double>::pi * dcCutoffHz / sampleRate));
+
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
         dcX1[ch] = 0.0f;
@@ -56,7 +60,7 @@ void Saturation::processInput(juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < numSamples; ++i)
         {
             const float x = data[i];
-            const float y = x - dcX1[ch] + kDcCoeff * dcY1[ch];
+            const float y = x - dcX1[ch] + dcCoeff * dcY1[ch];
             dcX1[ch] = x;
             dcY1[ch] = y;
             data[i] = y;

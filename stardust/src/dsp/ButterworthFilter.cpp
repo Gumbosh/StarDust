@@ -45,9 +45,9 @@ void ButterworthFilter::setLFO(float rate, float depth)
 
 void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonanceVal)
 {
-    // Map 0-1 to frequency: 200 Hz to 20000 Hz (squared curve)
-    const float normalized = cutoffVal;
-    const float freq = 200.0f + normalized * normalized * 19800.0f;
+    // Map 0-1 to frequency: 200 Hz to 20000 Hz (logarithmic curve)
+    // 200 * 100^n gives perceptually even spacing across the knob range
+    const float freq = 200.0f * std::pow(100.0f, cutoffVal);
 
     // Clamp frequency to Nyquist - margin
     const float nyquist = static_cast<float>(sampleRate) * 0.5f;
@@ -91,8 +91,8 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
     const float cutoffVal = cutoffSmoothed.getCurrentValue();
     const float lfoDepth = lfoDepthSmoothed.getCurrentValue();
 
-    // Bypass when cutoff is at max (99) and no LFO
-    if (cutoffVal >= 98.5f && lfoDepth < 0.001f)
+    // Bypass when cutoff is near max and no LFO
+    if (cutoffVal >= 0.985f && lfoDepth < 0.001f)
     {
         cutoffSmoothed.skip(buffer.getNumSamples());
         resonanceSmoothed.skip(buffer.getNumSamples());
@@ -124,7 +124,7 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
             if (depth > 0.001f)
             {
                 const float lfoValue = 4.0f * std::abs(lfoPhase - 0.5f) - 1.0f;
-                modulatedCutoff = juce::jlimit(0.0f, 99.0f, c + lfoValue * depth * 40.0f);
+                modulatedCutoff = juce::jlimit(0.0f, 1.0f, c + lfoValue * depth * 0.4f);
                 lfoPhase += rate / static_cast<float>(sampleRate);
                 if (lfoPhase >= 1.0f)
                     lfoPhase -= 1.0f;

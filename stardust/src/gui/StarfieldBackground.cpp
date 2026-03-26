@@ -56,6 +56,7 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("chorusMix"),
         *apvts.getRawParameterValue("multiplyPanOuter"),
         *apvts.getRawParameterValue("multiplyPanInner"),
+        static_cast<int>(*apvts.getRawParameterValue("grainShape")),
         *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
         *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
@@ -74,13 +75,15 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     juce::Image img(juce::Image::ARGB, kRenderWidth, kRenderHeight, false);
 
     const float crushAmount = (16.0f - params.bitDepth) / 12.0f;
-    const float galaxyIntensity = 0.3f + params.mix * 0.7f;   // DESTROY mix → galaxy opacity
+    // DESTROY mix → galaxy opacity (when destroy is off, treat as mix=0)
+    const float effectiveMix = params.destroyEnabled ? params.mix : 0.0f;
+    const float galaxyIntensity = 0.3f + effectiveMix * 0.7f;
     const float starIntensity = params.grain;   // GRAIN → star opacity (0 = invisible, 1 = full)
     const float scatter = params.grainScatter;
     const float rateNorm = (params.sampleRate - 4000.0f) / 44000.0f;
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
     const float scanlineDarken = 0.55f + rateNorm * 0.4f;
-    const float blurAmount = 1.0f - (params.filterCutoff / 99.0f);
+    const float blurAmount = 1.0f - params.filterCutoff; // filterCutoff is 0.0-1.0
     const int blockSize = std::max(1, static_cast<int>(9.0f - params.bitDepth / 2.0f));
 
     const float fw = static_cast<float>(kRenderWidth);
@@ -91,7 +94,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
     // Galaxy parameters — static, no audio reactivity
     const float rotationSpeed = 0.3f;
-    const float tiltAmount = params.grainTune / 24.0f;
+    const float tiltAmount = params.destroyEnabled ? (params.grainTune / 24.0f) : 0.0f;
     const float spiralTightness = 0.03f;
     const float coreRadius = 25.0f;
     const float coreBrightness = 0.7f * galaxyIntensity;
@@ -117,8 +120,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             }
     }
 
-    // ---- Galaxy: Core + Spiral Arms (DESTROY) ----
-  if (params.destroyEnabled)
+    // ---- Galaxy: Core + Spiral Arms (always renders, intensity follows destroy mix) ----
   {
     for (int y = 0; y < kRenderHeight; ++y)
     {
@@ -155,8 +157,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         }
     }
 
-    // ---- Blur ----
-    if (blurAmount > 0.05f)
+    // ---- Blur (only when destroy is active) ----
+    if (blurAmount > 0.05f && params.destroyEnabled)
     {
         const int blurPasses = static_cast<int>(blurAmount * 8.0f);
         auto& temp = tempBuffer_;
@@ -191,8 +193,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         }
     }
 
-    // ---- Pixelation ----
-    if (blockSize > 1)
+    // ---- Pixelation (only when destroy is active) ----
+    if (blockSize > 1 && params.destroyEnabled)
     {
         for (int by = 0; by < kRenderHeight; by += blockSize)
             for (int bx = 0; bx < kRenderWidth; bx += blockSize)
@@ -274,23 +276,140 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 const float bright = sl.brightMul * distFade
                     * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
 
-                auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
-                centerPx = std::min(1.0f, centerPx + bright);
+                // Draw star shape mirroring the grain envelope curve
+                const int shape = params.grainShape;
+                const int radius = sl.spikeLen;
 
-                if (sl.spikeLen > 0)
+                if (shape == 1) // Gaussian — wide soft bloom, smooth radial falloff
                 {
-                    for (int i = 1; i <= sl.spikeLen; ++i)
+                    constexpr int glowR = 1;
+                    for (int dy = -glowR; dy <= glowR; ++dy)
                     {
-                        const float fade = bright * (1.0f - static_cast<float>(i) / static_cast<float>(sl.spikeLen + 1));
-                        const int arms[4][2] = { {i, 0}, {-i, 0}, {0, i}, {0, -i} };
-                        for (const auto& a : arms)
+                        for (int dx = -glowR; dx <= glowR; ++dx)
                         {
-                            const int px = sx + a[0];
-                            const int py = sy + a[1];
+                            const int px = sx + dx;
+                            const int py = sy + dy;
                             if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
+                            {
+                                const float d2 = static_cast<float>(dx * dx + dy * dy);
+                                constexpr float sigma = 0.75f;
+                                const float glow = bright * std::exp(-d2 / (2.0f * sigma * sigma));
+                                auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
+                                pixel = std::min(1.0f, pixel + glow);
+                            }
+                        }
+                    }
+                }
+                else if (shape == 2) // Triangle — random scatter burst
+                {
+                    // Bright peaked center
+                    auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
+                    centerPx = std::min(1.0f, centerPx + bright);
+
+                    // 2-3 scattered pixels within radius, seeded by position
+                    const int scatterR = std::max(1, radius + 1);
+                    const int numFragments = 2 + (radius > 0 ? 1 : 0);
+                    for (int f = 0; f < numFragments; ++f)
+                    {
+                        const float seed1 = hash(static_cast<float>(sx) * (2.3f + static_cast<float>(f) * 5.7f),
+                                                  static_cast<float>(sy) * (4.1f + static_cast<float>(f) * 3.3f));
+                        const float seed2 = hash(static_cast<float>(sx) * (7.9f + static_cast<float>(f) * 1.1f),
+                                                  static_cast<float>(sy) * (2.7f + static_cast<float>(f) * 8.3f));
+                        const int dx = static_cast<int>((seed1 * 2.0f - 1.0f) * static_cast<float>(scatterR));
+                        const int dy = static_cast<int>((seed2 * 2.0f - 1.0f) * static_cast<float>(scatterR));
+                        const int px = sx + dx;
+                        const int py = sy + dy;
+                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
+                        {
+                            const float dist = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                            const float fade = bright * (1.0f - dist / (static_cast<float>(scatterR) * 1.5f));
+                            if (fade > 0.0f)
                             {
                                 auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
                                 pixel = std::min(1.0f, pixel + fade);
+                            }
+                        }
+                    }
+                }
+                else if (shape == 3) // Trapezoid — random tetris block
+                {
+                    // 7 tetromino shapes: I, O, T, S, Z, L, J
+                    // Each defined as 4 pixel offsets from origin
+                    constexpr int kNumShapes = 7;
+                    constexpr int tetrominoes[kNumShapes][4][2] = {
+                        { {0,0}, {1,0}, {2,0}, {3,0} },   // I
+                        { {0,0}, {1,0}, {0,1}, {1,1} },   // O
+                        { {0,0}, {1,0}, {2,0}, {1,1} },   // T
+                        { {0,0}, {1,0}, {1,1}, {2,1} },   // S
+                        { {1,0}, {2,0}, {0,1}, {1,1} },   // Z
+                        { {0,0}, {0,1}, {0,2}, {1,2} },   // L
+                        { {1,0}, {1,1}, {1,2}, {0,2} },   // J
+                    };
+
+                    // Pick shape and rotation by hashing star position
+                    const float shapeSeed = hash(static_cast<float>(sx) * 5.3f, static_cast<float>(sy) * 9.1f);
+                    const int shapeIdx = static_cast<int>(shapeSeed * static_cast<float>(kNumShapes)) % kNumShapes;
+                    const float rotSeed = hash(static_cast<float>(sx) * 2.7f, static_cast<float>(sy) * 6.3f);
+                    const int rotation = static_cast<int>(rotSeed * 4.0f) % 4;
+
+                    for (int p = 0; p < 4; ++p)
+                    {
+                        int dx = tetrominoes[shapeIdx][p][0];
+                        int dy = tetrominoes[shapeIdx][p][1];
+
+                        // Apply rotation (0=none, 1=90°CW, 2=180°, 3=270°CW)
+                        for (int r = 0; r < rotation; ++r)
+                        {
+                            const int tmp = dx;
+                            dx = -dy;
+                            dy = tmp;
+                        }
+
+                        const int px = sx + dx;
+                        const int py = sy + dy;
+                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
+                        {
+                            auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
+                            pixel = std::min(1.0f, pixel + bright * 0.9f);
+                        }
+                    }
+                }
+                else // Hanning — tiny ring: bright center + cardinal neighbors
+                {
+                    // Bright center pixel
+                    auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
+                    centerPx = std::min(1.0f, centerPx + bright);
+
+                    // Soft ring on 4 cardinal neighbors only (no diagonals = round, not square)
+                    const float ringStr = bright * 0.4f;
+                    const int cardinals[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+                    for (const auto& c : cardinals)
+                    {
+                        const int px = sx + c[0];
+                        const int py = sy + c[1];
+                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
+                        {
+                            auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
+                            pixel = std::min(1.0f, pixel + ringStr);
+                        }
+                    }
+
+                    // Subtle axis spikes for larger layers
+                    if (radius > 0)
+                    {
+                        for (int i = 2; i <= radius + 1; ++i)
+                        {
+                            const float fade = bright * 0.25f * (1.0f - static_cast<float>(i) / static_cast<float>(radius + 2));
+                            const int arms[4][2] = { {i, 0}, {-i, 0}, {0, i}, {0, -i} };
+                            for (const auto& a : arms)
+                            {
+                                const int px = sx + a[0];
+                                const int py = sy + a[1];
+                                if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
+                                {
+                                    auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
+                                    pixel = std::min(1.0f, pixel + fade);
+                                }
                             }
                         }
                     }
@@ -305,6 +424,25 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         pixelData[i] = galaxyOnly[i] + starOnly * starIntensity;
     }
   } // end GRANULAR
+
+    // ---- Drive vignette (SATURATION) — applied before multiply so kaleidoscope affects it ----
+    if (params.drive > 0.01f)
+    {
+        const float sharpness = 1.0f + params.tone * 4.0f;
+        for (int y = 0; y < kRenderHeight; ++y)
+        {
+            for (int x = 0; x < kRenderWidth; ++x)
+            {
+                const float vdx = static_cast<float>(x) - cx;
+                const float vdy = static_cast<float>(y) - cy;
+                const float vdist = std::sqrt(vdx * vdx + vdy * vdy);
+                const float edgeNorm = vdist / maxDist;
+                const float edgeFade = std::pow(edgeNorm, sharpness);
+                auto& pixel = pixelData[static_cast<size_t>(y * kRenderWidth + x)];
+                pixel = std::min(1.0f, pixel + edgeFade * params.drive * 0.8f);
+            }
+        }
+    }
 
     // ---- Kaleidoscope (MULTIPLY) ----
     if (params.multiplyEnabled && params.chorusMix > 0.01f)
@@ -426,16 +564,6 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             // Dark vignette (always applied)
             const float vignette = 1.0f - 0.55f * edgeNorm * edgeNorm;
             value *= vignette;
-
-            // DRIVE + TONE: white vignette on borders
-            // DRIVE controls intensity, TONE controls edge sharpness
-            if (params.drive > 0.01f)
-            {
-                // TONE: 0=soft fuzzy glow, 0.5=moderate, 1=crisp hard edge
-                const float sharpness = 1.0f + params.tone * 4.0f; // exponent range 1.0 to 5.0
-                const float edgeFade = std::pow(edgeNorm, sharpness);
-                value += edgeFade * params.drive * 0.8f;
-            }
 
             value *= scanlineMul;
 

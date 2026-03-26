@@ -9,7 +9,7 @@ public:
     ButterworthFilter() = default;
 
     void prepare(double sampleRate, int samplesPerBlock);
-    void setCutoff(float cutoffValue);    // 0-99 range
+    void setCutoff(float cutoffValue);    // 0.0-1.0 normalized
     void setResonance(float resonance);   // 0.0-1.0
     void setLFO(float rate, float depth);
     void process(juce::AudioBuffer<float>& buffer);
@@ -40,10 +40,10 @@ private:
 
     double sampleRate = 44100.0;
 
-    juce::SmoothedValue<float> cutoffSmoothed { 99.0f };
+    juce::SmoothedValue<float> cutoffSmoothed { 1.0f };
     juce::SmoothedValue<float> resonanceSmoothed { 0.0f };
 
-    float currentCutoff = 99.0f;
+    float currentCutoff = 1.0f;
     float currentResonance = 0.0f;
 
     // 6th-order = 3 cascaded biquad sections, per channel

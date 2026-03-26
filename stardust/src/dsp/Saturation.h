@@ -37,5 +37,5 @@ private:
     static constexpr int kMaxChannels = 2;
     float dcX1[kMaxChannels] = {};
     float dcY1[kMaxChannels] = {};
-    static constexpr float kDcCoeff = 0.995f;
+    float dcCoeff = 0.995f; // recalculated in prepare() for ~20Hz HPF
 };

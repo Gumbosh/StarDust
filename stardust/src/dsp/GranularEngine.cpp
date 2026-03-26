@@ -85,14 +85,19 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             continue;
         }
 
-        // Grain scheduling
+        // Grain scheduling — clamp density so we never exceed the grain pool
         ++samplesSinceLastGrain;
+        const float maxDensity = static_cast<float>(kMaxGrains) * 0.5f
+            / std::max(1.0f, grainSizeMs * 0.001f * static_cast<float>(sampleRate)
+                       / static_cast<float>(grainSizeSamples > 0 ? grainSizeSamples : 1));
+        const float clampedDensity = std::min(density, std::max(1.0f, maxDensity));
+
         if (samplesSinceLastGrain >= nextGrainInterval && mix > 0.001f)
         {
             samplesSinceLastGrain = 0;
 
-            const int baseInterval = (density > 0.5f)
-                ? static_cast<int>(static_cast<float>(grainSizeSamples) / density)
+            const int baseInterval = (clampedDensity > 0.5f)
+                ? static_cast<int>(static_cast<float>(grainSizeSamples) / clampedDensity)
                 : grainSizeSamples * 2;
             const float scatterOffset = 1.0f + (random.nextFloat() * 2.0f - 1.0f) * scatter;
             nextGrainInterval = std::max(1, static_cast<int>(static_cast<float>(baseInterval) * scatterOffset));
@@ -139,11 +144,38 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
                 if (!g.active)
                     continue;
 
-                // Hanning window envelope
+                // Grain envelope
                 const float phase = static_cast<float>(g.currentSample)
                     / static_cast<float>(g.lengthInSamples);
-                const float envelope = 0.5f * (1.0f - std::cos(
-                    2.0f * juce::MathConstants<float>::pi * phase));
+                float envelope;
+                switch (shape)
+                {
+                    case GrainShape::Gaussian:
+                    {
+                        const float x = (phase - 0.5f) * 4.0f;
+                        envelope = std::exp(-0.5f * x * x);
+                        break;
+                    }
+                    case GrainShape::Triangle:
+                        envelope = 1.0f - std::abs(2.0f * phase - 1.0f);
+                        break;
+                    case GrainShape::Trapezoid:
+                    {
+                        constexpr float fadeLen = 0.2f;
+                        if (phase < fadeLen)
+                            envelope = phase / fadeLen;
+                        else if (phase > (1.0f - fadeLen))
+                            envelope = (1.0f - phase) / fadeLen;
+                        else
+                            envelope = 1.0f;
+                        break;
+                    }
+                    case GrainShape::Hanning:
+                    default:
+                        envelope = 0.5f * (1.0f - std::cos(
+                            2.0f * juce::MathConstants<float>::pi * phase));
+                        break;
+                }
 
                 float grainSample = readFromBuffer(ch, g.currentPosition);
 
@@ -175,7 +207,9 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
             grainOutput *= normalization;
 
-            const float output = drySample * (1.0f - mix) + grainOutput * mix;
+            const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);
+            const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
+            const float output = drySample * dryGain + grainOutput * wetGain;
             data[i] = output;
         }
 

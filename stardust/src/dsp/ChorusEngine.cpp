@@ -209,14 +209,16 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
         outR = processBiquad(outR, hpB0, hpB1, hpB2, hpA1, hpA2, hpState[1]);
         outR = processBiquad(outR, lpB0, lpB1, lpB2, lpA1, lpA2, lpState[1]);
 
-        // Dry at unity + effect on top at full volume
+        // Constant-power crossfade
+        const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);
+        const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
         auto* dataL = buffer.getWritePointer(0);
-        dataL[i] = dataL[i] + outL * mix;
+        dataL[i] = dataL[i] * dryGain + outL * wetGain;
 
         if (isStereo)
         {
             auto* dataR = buffer.getWritePointer(1);
-            dataR[i] = dataR[i] + outR * mix;
+            dataR[i] = dataR[i] * dryGain + outR * wetGain;
         }
 
         writePos = (writePos + 1) % kDelayBufferSize;

@@ -52,20 +52,7 @@ public:
     static inline const juce::Colour kInset { 0xFF060606 };
 };
 
-class LevelMeter : public juce::Component, public juce::Timer
-{
-public:
-    explicit LevelMeter(std::atomic<float>& levelSource);
-    void paint(juce::Graphics& g) override;
-    void timerCallback() override;
-
-private:
-    std::atomic<float>& level;
-    float displayLevel = 0.0f;
-    float peakLevel = 0.0f;
-    int peakHoldCounter = 0;
-    static constexpr int kPeakHoldFrames = 45; // ~1.5s at 30Hz
-};
+// LevelMeter removed — replaced by signal flow display + knobs
 
 class StardustDialog : public juce::Component
 {
@@ -77,6 +64,7 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
     void setBankOptions(const std::vector<juce::String>& banks);
+    void selectBank(int comboId);
     juce::String getSelectedBank() const;
 
     // Called with (presetName, bankName) when bank options are set, otherwise (presetName, "")
@@ -86,6 +74,7 @@ public:
 
 private:
     void doConfirm();
+    void updateSaveButton();
 
     juce::Label titleLabel;
     juce::TextEditor textInput;
@@ -93,6 +82,34 @@ private:
     std::unique_ptr<juce::ComboBox> bankCombo;
     std::unique_ptr<juce::TextEditor> newBankInput;
     std::vector<juce::String> bankOptions;
+    juce::Rectangle<int> bankLabelArea;
+};
+
+class StardustEditor;
+
+class SettingsPanel : public juce::Component
+{
+public:
+    SettingsPanel(StardustEditor& editor);
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+private:
+    StardustEditor& editorRef;
+
+    enum class Tab { General, About };
+    Tab currentTab = Tab::General;
+
+    juce::TextButton generalTabBtn, aboutTabBtn;
+    juce::TextButton closeBtn;
+
+    // General tab
+    juce::ComboBox scaleCombo;
+    juce::TextButton resetFactoryBtn;
+
+    // About tab — drawn in paint()
+
+    void selectTab(Tab tab);
 };
 
 class StardustEditor : public juce::AudioProcessorEditor,
@@ -111,9 +128,16 @@ public:
     void timerCallback() override;
     void parameterChanged(const juce::String& parameterID, float newValue) override;
 
+    void applyScale(float scale);
+    void resetToFactory();
+    void hideSettings();
+    float getCurrentScale() const { return currentScale; }
+    StardustProcessor& getProcessor() { return processorRef; }
+
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     struct LabeledKnob
     {
@@ -132,7 +156,7 @@ private:
 
     StarfieldBackground starfield;
     juce::ComboBox presetSelector;
-    juce::TextButton prevPresetBtn, nextPresetBtn, savePresetBtn, deletePresetBtn;
+    juce::TextButton prevPresetBtn, nextPresetBtn, savePresetBtn, deletePresetBtn, scaleBtn;
     juce::TextButton libraryBtn, favoriteBtn;
     std::unique_ptr<PresetLibraryPanel> presetLibraryPanel;
     void refreshPresetList();
@@ -149,10 +173,15 @@ private:
 
     LabeledKnob tuneKnob;
 
+    LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
+
+    juce::ComboBox grainShapeBox;
+    std::unique_ptr<ComboBoxAttachment> grainShapeAttach;
+
     juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle;
     std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
 
-    LevelMeter inputMeterL, inputMeterR, outputMeterL, outputMeterR;
+    // Meters removed — replaced by signal flow display + knobs
 
     juce::Rectangle<int> controlsBounds;
     juce::Rectangle<int> galaxyBounds;
@@ -162,6 +191,9 @@ private:
     juce::Image backgroundTexture;
     void generateBackgroundTexture();
     float currentScale = 1.0f;
+
+    std::unique_ptr<SettingsPanel> settingsPanel;
+    void showSettings();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustEditor)
 };

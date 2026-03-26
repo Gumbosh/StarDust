@@ -19,6 +19,7 @@ struct StarfieldParams
     float chorusMix = 0.0f;
     float panOuter = 1.0f;
     float panInner = 0.8f;
+    int grainShape = 0; // 0=Hanning, 1=Gaussian, 2=Triangle, 3=Trapezoid
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;
@@ -58,8 +59,8 @@ private:
     juce::Rectangle<int> excludeRect;
     float timeCounter = 0.0f;
 
-    static constexpr int kRenderWidth = 260;
-    static constexpr int kRenderHeight = 190;
+    static constexpr int kRenderWidth = 440;
+    static constexpr int kRenderHeight = 200;
     static constexpr int kNumShades = 16;
     static constexpr size_t kPixelCount = kRenderWidth * kRenderHeight;
 

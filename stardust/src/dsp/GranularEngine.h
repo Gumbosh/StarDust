@@ -8,10 +8,13 @@ class GranularEngine
 public:
     GranularEngine() = default;
 
+    enum class GrainShape { Hanning = 0, Gaussian, Triangle, Trapezoid };
+
     void prepare(double sampleRate, int samplesPerBlock);
     void setParameters(float grainSize, float grainDensity, float grainScatter,
                        float grainMix, float grainStereoWidth);
     void setBasePitch(float semitones);
+    void setGrainShape(GrainShape newShape) { shape = newShape; }
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
@@ -60,6 +63,9 @@ private:
     int samplesSinceLastGrain = 0;
     int nextGrainInterval = 0;
     int warmupSamples = 0;
+
+    // Grain envelope shape
+    GrainShape shape = GrainShape::Hanning;
 
     // Random number generation
     juce::Random random;

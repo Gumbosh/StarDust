@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
 #include <set>
 #include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
@@ -104,8 +105,12 @@ private:
     void scanUserPresets();
     void rebuildAllPresets();
 
+    // 2x oversampling for distortion + destroy sections
+    std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
+
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
+    juce::AudioBuffer<float> masterDryBuffer;
 
     // Tone filter state (1-pole low-pass per channel)
     float toneStateL = 0.0f;
