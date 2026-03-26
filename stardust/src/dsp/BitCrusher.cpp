@@ -3,9 +3,8 @@
 void BitCrusher::prepare(double sampleRate, int /*samplesPerBlock*/)
 {
     hostSampleRate = sampleRate;
-    const double rampTimeSec = 0.02;
-    bitDepthSmoothed.reset(sampleRate, rampTimeSec);
-    targetRateSmoothed.reset(sampleRate, rampTimeSec);
+    bitDepthSmoothed.reset(sampleRate, 0.005);  // 5ms — fast, quantization doesn't click
+    targetRateSmoothed.reset(sampleRate, 0.005); // 5ms — AA filter handles the smoothing
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
@@ -63,12 +62,14 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
         {
             auto* data = buffer.getWritePointer(ch);
 
-            // Step 1: Anti-aliasing low-pass filter before decimation
+            // No anti-aliasing filter — SP-1200 deliberately omitted it,
+            // producing the bright aliasing artifacts that define the sound
             float sample = data[i];
-            aaState[ch] += aaAlpha * (sample - aaState[ch]);
-            sample = aaState[ch];
 
-            // Step 2: Bit depth reduction (quantize)
+            // ADC hard-clip at ±1.0 (12-bit converter rail clipping)
+            sample = juce::jlimit(-1.0f, 1.0f, sample);
+
+            // Bit depth reduction (quantize)
             sample = std::floor(sample * levels + 0.5f) / levels;
 
             // Step 3: Sample rate reduction (sample-and-hold)

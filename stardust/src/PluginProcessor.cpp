@@ -16,12 +16,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("bitDepth", 1), "Bit Depth",
-        juce::NormalisableRange<float>(4.0f, 16.0f, 0.1f), 12.0f));
+        juce::ParameterID("destroyIn", 1), "Destroy In",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("sampleRate", 1), "Sample Rate",
-        juce::NormalisableRange<float>(4000.0f, 48000.0f, 1.0f, 0.5f), 26040.0f));
+        juce::ParameterID("destroyOut", 1), "Destroy Out",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("destroyMix", 1), "Destroy Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("destroyFader", 1), "Destroy Fader",
+        juce::NormalisableRange<float>(0.0f, 3.0f, 0.01f), 2.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainMix", 1), "Grain Mix",
@@ -40,10 +48,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.2f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("grainTune", 1), "Grain Tune",
-        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("stereoWidth", 1), "Stereo Width",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
@@ -58,10 +62,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("tone", 1), "Tone",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("mix", 1), "Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
@@ -116,6 +116,7 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     const double oversampledRate = sampleRate * 2.0;
     saturation.prepare(oversampledRate, samplesPerBlock * 2);
     bitCrusher.prepare(oversampledRate, samplesPerBlock * 2);
+    destroyDrive.prepare(oversampledRate, samplesPerBlock * 2);
     butterworthFilter.prepare(oversampledRate, samplesPerBlock * 2);
 
     // Granular + chorus run at original rate
@@ -170,17 +171,17 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // Read parameters
-    const float bitDepthVal    = *apvts.getRawParameterValue("bitDepth");
-    const float sampleRateVal  = *apvts.getRawParameterValue("sampleRate");
+    const float destroyInVal   = *apvts.getRawParameterValue("destroyIn");
+    const float destroyOutVal  = *apvts.getRawParameterValue("destroyOut");
+    const float destroyMixVal  = *apvts.getRawParameterValue("destroyMix");
+    const float destroyFaderVal = *apvts.getRawParameterValue("destroyFader");
     const float grainMixVal    = *apvts.getRawParameterValue("grainMix");
     const float grainDensityVal = *apvts.getRawParameterValue("grainDensity");
     const float grainSizeVal   = *apvts.getRawParameterValue("grainSize");
     const float grainScatterVal = *apvts.getRawParameterValue("grainScatter");
-    const float grainTuneVal   = *apvts.getRawParameterValue("grainTune");
     const float stereoWidthVal = *apvts.getRawParameterValue("stereoWidth");
     const float cutoffVal      = *apvts.getRawParameterValue("filterCutoff");
     const float driveVal       = *apvts.getRawParameterValue("drive");
-    const float mixVal         = *apvts.getRawParameterValue("mix");
     const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
     const float toneVal        = *apvts.getRawParameterValue("tone");
     const bool distortionOn = *apvts.getRawParameterValue("distortionEnabled") >= 0.5f;
@@ -194,7 +195,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     // Oversampled processing for DISTORTION + DESTROY sections
     const bool needsDistortion = distortionOn && driveVal > 0.001f;
-    const bool needsDestroy = destroyOn && mixVal > 0.001f;
+    const bool needsDestroy = destroyOn;
 
     if ((needsDistortion || needsDestroy) && dryBufferOk)
     {
@@ -239,29 +240,45 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             saturation.processOutput(osBuffer);
         }
 
-        // 2. DESTROY section (BITS, RATE, CUTOFF, PITCH, MIX) at oversampled rate
+        // 2. DESTROY section (IN, SPEED/TUNE, FILTER, OUT, MIX) at oversampled rate
         if (needsDestroy)
         {
-            // Save pre-destroy copy for blending
+            // Save pre-destroy dry copy for wet/dry blend
             for (int ch = 0; ch < osNumChannels; ++ch)
                 dryBuffer.copyFrom(ch, 0, osBuffer, ch, 0, osNumSamples);
 
-            const float pitchRatio = std::pow(2.0f, grainTuneVal / 12.0f);
-            const float effectiveRate = sampleRateVal * pitchRatio;
-            bitCrusher.setBitDepth(bitDepthVal);
+            // Single fader → sample rate (piecewise interpolation between RPM positions)
+            // Reversed: 0=78RPM(bottom), 1=x2, 2=45RPM, 3=33RPM(top)
+            static constexpr float kRpmRates[4] = { 45000.0f, 52080.0f, 26040.0f, 19000.0f };
+            const float clampedFader = juce::jlimit(0.0f, 3.0f, destroyFaderVal);
+            const int seg = juce::jlimit(0, 2, static_cast<int>(clampedFader));
+            const float frac = clampedFader - static_cast<float>(seg);
+            const float effectiveRate = kRpmRates[seg] + frac * (kRpmRates[seg + 1] - kRpmRates[seg]);
+
+            // Input gain (dB) — drives signal into 12-bit converter
+            destroyDrive.setInputDrive(destroyInVal);
+            destroyDrive.processInput(osBuffer);
+
+            // 12-bit reduction + sample-and-hold decimation
+            bitCrusher.setBitDepth(12.0f);
             bitCrusher.setSampleRate(effectiveRate);
             bitCrusher.process(osBuffer);
 
+            // Low-pass filter (6th-order Butterworth, SP-950 style)
             butterworthFilter.setCutoff(cutoffVal);
-            butterworthFilter.setResonance(0.0f);
+            butterworthFilter.setResonance(0.15f);
             butterworthFilter.setLFO(1.0f, 0.0f);
             butterworthFilter.process(osBuffer);
 
-            // Blend destroy wet with dry (constant-power crossfade)
-            if (mixVal < 0.999f)
+            // Output gain (dB)
+            destroyDrive.setOutputColor(destroyOutVal);
+            destroyDrive.processOutput(osBuffer);
+
+            // Wet/dry blend (constant-power crossfade)
+            if (destroyMixVal < 0.999f)
             {
-                const float dryGain = std::cos(mixVal * juce::MathConstants<float>::halfPi);
-                const float wetGain = std::sin(mixVal * juce::MathConstants<float>::halfPi);
+                const float dryGain = std::cos(destroyMixVal * juce::MathConstants<float>::halfPi);
+                const float wetGain = std::sin(destroyMixVal * juce::MathConstants<float>::halfPi);
                 for (int ch = 0; ch < osNumChannels; ++ch)
                 {
                     auto* wet = osBuffer.getWritePointer(ch);
@@ -669,479 +686,484 @@ void StardustProcessor::initFactoryPresets()
     // Helper: common params that most presets share as defaults
     // New params: grainShape (0=Hanning,1=Gaussian,2=Triangle,3=Trapezoid), inputGain, outputGain, masterMix
 
+    // Macro for common preset fields — keeps presets readable
+    // Params: destroyFader, destroyIn, destroyOut, destroyMix, filterCutoff,
+    //         grainMix, grainDensity, grainSize, grainScatter, stereoWidth, grainShape,
+    //         drive, tone, chorusMix, multiplyPanOuter, multiplyPanInner,
+    //         distortionEnabled, destroyEnabled, granularEnabled, multiplyEnabled,
+    //         inputGain, outputGain, masterMix
+
     factoryPresets = {
-        // ---- ESSENTIALS ----
-        { "Default", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+        // ======== INIT & ESSENTIALS ========
+        { "Init", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Classic SP", {
-            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
+        { "SP-950 Classic", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.85f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Lo-Fi Chill", {
-            {"bitDepth", 12.0f}, {"sampleRate", 26040.0f}, {"grainMix", 0.4f}, {"grainDensity", 4.0f}, {"grainSize", 40.0f},
-            {"grainScatter", 0.2f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.79f}, {"drive", 0.2f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
+        // ======== DESTROY — SP-950 CHARACTER ========
+        { "SP-950 Hot", {
+            {"destroyFader", 2.0f}, {"destroyIn", 6.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.8f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
 
-        // ---- VINYL & TAPE ----
-        { "Dusty Vinyl", {
-            {"bitDepth", 10.0f}, {"sampleRate", 22000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.55f}, {"drive", 0.1f}, {"tone", 0.35f}, {"mix", 0.6f}, {"chorusMix", 0.0f},
+        // ======== DESTROY FOCUSED ========
+        { "33 RPM Slow", {
+            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.4f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.3f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "45 RPM Clean", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "78 RPM Bright", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.75f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Crushed Tape", {
+            {"destroyFader", 2.4f}, {"destroyIn", 8.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.5f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.35f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "ADC Overdrive", {
+            {"destroyFader", 2.0f}, {"destroyIn", 12.0f}, {"destroyOut", -6.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.8f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Muffled Sampler", {
+            {"destroyFader", 2.8f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.3f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.25f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Vinyl Crackle", {
+            {"destroyFader", 3.0f}, {"destroyIn", 4.0f}, {"destroyOut", -1.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.7f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.4f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Lo-Fi Radio", {
+            {"destroyFader", 2.6f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.45f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.4f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Digital Grit", {
+            {"destroyFader", 1.5f}, {"destroyIn", 6.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.7f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.55f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "SP Warmth", {
+            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.7f},
+            {"filterCutoff", 0.75f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.45f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+
+        // ======== GRANULAR FOCUSED ========
+        { "Cloud Pad", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.7f}, {"grainDensity", 12.0f}, {"grainSize", 80.0f},
+            {"grainScatter", 0.3f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Glitch Rain", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.8f}, {"grainDensity", 15.0f}, {"grainSize", 10.0f},
+            {"grainScatter", 0.9f}, {"stereoWidth", 1.0f}, {"grainShape", 2.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Frozen Moment", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.75f}, {"grainDensity", 8.0f}, {"grainSize", 100.0f},
+            {"grainScatter", 0.1f}, {"stereoWidth", 0.3f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Dust Particles", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.9f}, {"grainDensity", 20.0f}, {"grainSize", 5.0f},
+            {"grainScatter", 1.0f}, {"stereoWidth", 0.8f}, {"grainShape", 3.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+        }},
+        { "Soft Shimmer", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.6f}, {"grainDensity", 6.0f}, {"grainSize", 60.0f},
+            {"grainScatter", 0.2f}, {"stereoWidth", 0.5f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Broken Glass", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.85f}, {"grainDensity", 10.0f}, {"grainSize", 8.0f},
+            {"grainScatter", 0.8f}, {"stereoWidth", 0.7f}, {"grainShape", 2.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Time Stretch", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.8f}, {"grainDensity", 3.0f}, {"grainSize", 100.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Scatter Field", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.7f}, {"grainDensity", 8.0f}, {"grainSize", 40.0f},
+            {"grainScatter", 0.7f}, {"stereoWidth", 0.9f}, {"grainShape", 3.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Grain Storm", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.9f}, {"grainDensity", 18.0f}, {"grainSize", 15.0f},
+            {"grainScatter", 0.6f}, {"stereoWidth", 1.0f}, {"grainShape", 2.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+        }},
+        { "Ambient Wash", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.6f}, {"grainDensity", 5.0f}, {"grainSize", 85.0f},
+            {"grainScatter", 0.15f}, {"stereoWidth", 0.4f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+
+        // ======== SATURATION FOCUSED ========
+        { "Warm Saturation", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.3f}, {"tone", 0.45f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Hot Tape", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.6f}, {"tone", 0.35f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+        }},
+        { "Bright Edge", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.4f}, {"tone", 0.8f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Dark Crunch", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.7f}, {"tone", 0.2f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+        }},
+        { "Subtle Warmth", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.15f}, {"tone", 0.5f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.8f}
+        }},
+        { "Full Overdrive", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 1.0f}, {"tone", 0.4f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -4.0f}, {"masterMix", 1.0f}
+        }},
+
+        // ======== MULTIPLY FOCUSED ========
+        { "Stereo Widen", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.4f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Thick Chorus", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.7f},
+            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.5f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Subtle Double", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.2f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.9f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Wide Spread", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.5f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Mono Thicken", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.6f},
+            {"multiplyPanOuter", 0.5f}, {"multiplyPanInner", 0.5f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Detuned Haze", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.8f},
+            {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.4f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+        }},
+
+        // ======== COMBINATION PRESETS ========
+        { "Lo-Fi Chill", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.8f},
+            {"filterCutoff", 0.7f}, {"grainMix", 0.3f}, {"grainDensity", 5.0f}, {"grainSize", 50.0f},
+            {"grainScatter", 0.2f}, {"stereoWidth", 0.3f}, {"grainShape", 1.0f},
+            {"drive", 0.2f}, {"tone", 0.4f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Tape Machine", {
+            {"destroyFader", 2.2f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.65f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.4f}, {"tone", 0.3f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Tape Hiss", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.45f}, {"tone", 0.4f}, {"mix", 1.0f}, {"chorusMix", 0.15f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+        { "Cosmic Dust", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.7f},
+            {"filterCutoff", 0.8f}, {"grainMix", 0.5f}, {"grainDensity", 10.0f}, {"grainSize", 40.0f},
+            {"grainScatter", 0.5f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.3f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
         { "VHS Memory", {
-            {"bitDepth", 14.0f}, {"sampleRate", 32000.0f}, {"grainMix", 0.3f}, {"grainDensity", 4.0f}, {"grainSize", 60.0f},
-            {"grainScatter", 0.5f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.7f}, {"drive", 0.05f}, {"tone", 0.4f}, {"mix", 0.8f}, {"chorusMix", 0.25f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Worn Cassette", {
-            {"bitDepth", 13.0f}, {"sampleRate", 22050.0f}, {"grainMix", 0.15f}, {"grainDensity", 3.0f}, {"grainSize", 45.0f},
-            {"grainScatter", 0.3f}, {"grainTune", 0.0f}, {"stereoWidth", 0.1f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.6f}, {"drive", 0.2f}, {"tone", 0.35f}, {"mix", 0.7f}, {"chorusMix", 0.1f},
+            {"destroyFader", 2.4f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.9f},
+            {"filterCutoff", 0.6f}, {"grainMix", 0.2f}, {"grainDensity", 4.0f}, {"grainSize", 45.0f},
+            {"grainScatter", 0.3f}, {"stereoWidth", 0.2f}, {"grainShape", 1.0f},
+            {"drive", 0.2f}, {"tone", 0.35f}, {"chorusMix", 0.15f},
             {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.7f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Old Record Player", {
-            {"bitDepth", 11.0f}, {"sampleRate", 20000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.45f}, {"drive", 0.15f}, {"tone", 0.3f}, {"mix", 0.65f}, {"chorusMix", 0.08f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-
-        // ---- SATURATION & WARMTH ----
-        { "Warm Saturation", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.3f}, {"tone", 0.45f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Tube Glow", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.5f}, {"tone", 0.55f}, {"mix", 1.0f}, {"chorusMix", 0.12f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
-        }},
-        { "Subtle Heat", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.15f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.7f}
-        }},
-
-        // ---- BITCRUSHER & DESTROY ----
-        { "Telephone", {
-            {"bitDepth", 8.0f}, {"sampleRate", 8000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.4f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Bit Noir", {
-            {"bitDepth", 6.0f}, {"sampleRate", 16000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.35f}, {"drive", 0.25f}, {"tone", 0.2f}, {"mix", 0.85f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Broken Radio", {
-            {"bitDepth", 4.0f}, {"sampleRate", 8000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.3f}, {"drive", 0.3f}, {"tone", 0.25f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Digital Decay", {
-            {"bitDepth", 5.0f}, {"sampleRate", 11025.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", -5.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.5f}, {"drive", 0.4f}, {"tone", 0.3f}, {"mix", 0.9f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Retro Game", {
-            {"bitDepth", 4.0f}, {"sampleRate", 11025.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.6f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "AM Radio", {
-            {"bitDepth", 10.0f}, {"sampleRate", 12000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.35f}, {"drive", 0.1f}, {"tone", 0.4f}, {"mix", 0.8f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-
-        // ---- GRANULAR & AMBIENT ----
-        { "Crystal Fog", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.6f}, {"grainDensity", 8.0f}, {"grainSize", 80.0f},
-            {"grainScatter", 0.7f}, {"grainTune", 0.0f}, {"stereoWidth", 0.8f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Granular Wash", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.8f}, {"grainDensity", 16.0f}, {"grainSize", 50.0f},
-            {"grainScatter", 0.9f}, {"grainTune", 0.0f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Frozen Time", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.7f}, {"grainDensity", 3.0f}, {"grainSize", 100.0f},
-            {"grainScatter", 0.3f}, {"grainTune", 12.0f}, {"stereoWidth", 0.5f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Cosmic Reverb", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.5f}, {"grainDensity", 12.0f}, {"grainSize", 90.0f},
-            {"grainScatter", 0.8f}, {"grainTune", 0.0f}, {"stereoWidth", 1.0f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.3f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Shimmer Pad", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.65f}, {"grainDensity", 10.0f}, {"grainSize", 70.0f},
-            {"grainScatter", 0.4f}, {"grainTune", 7.0f}, {"stereoWidth", 0.9f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
-        }},
-        { "Octave Below", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.55f}, {"grainDensity", 5.0f}, {"grainSize", 85.0f},
-            {"grainScatter", 0.2f}, {"grainTune", -12.0f}, {"stereoWidth", 0.3f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Grain Cloud", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.9f}, {"grainDensity", 20.0f}, {"grainSize", 15.0f},
-            {"grainScatter", 1.0f}, {"grainTune", 0.0f}, {"stereoWidth", 1.0f}, {"grainShape", 2.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
-        }},
-        { "Glacial Stretch", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.75f}, {"grainDensity", 2.0f}, {"grainSize", 100.0f},
-            {"grainScatter", 0.1f}, {"grainTune", 0.0f}, {"stereoWidth", 0.7f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.2f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Fifth Harmony", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.5f}, {"grainDensity", 6.0f}, {"grainSize", 65.0f},
-            {"grainScatter", 0.3f}, {"grainTune", 7.0f}, {"stereoWidth", 0.5f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.8f}
-        }},
-
-        // ---- MULTIPLY / CHORUS ----
-        { "Warp Drive", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.7f}, {"tone", 0.6f}, {"mix", 1.0f}, {"chorusMix", 0.5f},
+        { "Dream Sequence", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 1.0f}, {"grainMix", 0.5f}, {"grainDensity", 7.0f}, {"grainSize", 70.0f},
+            {"grainScatter", 0.3f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.6f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Broken Transmission", {
+            {"destroyFader", 3.0f}, {"destroyIn", 8.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.5f}, {"grainMix", 0.4f}, {"grainDensity", 8.0f}, {"grainSize", 15.0f},
+            {"grainScatter", 0.8f}, {"stereoWidth", 0.5f}, {"grainShape", 2.0f},
+            {"drive", 0.0f}, {"tone", 0.4f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Underwater", {
+            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.8f},
+            {"filterCutoff", 0.25f}, {"grainMix", 0.4f}, {"grainDensity", 6.0f}, {"grainSize", 90.0f},
+            {"grainScatter", 0.15f}, {"stereoWidth", 0.4f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.3f}, {"chorusMix", 0.3f},
+            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Neon Nights", {
+            {"destroyFader", 1.5f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.7f},
+            {"filterCutoff", 0.8f}, {"grainMix", 0.35f}, {"grainDensity", 8.0f}, {"grainSize", 35.0f},
+            {"grainScatter", 0.4f}, {"stereoWidth", 0.5f}, {"grainShape", 1.0f},
+            {"drive", 0.3f}, {"tone", 0.55f}, {"chorusMix", 0.4f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
         }},
-        { "Thick Chorus", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.7f},
+        { "Industrial", {
+            {"destroyFader", 2.0f}, {"destroyIn", 10.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.6f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.8f}, {"tone", 0.25f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
+        }},
+        { "Ambient Space", {
+            {"destroyFader", 1.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.5f},
+            {"filterCutoff", 0.85f}, {"grainMix", 0.6f}, {"grainDensity", 7.0f}, {"grainSize", 75.0f},
+            {"grainScatter", 0.3f}, {"stereoWidth", 0.7f}, {"grainShape", 1.0f},
+            {"drive", 0.0f}, {"tone", 0.5f}, {"chorusMix", 0.5f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Wide Ensemble", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.05f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.45f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
+        { "Bit Garden", {
+            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.7f}, {"grainMix", 0.45f}, {"grainDensity", 6.0f}, {"grainSize", 35.0f},
+            {"grainScatter", 0.5f}, {"stereoWidth", 0.4f}, {"grainShape", 0.0f},
+            {"drive", 0.0f}, {"tone", 0.45f}, {"chorusMix", 0.0f},
+            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
+            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+        }},
+        { "Warm Blanket", {
+            {"destroyFader", 0.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.7f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.3f}, {"tone", 0.4f}, {"chorusMix", 0.4f},
+            {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.6f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Narrow Stack", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.6f},
-            {"multiplyPanOuter", 0.3f}, {"multiplyPanInner", 0.2f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-
-        // ---- CREATIVE COMBOS ----
-        { "Spectral Dust", {
-            {"bitDepth", 8.0f}, {"sampleRate", 12000.0f}, {"grainMix", 0.5f}, {"grainDensity", 10.0f}, {"grainSize", 20.0f},
-            {"grainScatter", 0.6f}, {"grainTune", 0.0f}, {"stereoWidth", 0.4f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.6f}, {"drive", 0.1f}, {"tone", 0.35f}, {"mix", 0.7f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Circuit Bend", {
-            {"bitDepth", 4.5f}, {"sampleRate", 6000.0f}, {"grainMix", 0.4f}, {"grainDensity", 6.0f}, {"grainSize", 15.0f},
-            {"grainScatter", 0.8f}, {"grainTune", 0.0f}, {"stereoWidth", 0.3f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.5f}, {"drive", 0.5f}, {"tone", 0.3f}, {"mix", 0.9f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Deconstructor", {
-            {"bitDepth", 5.0f}, {"sampleRate", 10000.0f}, {"grainMix", 0.6f}, {"grainDensity", 8.0f}, {"grainSize", 25.0f},
-            {"grainScatter", 0.7f}, {"grainTune", 0.0f}, {"stereoWidth", 0.3f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.45f}, {"drive", 0.6f}, {"tone", 0.35f}, {"mix", 0.8f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.5f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
         }},
         { "Glitch Hop", {
-            {"bitDepth", 7.0f}, {"sampleRate", 16000.0f}, {"grainMix", 0.35f}, {"grainDensity", 8.0f}, {"grainSize", 10.0f},
-            {"grainScatter", 0.9f}, {"grainTune", 0.0f}, {"stereoWidth", 0.5f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.65f}, {"drive", 0.2f}, {"tone", 0.45f}, {"mix", 0.85f}, {"chorusMix", 0.0f},
+            {"destroyFader", 2.0f}, {"destroyIn", 6.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.65f}, {"grainMix", 0.4f}, {"grainDensity", 10.0f}, {"grainSize", 12.0f},
+            {"grainScatter", 0.7f}, {"stereoWidth", 0.5f}, {"grainShape", 2.0f},
+            {"drive", 0.15f}, {"tone", 0.45f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Stutter Edit", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.7f}, {"grainDensity", 15.0f}, {"grainSize", 8.0f},
-            {"grainScatter", 0.5f}, {"grainTune", 0.0f}, {"stereoWidth", 0.4f}, {"grainShape", 3.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Dark Matter", {
-            {"bitDepth", 8.0f}, {"sampleRate", 16000.0f}, {"grainMix", 0.4f}, {"grainDensity", 6.0f}, {"grainSize", 55.0f},
-            {"grainScatter", 0.6f}, {"grainTune", -7.0f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.4f}, {"drive", 0.35f}, {"tone", 0.2f}, {"mix", 0.9f}, {"chorusMix", 0.2f},
-            {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
-        }},
-        { "Pixel Rain", {
-            {"bitDepth", 6.0f}, {"sampleRate", 22050.0f}, {"grainMix", 0.5f}, {"grainDensity", 12.0f}, {"grainSize", 12.0f},
-            {"grainScatter", 0.7f}, {"grainTune", 5.0f}, {"stereoWidth", 0.8f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.7f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 0.8f}, {"chorusMix", 0.15f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
         { "Nebula", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.7f}, {"grainDensity", 8.0f}, {"grainSize", 75.0f},
-            {"grainScatter", 0.5f}, {"grainTune", 0.0f}, {"stereoWidth", 1.0f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.1f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.6f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
-        }},
-        { "Solar Wind", {
-            {"bitDepth", 14.0f}, {"sampleRate", 44100.0f}, {"grainMix", 0.45f}, {"grainDensity", 7.0f}, {"grainSize", 60.0f},
-            {"grainScatter", 0.6f}, {"grainTune", 5.0f}, {"stereoWidth", 0.7f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.85f}, {"drive", 0.05f}, {"tone", 0.5f}, {"mix", 0.7f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Event Horizon", {
-            {"bitDepth", 10.0f}, {"sampleRate", 24000.0f}, {"grainMix", 0.6f}, {"grainDensity", 4.0f}, {"grainSize", 95.0f},
-            {"grainScatter", 0.2f}, {"grainTune", -12.0f}, {"stereoWidth", 0.4f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.5f}, {"drive", 0.3f}, {"tone", 0.25f}, {"mix", 0.85f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.5f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -4.0f}, {"masterMix", 1.0f}
-        }},
-
-        // ---- SUBTLE / PRODUCTION ----
-        { "Gentle Warmth", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.08f}, {"tone", 0.45f}, {"mix", 1.0f}, {"chorusMix", 0.1f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.6f}
-        }},
-        { "Soft Focus", {
-            {"bitDepth", 15.0f}, {"sampleRate", 44100.0f}, {"grainMix", 0.2f}, {"grainDensity", 6.0f}, {"grainSize", 50.0f},
-            {"grainScatter", 0.3f}, {"grainTune", 0.0f}, {"stereoWidth", 0.3f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.9f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 0.5f}, {"chorusMix", 0.2f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.5f}
-        }},
-        { "Parallel Texture", {
-            {"bitDepth", 12.0f}, {"sampleRate", 32000.0f}, {"grainMix", 0.3f}, {"grainDensity", 5.0f}, {"grainSize", 40.0f},
-            {"grainScatter", 0.4f}, {"grainTune", 0.0f}, {"stereoWidth", 0.2f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.75f}, {"drive", 0.15f}, {"tone", 0.4f}, {"mix", 0.6f}, {"chorusMix", 0.15f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.4f}
-        }},
-        { "Vinyl Sauce", {
-            {"bitDepth", 14.0f}, {"sampleRate", 33000.0f}, {"grainMix", 0.0f}, {"grainDensity", 1.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.65f}, {"drive", 0.12f}, {"tone", 0.38f}, {"mix", 0.5f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.7f}
-        }},
-        { "Dream State", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.4f}, {"grainDensity", 6.0f}, {"grainSize", 70.0f},
-            {"grainScatter", 0.5f}, {"grainTune", 0.0f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.05f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.3f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.6f}
-        }},
-
-        // ---- EXPERIMENTAL ----
-        { "Void", {
-            {"bitDepth", 4.0f}, {"sampleRate", 4000.0f}, {"grainMix", 0.8f}, {"grainDensity", 20.0f}, {"grainSize", 5.0f},
-            {"grainScatter", 1.0f}, {"grainTune", -24.0f}, {"stereoWidth", 1.0f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.2f}, {"drive", 0.8f}, {"tone", 0.1f}, {"mix", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", -6.0f}, {"masterMix", 1.0f}
-        }},
-        { "Singularity", {
-            {"bitDepth", 4.0f}, {"sampleRate", 6000.0f}, {"grainMix", 0.9f}, {"grainDensity", 18.0f}, {"grainSize", 8.0f},
-            {"grainScatter", 1.0f}, {"grainTune", 24.0f}, {"stereoWidth", 1.0f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.35f}, {"drive", 1.0f}, {"tone", 0.15f}, {"mix", 1.0f}, {"chorusMix", 0.7f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -8.0f}, {"masterMix", 1.0f}
-        }},
-        { "Time Warp", {
-            {"bitDepth", 10.0f}, {"sampleRate", 18000.0f}, {"grainMix", 0.65f}, {"grainDensity", 5.0f}, {"grainSize", 90.0f},
-            {"grainScatter", 0.4f}, {"grainTune", -5.0f}, {"stereoWidth", 0.5f}, {"grainShape", 0.0f},
-            {"filterCutoff", 0.6f}, {"drive", 0.2f}, {"tone", 0.35f}, {"mix", 0.8f}, {"chorusMix", 0.25f},
-            {"multiplyPanOuter", 0.7f}, {"multiplyPanInner", 0.4f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Interstellar", {
-            {"bitDepth", 14.0f}, {"sampleRate", 44100.0f}, {"grainMix", 0.55f}, {"grainDensity", 7.0f}, {"grainSize", 80.0f},
-            {"grainScatter", 0.6f}, {"grainTune", 12.0f}, {"stereoWidth", 0.9f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.9f}, {"drive", 0.1f}, {"tone", 0.5f}, {"mix", 0.7f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
-        }},
-        { "Supernova", {
-            {"bitDepth", 8.0f}, {"sampleRate", 22050.0f}, {"grainMix", 0.7f}, {"grainDensity", 14.0f}, {"grainSize", 30.0f},
-            {"grainScatter", 0.8f}, {"grainTune", 7.0f}, {"stereoWidth", 1.0f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.75f}, {"drive", 0.4f}, {"tone", 0.4f}, {"mix", 0.9f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -4.0f}, {"masterMix", 1.0f}
-        }},
-        { "Gravity Well", {
-            {"bitDepth", 12.0f}, {"sampleRate", 28000.0f}, {"grainMix", 0.5f}, {"grainDensity", 4.0f}, {"grainSize", 100.0f},
-            {"grainScatter", 0.15f}, {"grainTune", -12.0f}, {"stereoWidth", 0.3f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.45f}, {"drive", 0.25f}, {"tone", 0.25f}, {"mix", 0.85f}, {"chorusMix", 0.2f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
-        }},
-        { "Static Field", {
-            {"bitDepth", 6.0f}, {"sampleRate", 14000.0f}, {"grainMix", 0.3f}, {"grainDensity", 10.0f}, {"grainSize", 10.0f},
-            {"grainScatter", 1.0f}, {"grainTune", 0.0f}, {"stereoWidth", 0.7f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.55f}, {"drive", 0.15f}, {"tone", 0.4f}, {"mix", 0.75f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
-        }},
-        { "Wormhole", {
-            {"bitDepth", 9.0f}, {"sampleRate", 20000.0f}, {"grainMix", 0.6f}, {"grainDensity", 9.0f}, {"grainSize", 45.0f},
-            {"grainScatter", 0.7f}, {"grainTune", -7.0f}, {"stereoWidth", 0.8f}, {"grainShape", 2.0f},
-            {"filterCutoff", 0.5f}, {"drive", 0.3f}, {"tone", 0.3f}, {"mix", 0.85f}, {"chorusMix", 0.5f},
+            {"destroyFader", 1.5f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.6f},
+            {"filterCutoff", 0.9f}, {"grainMix", 0.7f}, {"grainDensity", 10.0f}, {"grainSize", 70.0f},
+            {"grainScatter", 0.5f}, {"stereoWidth", 1.0f}, {"grainShape", 1.0f},
+            {"drive", 0.1f}, {"tone", 0.5f}, {"chorusMix", 0.5f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -5.0f}, {"masterMix", 1.0f}
+            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}
         }},
-        { "Pulsar", {
-            {"bitDepth", 7.0f}, {"sampleRate", 11025.0f}, {"grainMix", 0.45f}, {"grainDensity", 3.0f}, {"grainSize", 20.0f},
-            {"grainScatter", 0.9f}, {"grainTune", 12.0f}, {"stereoWidth", 0.5f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.6f}, {"drive", 0.35f}, {"tone", 0.45f}, {"mix", 0.9f}, {"chorusMix", 0.0f},
+        { "Old Radio", {
+            {"destroyFader", 2.8f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
+            {"filterCutoff", 0.35f}, {"grainMix", 0.0f}, {"grainDensity", 4.0f}, {"grainSize", 30.0f},
+            {"grainScatter", 0.0f}, {"stereoWidth", 0.0f}, {"grainShape", 0.0f},
+            {"drive", 0.5f}, {"tone", 0.3f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
+            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
+            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
         }},
-        { "Quasar", {
-            {"bitDepth", 11.0f}, {"sampleRate", 30000.0f}, {"grainMix", 0.5f}, {"grainDensity", 6.0f}, {"grainSize", 55.0f},
-            {"grainScatter", 0.5f}, {"grainTune", 5.0f}, {"stereoWidth", 0.6f}, {"grainShape", 1.0f},
-            {"filterCutoff", 0.8f}, {"drive", 0.2f}, {"tone", 0.5f}, {"mix", 0.75f}, {"chorusMix", 0.35f},
+        { "Everything On", {
+            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.8f},
+            {"filterCutoff", 0.75f}, {"grainMix", 0.4f}, {"grainDensity", 8.0f}, {"grainSize", 45.0f},
+            {"grainScatter", 0.4f}, {"stereoWidth", 0.5f}, {"grainShape", 1.0f},
+            {"drive", 0.35f}, {"tone", 0.45f}, {"chorusMix", 0.4f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
             {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -1.0f}, {"masterMix", 1.0f}
-        }},
-        { "Comet Trail", {
-            {"bitDepth", 16.0f}, {"sampleRate", 48000.0f}, {"grainMix", 0.6f}, {"grainDensity", 5.0f}, {"grainSize", 85.0f},
-            {"grainScatter", 0.3f}, {"grainTune", 0.0f}, {"stereoWidth", 0.8f}, {"grainShape", 1.0f},
-            {"filterCutoff", 1.0f}, {"drive", 0.0f}, {"tone", 0.5f}, {"mix", 1.0f}, {"chorusMix", 0.25f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 0.7f}
-        }},
-        { "Asteroid Belt", {
-            {"bitDepth", 9.0f}, {"sampleRate", 18000.0f}, {"grainMix", 0.4f}, {"grainDensity", 12.0f}, {"grainSize", 12.0f},
-            {"grainScatter", 0.85f}, {"grainTune", 0.0f}, {"stereoWidth", 0.9f}, {"grainShape", 3.0f},
-            {"filterCutoff", 0.65f}, {"drive", 0.1f}, {"tone", 0.4f}, {"mix", 0.7f}, {"chorusMix", 0.15f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"distortionEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}
+            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}
         }}
     };
 }

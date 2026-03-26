@@ -111,6 +111,121 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
                                             juce::Slider::SliderStyle style,
                                             juce::Slider& slider)
 {
+    if (style == juce::Slider::LinearVertical && slider.getName() == "destroyFader")
+    {
+        // SP-950 vertical fader — RPM labels, semitone ticks, polished thumb, large value
+        const float fx = static_cast<float>(x);
+        const float fy = static_cast<float>(y);
+        const float fw = static_cast<float>(width);
+        const float fh = static_cast<float>(height);
+        const float val = static_cast<float>(slider.getValue());
+
+        // Layout: track fills most of height, text pinned to bottom with gap above it
+        const float valTextH = 20.0f;
+        const float tuneGap = 16.0f; // gap between track bottom and text
+        const float trackTop = fy + 2.0f;
+        const float trackBot = fy + fh - valTextH - tuneGap;
+        const float trackLen = trackBot - trackTop;
+        // Track offset right to leave room for RPM labels on left
+        const float trackX = fx + fw * 0.62f;
+
+        // Track — recessed groove
+        const float trackW = 3.0f;
+        g.setColour(kAccent.withAlpha(0.08f));
+        g.fillRoundedRectangle(trackX - trackW * 0.5f, trackTop, trackW, trackLen, 3.0f);
+        g.setColour(juce::Colour(0xFF000000).withAlpha(0.25f));
+        g.fillRect(trackX - 0.5f, trackTop + 3.0f, 1.0f, trackLen - 6.0f);
+
+        // SP-950 order top→bottom: 33 RPM, 45 RPM, x2, 78 RPM
+        // JUCE vertical: val 3=top, val 0=bottom
+        // Reversed data: index 3=33RPM(top), 2=45RPM, 1=x2, 0=78RPM(bottom)
+        // Ticks per segment (bottom to top): 78→x2: 2 ticks, x2→45: 12 ticks, 45→33: 5 ticks
+        static constexpr int kTicksPerSeg[3] = { 2, 12, 5 };
+        const float tickHalfW = 14.0f;
+        for (int seg = 0; seg < 3; ++seg)
+        {
+            const float segBotY = trackBot - (static_cast<float>(seg) / 3.0f) * trackLen;
+            const float segTopY = trackBot - (static_cast<float>(seg + 1) / 3.0f) * trackLen;
+            const float segSpan = segBotY - segTopY;
+            const int nTicks = kTicksPerSeg[seg];
+            for (int t = 1; t < nTicks; ++t)
+            {
+                const float ty = segBotY - (static_cast<float>(t) / static_cast<float>(nTicks)) * segSpan;
+                g.setColour(kAccent.withAlpha(0.15f));
+                g.fillRect(trackX - tickHalfW, ty - 0.5f, tickHalfW * 2.0f, 1.0f);
+            }
+        }
+
+        // RPM labels (top→bottom: 33, 45, x2, 78 — mapped to values 3, 2, 1, 0)
+        static const juce::StringArray rpmLabels { "78 RPM", "x2", "45 RPM", "33 RPM" };
+        auto labelFont = juce::Font(juce::FontOptions(
+            juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
+        g.setFont(labelFont);
+        for (int i = 0; i < 4; ++i)
+        {
+            // i=0 is at bottom (val=0=78RPM), i=3 is at top (val=3=33RPM)
+            const float posY = trackBot - (static_cast<float>(i) / 3.0f) * trackLen;
+            const float dist = std::abs(val - static_cast<float>(i));
+            const bool nearest = (dist < 0.5f);
+
+            // Major tick — wider, full white when active
+            g.setColour(nearest ? kAccent : kAccent.withAlpha(0.20f));
+            g.fillRect(trackX - tickHalfW - 3.0f, posY - 0.5f, (tickHalfW + 3.0f) * 2.0f, 1.0f);
+
+            // Label to left — full white when active
+            g.setColour(nearest ? kAccent : kAccent.withAlpha(0.35f));
+            g.drawText(rpmLabels[i],
+                       static_cast<int>(fx), static_cast<int>(posY - 7.0f),
+                       static_cast<int>(trackX - tickHalfW - fx - 5.0f), 14,
+                       juce::Justification::centredRight);
+        }
+
+        // Thumb — standard JUCE vertical: val=0 at bottom, val=3 at top
+        const float thumbY = trackBot - (val / 3.0f) * trackLen;
+        const float thumbW = 28.0f;
+        const float thumbH = 12.0f;
+        const float thumbLeft = trackX - thumbW * 0.5f;
+        const float thumbTopY = thumbY - thumbH * 0.5f;
+
+        juce::ColourGradient grad(juce::Colour(0xFF999999), thumbLeft, thumbTopY,
+                                  juce::Colour(0xFF555555), thumbLeft, thumbTopY + thumbH, false);
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(thumbLeft, thumbTopY, thumbW, thumbH, 3.0f);
+
+        g.setColour(kAccent.withAlpha(0.7f));
+        g.fillRect(thumbLeft + 4.0f, thumbY - 0.5f, thumbW - 8.0f, 1.0f);
+
+        g.setColour(kAccent.withAlpha(0.15f));
+        g.drawRoundedRectangle(thumbLeft, thumbTopY, thumbW, thumbH, 3.0f, 1.0f);
+
+        // Large value text below: "Tune: X st"
+        // Semitones relative to 45 RPM (which is at fader position 2)
+        // 0=78RPM(+9.5st), 1=x2(+12st), 2=45RPM(0st), 3=33RPM(-5.5st)
+        const float faderPos = val;
+        int semitones = 0;
+        if (faderPos <= 1.0f)
+            semitones = static_cast<int>(std::round(9.5f + (12.0f - 9.5f) * faderPos));  // 78→x2: +9.5 to +12
+        else if (faderPos <= 2.0f)
+            semitones = static_cast<int>(std::round(12.0f * (2.0f - faderPos)));  // x2→45: +12 to 0
+        else
+            semitones = static_cast<int>(std::round(-5.5f * (faderPos - 2.0f)));  // 45→33: 0 to -5.5
+
+        auto valFont = juce::Font(juce::FontOptions(
+            juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
+        g.setFont(valFont);
+        g.setColour(kFg);
+        juce::String tuneText = "Tune: ";
+        if (semitones > 0) tuneText += "+" + juce::String(semitones) + " st";
+        else if (semitones < 0) tuneText += juce::String(semitones) + " st";
+        else tuneText += "0 st";
+        // Center text with the track X position
+        const int textW = 120;
+        g.drawText(tuneText, static_cast<int>(trackX) - textW / 2, static_cast<int>(fy + fh - valTextH),
+                   textW, static_cast<int>(valTextH), juce::Justification::centred);
+
+        return;
+    }
+
     if (style == juce::Slider::LinearVertical)
     {
         // Vertical gain fader — rectangle thumb with dB value, hover highlight below
@@ -985,7 +1100,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
       starfield(p.apvts, p.outputLevelLeft, p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(960, 540);
+    setSize(800, 780);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
@@ -994,10 +1109,30 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(driveKnob, "drive", "Drive");
     setupKnob(toneKnob, "tone", "Tone");
 
-    setupKnob(bitsKnob, "bitDepth", "Bits");
-    setupKnob(rateKnob, "sampleRate", "Rate");
-    setupKnob(cutoffKnob, "filterCutoff", "Cutoff");
-    setupKnob(mixKnob, "mix", "Mix");
+    setupKnob(destroyInKnob, "destroyIn", "In");
+    setupKnob(cutoffKnob, "filterCutoff", "Filter");
+    setupKnob(destroyOutKnob, "destroyOut", "Out");
+    setupKnob(destroyMixKnob, "destroyMix", "Mix");
+
+    // SP-950 style vertical fader with RPM snap points
+    destroyFader.setSliderStyle(juce::Slider::LinearVertical);
+    destroyFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    destroyFader.setName("destroyFader");
+    destroyFaderAttachment = std::make_unique<SliderAttachment>(processorRef.apvts, "destroyFader", destroyFader);
+    // Snap to nearest semitone tick (reversed: 0=78RPM, 1=x2, 2=45RPM, 3=33RPM)
+    // 78→x2: 2 ticks, x2→45: 12 ticks, 45→33: 5 ticks
+    destroyFader.onValueChange = [this]() {
+        const double raw = destroyFader.getValue();
+        const int seg = juce::jlimit(0, 2, static_cast<int>(raw));
+        const double segFrac = raw - static_cast<double>(seg);
+        static constexpr int kTicks[3] = { 2, 12, 5 };
+        const double step = 1.0 / static_cast<double>(kTicks[seg]);
+        const double snappedFrac = std::round(segFrac / step) * step;
+        const double snapped = juce::jlimit(0.0, 3.0, static_cast<double>(seg) + snappedFrac);
+        if (std::abs(raw - snapped) > 0.001)
+            destroyFader.setValue(snapped, juce::sendNotificationAsync);
+    };
+    addAndMakeVisible(destroyFader);
 
     setupKnob(grainMixKnob, "grainMix", "Mix");
     setupKnob(grainDensityKnob, "grainDensity", "Density");
@@ -1015,8 +1150,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
     setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
     setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
-
-    setupKnob(tuneKnob, "grainTune", "Pitch");
 
     // Right side knobs: Input, Output, Dry/Wet
     setupKnob(inputGainKnob, "inputGain", "Input");
@@ -1223,7 +1356,19 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             }
         };
     };
-    dimSection(destroyToggle, { &bitsKnob, &rateKnob, &cutoffKnob, &mixKnob, &tuneKnob });
+    dimSection(destroyToggle, { &destroyInKnob, &cutoffKnob, &destroyOutKnob, &destroyMixKnob });
+    // Also dim the fader with the destroy section
+    {
+        auto& toggle = destroyToggle;
+        auto* fader = &destroyFader;
+        auto origOnClick = toggle.onClick;
+        toggle.onClick = [origOnClick, &toggle, fader]() {
+            if (origOnClick) origOnClick();
+            const bool on = toggle.getToggleState();
+            fader->setEnabled(on);
+            fader->setAlpha(on ? 1.0f : 0.4f);
+        };
+    }
     dimSection(granularToggle, { &grainMixKnob, &grainDensityKnob, &grainSizeKnob, &grainScatterKnob, &widthKnob });
     // Also disable the grain shape combobox with the granular section
     {
@@ -1275,7 +1420,7 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
                                const juce::String& labelText)
 {
     knob.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    knob.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 60, 12);
+    knob.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 70, 16);
     knob.slider.setColour(juce::Slider::textBoxTextColourId, StardustLookAndFeel::kFg);
     knob.slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
@@ -1289,16 +1434,7 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     }
 
     // Set value formatting AFTER attachment (attachment overwrites textFromValueFunction)
-    if (paramId == "bitDepth")
-        knob.slider.textFromValueFunction = [](double v) {
-            return juce::String(v, 1) + " bits";
-        };
-    else if (paramId == "sampleRate")
-        knob.slider.textFromValueFunction = [](double v) {
-            return (v >= 1000.0) ? juce::String(v / 1000.0, 1) + " kHz"
-                                 : juce::String(static_cast<int>(v)) + " Hz";
-        };
-    else if (paramId == "grainSize")
+    if (paramId == "grainSize")
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v))) + " ms";
         };
@@ -1306,27 +1442,19 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v)));
         };
-    else if (paramId == "grainTune")
+    else if (paramId == "outputGain" || paramId == "inputGain"
+             || paramId == "destroyIn" || paramId == "destroyOut")
         knob.slider.textFromValueFunction = [](double v) {
-            const int st = static_cast<int>(std::round(v));
-            if (st > 0) return juce::String("+") + juce::String(st) + " st";
-            if (st < 0) return juce::String(st) + " st";
-            return juce::String("0 st");
-        };
-    else if (paramId == "outputGain" || paramId == "inputGain")
-        knob.slider.textFromValueFunction = [](double v) {
-            const int db = static_cast<int>(std::round(v));
-            if (db > 0) return juce::String("+") + juce::String(db) + " dB";
-            if (db < 0) return juce::String(db) + " dB";
-            return juce::String("0 dB");
+            if (v > 0.05) return juce::String("+") + juce::String(v, 1) + " dB";
+            if (v < -0.05) return juce::String(v, 1) + " dB";
+            return juce::String("0.0 dB");
         };
     else if (paramId == "filterCutoff")
         knob.slider.textFromValueFunction = [](double v) {
-            const double freq = 200.0 * std::pow(100.0, v);
-            return (freq >= 1000.0) ? juce::String(freq / 1000.0, 1) + " kHz"
-                                    : juce::String(static_cast<int>(freq)) + " Hz";
+            return juce::String(static_cast<int>(std::round(v * 99.0)));
         };
-    else if (paramId == "mix" || paramId == "grainMix"
+    else if (paramId == "destroyMix"
+             || paramId == "grainMix"
              || paramId == "grainScatter" || paramId == "stereoWidth"
              || paramId == "chorusMix" || paramId == "drive" || paramId == "tone"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
@@ -1352,9 +1480,19 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
 
     knob.label.setText(labelText, juce::dontSendNotification);
     knob.label.setJustificationType(juce::Justification::centred);
-    knob.label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.5f, juce::Font::bold));
+    knob.label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
     knob.label.setColour(juce::Label::textColourId, StardustLookAndFeel::kFg);
     addAndMakeVisible(knob.label);
+
+    // Set value text box font to match "Tune: X st" style (13px bold monospace)
+    for (int i = 0; i < knob.slider.getNumChildComponents(); ++i)
+    {
+        if (auto* label = dynamic_cast<juce::Label*>(knob.slider.getChildComponent(i)))
+        {
+            label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
+            break;
+        }
+    }
 }
 
 void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds)
@@ -1686,22 +1824,24 @@ void StardustEditor::paint(juce::Graphics& g)
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.65f));
     g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
-    // 2-column grid layout constants (must match resized())
+    // Grid layout constants (must match resized())
     const int headerH = 14;
-    const int headerToKnob = 8;
+    const int headerToKnob = 16;
     const int knobH = 68;
-    const int topPad = 8;
-    const int sectionBottomPad = 12;
-    const int cellPadX = 12;
+    const int topPad = 16;
+    const int sectionBottomPad = 16;
+    const int cellPadX = 16;
     const int dividerGap = 1;
     const int panelW = controlsBounds.getWidth();
     const int cellW = (panelW - dividerGap) / 2;
     const int leftX = controlsBounds.getX();
     const int rightX = leftX + cellW + dividerGap;
-    const int sectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
+    const int rightSectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
 
-    const int row1Top = controlsBounds.getY();
-    const int row2Top = row1Top + sectionH + dividerGap;
+    const int panelTop = controlsBounds.getY();
+    const int rightRow1Top = panelTop;
+    const int rightRow2Top = rightRow1Top + rightSectionH + dividerGap;
+    const int rightRow3Top = rightRow2Top + rightSectionH + dividerGap;
 
     const int labelOffset = 32;
     const auto drawSectionLabel = [&](const char* name, int cellX, int hdrY) {
@@ -1710,20 +1850,22 @@ void StardustEditor::paint(juce::Graphics& g)
         g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
     };
 
-    // Grid dividers (1px lines between cells)
+    // Grid dividers
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
-    // Vertical divider between columns
+    // Vertical divider between columns (full height)
     const float divX = static_cast<float>(leftX + cellW) + 0.5f;
-    g.drawLine(divX, static_cast<float>(row1Top + 8), divX, static_cast<float>(row2Top + sectionH - 8), 1.0f);
-    // Horizontal divider between row 1 and row 2
-    const float divY1 = static_cast<float>(row2Top) - 0.5f;
-    g.drawLine(cpf.getX() + 8, divY1, cpf.getRight() - 8, divY1, 1.0f);
+    g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(controlsBounds.getBottom() - 8), 1.0f);
+    // Horizontal dividers on right column
+    const float divY1 = static_cast<float>(rightRow2Top) - 0.5f;
+    g.drawLine(divX + 4, divY1, cpf.getRight() - 8, divY1, 1.0f);
+    const float divY2 = static_cast<float>(rightRow3Top) - 0.5f;
+    g.drawLine(divX + 4, divY2, cpf.getRight() - 8, divY2, 1.0f);
 
-    // Section labels — spaced letters
-    drawSectionLabel("D E S T R O Y",      leftX,  row1Top + topPad);
-    drawSectionLabel("G R A N U L A R",    rightX, row1Top + topPad);
-    drawSectionLabel("S A T U R A T I O N", leftX,  row2Top + topPad);
-    drawSectionLabel("M U L T I P L Y",    rightX, row2Top + topPad);
+    // Section labels
+    drawSectionLabel("D E S T R O Y",       leftX,  panelTop + topPad);
+    drawSectionLabel("G R A N U L A R",     rightX, rightRow1Top + topPad);
+    drawSectionLabel("M U L T I P L Y",     rightX, rightRow2Top + topPad);
+    drawSectionLabel("S A T U R A T I O N",  rightX, rightRow3Top + topPad);
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -1950,8 +2092,8 @@ void StardustEditor::mouseDown(const juce::MouseEvent& e)
 
 void StardustEditor::resized()
 {
-    const int margin = 12;
-    const int gap = 12;
+    const int margin = 8;
+    const int gap = 10;
 
     const int panelW = getWidth() - margin * 2;
 
@@ -1959,14 +2101,14 @@ void StardustEditor::resized()
     const int barH = 22;
     bottomBarBounds = { margin, getHeight() - margin - barH, panelW, barH };
 
-    // Layout constants for sections
-    const int knobW = 87;
+    // Layout constants for sections (uniform 16px padding on all sides)
+    const int knobW = 78;
     const int knobH = 68;
     const int headerH = 14;
-    const int headerToKnob = 8;
-    const int topPad = 8;
-    const int sectionBottomPad = 12;
-    const int cellPadX = 12;
+    const int headerToKnob = 16;
+    const int topPad = 16;
+    const int sectionBottomPad = 16;
+    const int cellPadX = 16;
 
     // Grid: 2 columns with a divider gap
     const int dividerGap = 1;
@@ -1974,11 +2116,9 @@ void StardustEditor::resized()
     const int leftX = margin;
     const int rightX = margin + cellW + dividerGap;
 
-    // Section height: topPad + header + headerToKnob + knobs + sectionBottomPad
-    const int sectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
-
-    // Controls panel: 2 rows of sections (no output section — gain faders are on meters)
-    const int panelH = sectionH * 2 + dividerGap;
+    // Right column: 3 sections stacked. DESTROY spans full left column.
+    const int rightSectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
+    const int panelH = rightSectionH * 3 + dividerGap * 2;
     controlsBounds = { margin, bottomBarBounds.getY() - gap - panelH, panelW, panelH };
 
     // Galaxy viewport: top, between top margin and controls
@@ -2031,9 +2171,11 @@ void StardustEditor::resized()
         updateFavoriteButton();
     };
 
-    // ---- 2-column grid layout ----
-    const int row1Top = controlsBounds.getY();
-    const int row2Top = row1Top + sectionH + dividerGap;
+    // ---- Grid layout: DESTROY full left, 3 sections stacked right ----
+    const int panelTop = controlsBounds.getY();
+    const int rightRow1Top = panelTop;
+    const int rightRow2Top = rightRow1Top + rightSectionH + dividerGap;
+    const int rightRow3Top = rightRow2Top + rightSectionH + dividerGap;
 
     // Helper: compute knob grid X positions centered within a cell
     auto cellGridX = [&](int cellX, int numKnobs) {
@@ -2045,22 +2187,41 @@ void StardustEditor::resized()
     const int toggleH = 14;
     const int toggleW = 26;
 
-    // --- ROW 1 LEFT: DESTROY (5 knobs) ---
+    // --- LEFT COLUMN: DESTROY (spans full height — vertical fader left, 3 knobs stacked right) ---
     {
-        const int hdrY = row1Top + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(leftX, 5);
-        layoutKnobInBounds(mixKnob,    { gx,              knobY, knobW, knobH });
-        layoutKnobInBounds(bitsKnob,   { gx + knobW,      knobY, knobW, knobH });
-        layoutKnobInBounds(rateKnob,   { gx + knobW * 2,  knobY, knobW, knobH });
-        layoutKnobInBounds(tuneKnob,   { gx + knobW * 3,  knobY, knobW, knobH });
-        layoutKnobInBounds(cutoffKnob, { gx + knobW * 4,  knobY, knobW, knobH });
+        const int hdrY = panelTop + topPad;
+        const int contentTop = hdrY + headerH + headerToKnob;
+        const int contentBot = controlsBounds.getBottom() - 8; // minimal bottom margin
+        const int contentH = contentBot - contentTop;
+
+        // Split left column into fader area (left) and knob column (right)
+        const int knobColW = knobW + 4; // knob column width
+        const int faderAreaW = cellW - cellPadX * 2 - knobColW - 8; // 8px gap between fader area and knobs
+        const int knobAreaX = leftX + cellPadX + faderAreaW + 8;
+
+        // 4 knobs stacked vertically: In, Out, Filter, Mix
+        const int totalKnobH = knobH * 4;
+        const int knobGap = (contentH - totalKnobH) / 5;
+        const int knob1Y = contentTop + knobGap;
+        const int knob2Y = knob1Y + knobH + knobGap;
+        const int knob3Y = knob2Y + knobH + knobGap;
+        const int knob4Y = knob3Y + knobH + knobGap;
+        layoutKnobInBounds(destroyInKnob,  { knobAreaX, knob1Y, knobW, knobH });
+        layoutKnobInBounds(destroyOutKnob, { knobAreaX, knob2Y, knobW, knobH });
+        layoutKnobInBounds(cutoffKnob,     { knobAreaX, knob3Y, knobW, knobH });
+        layoutKnobInBounds(destroyMixKnob, { knobAreaX, knob4Y, knobW, knobH });
+
+        // Vertical fader spans full content height, wider for RPM labels
+        const int faderVisualW = faderAreaW;
+        const int faderX = leftX + cellPadX;
+        destroyFader.setBounds(faderX, contentTop, faderVisualW, contentH);
+
         destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- ROW 1 RIGHT: GRANULAR (5 knobs + shape dropdown) ---
+    // --- RIGHT ROW 1: GRANULAR (5 knobs + shape dropdown) ---
     {
-        const int hdrY = row1Top + topPad;
+        const int hdrY = rightRow1Top + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
         const int gx = cellGridX(rightX, 5);
         layoutKnobInBounds(grainMixKnob,     { gx,              knobY, knobW, knobH });
@@ -2075,25 +2236,25 @@ void StardustEditor::resized()
         grainShapeBox.setBounds(rightX + cellW - cellPadX - shapeW, hdrY - 1, shapeW, shapeH);
     }
 
-    // --- ROW 2 LEFT: SATURATION (2 knobs, centered) ---
+    // --- RIGHT ROW 2: MULTIPLY (3 knobs, centered) ---
     {
-        const int hdrY = row2Top + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(leftX, 2);
-        layoutKnobInBounds(driveKnob, { gx,          knobY, knobW, knobH });
-        layoutKnobInBounds(toneKnob,  { gx + knobW,  knobY, knobW, knobH });
-        distortionToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- ROW 2 RIGHT: MULTIPLY (3 knobs, centered) ---
-    {
-        const int hdrY = row2Top + topPad;
+        const int hdrY = rightRow2Top + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
         const int gx = cellGridX(rightX, 3);
         layoutKnobInBounds(chorusMixKnob, { gx,              knobY, knobW, knobH });
         layoutKnobInBounds(panOuterKnob,  { gx + knobW,      knobY, knobW, knobH });
         layoutKnobInBounds(panInnerKnob,  { gx + knobW * 2,  knobY, knobW, knobH });
         multiplyToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
+    }
+
+    // --- RIGHT ROW 3: SATURATION (2 knobs, centered) ---
+    {
+        const int hdrY = rightRow3Top + topPad;
+        const int knobY = hdrY + headerH + headerToKnob;
+        const int gx = cellGridX(rightX, 2);
+        layoutKnobInBounds(driveKnob, { gx,          knobY, knobW, knobH });
+        layoutKnobInBounds(toneKnob,  { gx + knobW,  knobY, knobW, knobH });
+        distortionToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
     // Right padding: 3 small knobs stacked vertically (Input, Output, Dry/Wet)

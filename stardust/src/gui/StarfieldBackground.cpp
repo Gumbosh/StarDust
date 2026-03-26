@@ -41,8 +41,7 @@ void StarfieldBackground::timerCallback()
 StarfieldParams StarfieldBackground::readParams() const
 {
     return StarfieldParams {
-        *apvts.getRawParameterValue("bitDepth"),
-        *apvts.getRawParameterValue("sampleRate"),
+        *apvts.getRawParameterValue("destroyFader"),
         *apvts.getRawParameterValue("grainMix"),
         *apvts.getRawParameterValue("grainDensity"),
         *apvts.getRawParameterValue("grainSize"),
@@ -51,8 +50,9 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("filterCutoff"),
         *apvts.getRawParameterValue("drive"),
         *apvts.getRawParameterValue("tone"),
-        *apvts.getRawParameterValue("grainTune"),
-        *apvts.getRawParameterValue("mix"),
+        *apvts.getRawParameterValue("destroyIn"),
+        *apvts.getRawParameterValue("destroyOut"),
+        *apvts.getRawParameterValue("destroyMix"),
         *apvts.getRawParameterValue("chorusMix"),
         *apvts.getRawParameterValue("multiplyPanOuter"),
         *apvts.getRawParameterValue("multiplyPanInner"),
@@ -74,17 +74,18 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 {
     juce::Image img(juce::Image::ARGB, kRenderWidth, kRenderHeight, false);
 
-    const float crushAmount = (16.0f - params.bitDepth) / 12.0f;
-    // DESTROY mix → galaxy opacity (when destroy is off, treat as mix=0)
-    const float effectiveMix = params.destroyEnabled ? params.mix : 0.0f;
-    const float galaxyIntensity = 0.3f + effectiveMix * 0.7f;
+    const float crushAmount = (16.0f - 12.0f) / 12.0f;
+    // DESTROY Mix → galaxy opacity (0% mix = dim, 100% = full)
+    const float mixFactor = params.destroyEnabled ? params.destroyMix : 0.0f;
+    const float galaxyIntensity = 0.3f + mixFactor * 0.7f;
     const float starIntensity = params.grain;   // GRAIN → star opacity (0 = invisible, 1 = full)
     const float scatter = params.grainScatter;
-    const float rateNorm = (params.sampleRate - 4000.0f) / 44000.0f;
+    // Map fader position to normalized rate (0=slowest, 1=fastest)
+    const float rateNorm = juce::jlimit(0.0f, 1.0f, 1.0f - params.destroyFader / 3.0f);
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
     const float scanlineDarken = 0.55f + rateNorm * 0.4f;
     const float blurAmount = 1.0f - params.filterCutoff; // filterCutoff is 0.0-1.0
-    const int blockSize = std::max(1, static_cast<int>(9.0f - params.bitDepth / 2.0f));
+    const int blockSize = std::max(1, static_cast<int>(9.0f - 12.0f / 2.0f));
 
     const float fw = static_cast<float>(kRenderWidth);
     const float fh = static_cast<float>(kRenderHeight);
@@ -94,10 +95,16 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
     // Galaxy parameters — static, no audio reactivity
     const float rotationSpeed = 0.3f;
-    const float tiltAmount = params.destroyEnabled ? (params.grainTune / 24.0f) : 0.0f;
+    // Tilt based on fader offset from center (45 RPM = 1.0)
+    const float tiltAmount = params.destroyEnabled ? ((params.destroyFader - 1.0f) / 2.0f) : 0.0f;
     const float spiralTightness = 0.03f;
-    const float coreRadius = 25.0f;
-    const float coreBrightness = 0.7f * galaxyIntensity;
+    // IN gain → brighter, wider core (0dB=normal, +12dB=hot glow)
+    const float inNorm = juce::jlimit(0.0f, 1.0f, (params.destroyIn + 12.0f) / 24.0f); // 0..1
+    const float coreRadius = 25.0f + inNorm * 20.0f;
+    const float coreBrightness = (0.7f + inNorm * 0.5f) * galaxyIntensity;
+    // OUT gain → overall brightness boost
+    const float outNorm = juce::jlimit(0.0f, 1.0f, (params.destroyOut + 12.0f) / 24.0f);
+    const float outBoost = 1.0f + outNorm * 0.6f;
     const float armBrightness = (0.15f + crushAmount * 0.2f) * galaxyIntensity;
 
     const float densityNorm = (params.grainDensity - 1.0f) / 19.0f;
@@ -153,14 +160,15 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
             pixel *= dustLane;
             pixel += 0.01f * galaxyIntensity;
 
-            pixelData[static_cast<size_t>(y * kRenderWidth + x)] = pixel;
+            pixelData[static_cast<size_t>(y * kRenderWidth + x)] = pixel * outBoost;
         }
     }
 
-    // ---- Blur (only when destroy is active) ----
+    // ---- Blur (only when destroy is active) — stronger effect for visible filter response ----
     if (blurAmount > 0.05f && params.destroyEnabled)
     {
-        const int blurPasses = static_cast<int>(blurAmount * 8.0f);
+        const int blurPasses = static_cast<int>(blurAmount * 16.0f);
+        const int blurRadius = 2 + static_cast<int>(blurAmount * 3.0f); // 2-5px radius
         auto& temp = tempBuffer_;
 
         for (int pass = 0; pass < blurPasses; ++pass)
@@ -169,7 +177,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 for (int x = 0; x < kRenderWidth; ++x)
                 {
                     float sum = 0.0f; int count = 0;
-                    for (int dx = -2; dx <= 2; ++dx)
+                    for (int dx = -blurRadius; dx <= blurRadius; ++dx)
                     {
                         const int nx = x + dx;
                         if (nx >= 0 && nx < kRenderWidth)
@@ -182,7 +190,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 for (int x = 0; x < kRenderWidth; ++x)
                 {
                     float sum = 0.0f; int count = 0;
-                    for (int dy = -2; dy <= 2; ++dy)
+                    for (int dy = -blurRadius; dy <= blurRadius; ++dy)
                     {
                         const int ny = y + dy;
                         if (ny >= 0 && ny < kRenderHeight)

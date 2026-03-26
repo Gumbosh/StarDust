@@ -166,12 +166,12 @@ private:
     void updateFavoriteButton();
 
     LabeledKnob driveKnob, toneKnob;
-    LabeledKnob bitsKnob, rateKnob, cutoffKnob, mixKnob;
+    LabeledKnob destroyInKnob, cutoffKnob, destroyOutKnob, destroyMixKnob;
+    juce::Slider destroyFader;
+    std::unique_ptr<SliderAttachment> destroyFaderAttachment;
     LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
     LabeledKnob chorusMixKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
-
-    LabeledKnob tuneKnob;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 

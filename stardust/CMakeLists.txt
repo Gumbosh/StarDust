@@ -25,6 +25,8 @@ target_sources(Stardust PRIVATE
     src/PluginEditor.h
     src/dsp/BitCrusher.cpp
     src/dsp/BitCrusher.h
+    src/dsp/DestroyDrive.cpp
+    src/dsp/DestroyDrive.h
     src/dsp/GranularEngine.cpp
     src/dsp/GranularEngine.h
     src/dsp/ButterworthFilter.cpp

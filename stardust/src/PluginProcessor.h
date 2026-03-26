@@ -4,6 +4,7 @@
 #include <set>
 #include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
+#include "dsp/DestroyDrive.h"
 #include "dsp/GranularEngine.h"
 #include "dsp/ButterworthFilter.h"
 #include "dsp/ChorusEngine.h"
@@ -93,6 +94,7 @@ private:
 
     Saturation saturation;
     BitCrusher bitCrusher;
+    DestroyDrive destroyDrive;
     GranularEngine granularEngine;
     ButterworthFilter butterworthFilter;
     ChorusEngine chorusEngine;

@@ -4,8 +4,7 @@
 
 struct StarfieldParams
 {
-    float bitDepth = 12.0f;
-    float sampleRate = 26040.0f;
+    float destroyFader = 1.0f;  // 0=33RPM, 1=45RPM, 2=x2, 3=78RPM (continuous)
     float grain = 0.0f;
     float grainDensity = 4.0f;
     float grainSize = 30.0f;
@@ -14,8 +13,9 @@ struct StarfieldParams
     float filterCutoff = 99.0f;
     float drive = 0.0f;
     float tone = 0.5f;
-    float grainTune = 0.0f;
-    float mix = 1.0f;
+    float destroyIn = 0.0f;
+    float destroyOut = 0.0f;
+    float destroyMix = 1.0f;
     float chorusMix = 0.0f;
     float panOuter = 1.0f;
     float panInner = 0.8f;
