@@ -57,13 +57,14 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
 
     // Detect bipolar knob (min < 0 and max > 0, e.g. -24 to +24)
     const bool isBipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+    const bool isHovered = slider.isEnabled() && (slider.isMouseOver(true) || slider.isMouseButtonDown());
 
-    // Background track arc (unselected range)
+    // Background track arc — brightens on hover
     {
         juce::Path bgArc;
         bgArc.addCentredArc(centreX, centreY, radius, radius, 0.0f,
                              rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour(kFgGhost.withAlpha(0.45f));
+        g.setColour(isHovered ? kFgGhost.withAlpha(0.7f) : kFgGhost.withAlpha(0.45f));
         g.strokePath(bgArc, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved,
                                                    juce::PathStrokeType::rounded));
     }
@@ -89,7 +90,7 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
     // Tick marks at start, center, end
     const float tickOuter = radius + 5.0f;
     const float tickInner = radius + 2.0f;
-    g.setColour(kFgGhost.withAlpha(0.25f));
+    g.setColour(kFgGhost.withAlpha(isHovered ? 0.4f : 0.25f));
     for (int i = 0; i < 3; ++i)
     {
         const float tickAngle = rotaryStartAngle
@@ -99,8 +100,6 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
                    centreX + tickOuter * std::sin(tickAngle),
                    centreY - tickOuter * std::cos(tickAngle), 0.7f);
     }
-
-    // No dot, no pointer — just the arc
 }
 
 void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
@@ -332,10 +331,10 @@ void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
     const bool on = button.getToggleState();
 
     // Track background
-    g.setColour(on ? kAccent.withAlpha(0.25f) : kFgGhost.withAlpha(0.55f));
+    g.setColour(on ? kAccent.withAlpha(0.15f) : kFgGhost.withAlpha(0.25f));
     g.fillRoundedRectangle(pillX, pillY, w, h, radius);
 
-    // Track border (always full visibility)
+    // Track border
     g.setColour(on ? kAccent.withAlpha(0.6f) : kFgGhost.withAlpha(0.8f));
     g.drawRoundedRectangle(pillX, pillY, w, h, radius, 1.0f);
 
@@ -345,19 +344,24 @@ void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
 
     if (on)
     {
-        // Glow
-        g.setColour(kAccent.withAlpha(0.15f));
-        g.fillEllipse(knobX - 1.0f, knobY - 1.0f, knobSize + 2.0f, knobSize + 2.0f);
+        // Subtle white glow behind filled knob
+        g.setColour(kAccent.withAlpha(0.2f));
+        g.fillEllipse(knobX - 2.0f, knobY - 2.0f, knobSize + 4.0f, knobSize + 4.0f);
+        // Filled white circle
+        g.setColour(kAccent);
+        g.fillEllipse(knobX, knobY, knobSize, knobSize);
     }
-
-    // Dot
-    g.setColour(on ? kAccent : kFgDim);
-    g.fillEllipse(knobX, knobY, knobSize, knobSize);
+    else
+    {
+        // Empty outline circle
+        g.setColour(kFgDim);
+        g.drawEllipse(knobX + 0.5f, knobY + 0.5f, knobSize - 1.0f, knobSize - 1.0f, 1.2f);
+    }
 
     // Hover highlight
     if (shouldDrawButtonAsHighlighted)
     {
-        g.setColour(kAccent.withAlpha(0.05f));
+        g.setColour(kAccent.withAlpha(0.06f));
         g.fillRoundedRectangle(pillX, pillY, w, h, radius);
     }
 }
@@ -476,6 +480,31 @@ void StardustLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& bu
         g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
         g.fillEllipse(cx + spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
     }
+    else if (button.getButtonText() == "<" || button.getButtonText() == ">")
+    {
+        // Draw arrow chevrons as paths for pixel-perfect vertical centering
+        auto baseCol = button.findColour(juce::TextButton::textColourOffId);
+        g.setColour(shouldDrawButtonAsHighlighted ? kAccent : baseCol);
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        const float arrowH = 5.0f;
+        const float arrowW = 3.5f;
+        const bool isLeft = button.getButtonText() == "<";
+        juce::Path arrow;
+        if (isLeft)
+        {
+            arrow.startNewSubPath(cx + arrowW, cy - arrowH);
+            arrow.lineTo(cx - arrowW, cy);
+            arrow.lineTo(cx + arrowW, cy + arrowH);
+        }
+        else
+        {
+            arrow.startNewSubPath(cx - arrowW, cy - arrowH);
+            arrow.lineTo(cx + arrowW, cy);
+            arrow.lineTo(cx - arrowW, cy + arrowH);
+        }
+        g.strokePath(arrow, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
     else
     {
         auto baseCol = button.findColour(juce::TextButton::textColourOffId);
@@ -483,7 +512,6 @@ void StardustLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& bu
 
         if (isDialogBtn)
         {
-            // Dialog buttons: hover dims to grayish white instead of full accent
             g.setColour(shouldDrawButtonAsHighlighted ? baseCol.withAlpha(0.65f) : baseCol);
             g.setFont(juce::FontOptions(13.0f).withStyle("Bold"));
         }
@@ -1086,7 +1114,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
       starfield(p.apvts, p.outputLevelLeft, p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(800, 780);
+    setSize(860, 780);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
@@ -1809,7 +1837,7 @@ void StardustEditor::generateBackgroundTexture()
     juce::Random rng(42); // fixed seed for deterministic texture
 
     // Sparse dim dots — lo-fi feel matching the dithered visualizer
-    const int numDots = 450;
+    const int numDots = 1350;
     for (int i = 0; i < numDots; ++i)
     {
         const int dx = rng.nextInt(texW);
@@ -1881,8 +1909,8 @@ void StardustEditor::paint(juce::Graphics& g)
 
     const int labelOffset = 32;
     const auto drawSectionLabel = [&](const char* name, int cellX, int hdrY) {
-        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain));
-        g.setColour(StardustLookAndFeel::kFg);
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
+        g.setColour(StardustLookAndFeel::kAccent);
         g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
     };
 
@@ -2180,8 +2208,10 @@ void StardustEditor::resized()
     galaxyBounds = { margin, galaxyY, panelW, galaxyH };
 
     // Screen bounds: padded area inside viewport where visuals render
-    const int pad = 52;
+    const int pad = 64;
+    const int topExtraPad = 12;
     screenBounds = galaxyBounds.reduced(pad);
+    screenBounds.setTop(screenBounds.getY() + topExtraPad);
 
     // Starfield renders only in the screen area
     starfield.setBounds(screenBounds);
@@ -2318,12 +2348,12 @@ void StardustEditor::resized()
         distortionToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // Right padding: 3 small knobs stacked vertically (Input, Output, Dry/Wet)
+    // Right padding: 3 knobs stacked vertically (Input, Output, Dry/Wet)
     {
         const int rightPadW = galaxyBounds.getRight() - screenBounds.getRight();
         const int rightCenterX = screenBounds.getRight() + rightPadW / 2;
-        const int knobSize = 50;
-        const int knobGap = 6;
+        const int knobSize = 68;
+        const int knobGap = 4;
         const int totalKnobH = knobSize * 3 + knobGap * 2;
         const int knobStartY = screenBounds.getY() + (screenBounds.getHeight() - totalKnobH) / 2;
         const int knobX = rightCenterX - knobSize / 2;
