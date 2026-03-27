@@ -85,12 +85,9 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             continue;
         }
 
-        // Grain scheduling — clamp density so we never exceed the grain pool
+        // Grain scheduling
         ++samplesSinceLastGrain;
-        const float maxDensity = static_cast<float>(kMaxGrains) * 0.5f
-            / std::max(1.0f, grainSizeMs * 0.001f * static_cast<float>(sampleRate)
-                       / static_cast<float>(grainSizeSamples > 0 ? grainSizeSamples : 1));
-        const float clampedDensity = std::min(density, std::max(1.0f, maxDensity));
+        const float clampedDensity = density;
 
         if (samplesSinceLastGrain >= nextGrainInterval && mix > 0.001f)
         {
@@ -115,7 +112,9 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
                     g.startPosition = startPos;
                     g.currentPosition = startPos;
-                    g.playbackRate = basePitchRate;
+                    // Per-grain pitch randomization: ±5 cents for richer clouds
+                    const float centsOffset = (random.nextFloat() * 10.0f - 5.0f) / 1200.0f;
+                    g.playbackRate = basePitchRate * std::pow(2.0f, centsOffset);
 
                     // Stereo pan: center when width=0, random when width=1
                     g.pan = 0.5f + (random.nextFloat() - 0.5f) * stereoWidth;

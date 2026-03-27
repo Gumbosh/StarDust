@@ -7,7 +7,7 @@ juce_add_plugin(Stardust
     COMPANY_NAME "Stardust"
     PLUGIN_MANUFACTURER_CODE Stdt
     PLUGIN_CODE Sdt1
-    FORMATS VST3 Standalone
+    FORMATS AU VST3 Standalone
     PRODUCT_NAME "Stardust"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -35,6 +35,8 @@ target_sources(Stardust PRIVATE
     src/dsp/ChorusEngine.h
     src/dsp/Saturation.cpp
     src/dsp/Saturation.h
+    src/dsp/TapeEngine.cpp
+    src/dsp/TapeEngine.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp

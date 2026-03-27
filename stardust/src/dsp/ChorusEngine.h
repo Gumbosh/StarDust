@@ -14,6 +14,7 @@ public:
 
     void prepare(double sampleRate, int samplesPerBlock);
     void setMix(float mix);
+    void setSpeed(float speedMultiplier);
     void setPans(float outer, float inner);
     void process(juce::AudioBuffer<float>& buffer);
 
@@ -21,7 +22,9 @@ private:
     double sampleRate = 44100.0;
 
     juce::SmoothedValue<float> mixSmoothed { 0.0f };
+    juce::SmoothedValue<float> speedSmoothed { 1.0f };
     float currentMix = 0.0f;
+    float currentSpeed = 1.0f;
 
     static constexpr int kNumVoices = 4;
     static constexpr int kMaxChannels = 2;
@@ -39,6 +42,7 @@ private:
     {
         float baseDelaySamples = 0.0f;
         float pan = 0.5f;
+        float panTarget = 0.5f;
 
         // FM LFO (subtle — just prevents static comb filtering)
         float fmLfoPhase = 0.0f;

@@ -2,12 +2,14 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include <set>
+#include <mutex>
 #include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
 #include "dsp/DestroyDrive.h"
 #include "dsp/GranularEngine.h"
 #include "dsp/ButterworthFilter.h"
 #include "dsp/ChorusEngine.h"
+#include "dsp/TapeEngine.h"
 
 struct Preset
 {
@@ -17,16 +19,8 @@ struct Preset
     juce::String bank;  // subfolder name, empty = root USER
 };
 
-// RAII guard for SpinLock
-struct SpinLockGuard
-{
-    explicit SpinLockGuard(juce::SpinLock& lock) : lockRef(lock) { lockRef.enter(); }
-    ~SpinLockGuard() { lockRef.exit(); }
-    SpinLockGuard(const SpinLockGuard&) = delete;
-    SpinLockGuard& operator=(const SpinLockGuard&) = delete;
-private:
-    juce::SpinLock& lockRef;
-};
+// RAII guard alias for preset mutex
+using PresetLockGuard = std::lock_guard<std::recursive_mutex>;
 
 class StardustProcessor : public juce::AudioProcessor
 {
@@ -47,8 +41,8 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.1; } // chorus/grain tail
 
-    int getNumPrograms() override { SpinLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
-    int getCurrentProgram() override { return currentPresetIndex; }
+    int getNumPrograms() override { PresetLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
+    int getCurrentProgram() override { return currentPresetIndex.load(std::memory_order_relaxed); }
     void setCurrentProgram(int index) override;
     const juce::String getProgramName(int index) override;
     void changeProgramName(int /*index*/, const juce::String& /*newName*/) override {}
@@ -67,11 +61,11 @@ public:
 
     // Callers must hold presetLock when iterating the returned reference
     const std::vector<Preset>& getAllPresets() const { return allPresets; }
-    mutable juce::SpinLock presetLock;
+    mutable std::recursive_mutex presetLock;
     std::atomic<bool> presetDirty { false };
     std::atomic<bool> loadingPreset { false };
     std::atomic<int> ignoreParamChanges { 0 };
-    int getPresetCount() const { SpinLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
+    int getPresetCount() const { PresetLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     bool isFactoryPreset(int index) const;
     void loadPreset(int index);
     void saveUserPreset(const juce::String& name);
@@ -98,11 +92,12 @@ private:
     GranularEngine granularEngine;
     ButterworthFilter butterworthFilter;
     ChorusEngine chorusEngine;
+    TapeEngine tapeEngine;
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;
     std::vector<Preset> allPresets; // factory + user
-    int currentPresetIndex = 0;
+    std::atomic<int> currentPresetIndex { 0 };
 
     void scanUserPresets();
     void rebuildAllPresets();
@@ -117,6 +112,8 @@ private:
     // Tone filter state (1-pole low-pass per channel)
     float toneStateL = 0.0f;
     float toneStateR = 0.0f;
+
+    juce::Random random;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
 };

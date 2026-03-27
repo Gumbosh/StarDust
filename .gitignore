@@ -1,0 +1,5 @@
+# Build artifacts
+stardust/build/
+
+# Development artifacts
+stardust/presets.txt

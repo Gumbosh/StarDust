@@ -1,12 +1,13 @@
 #include "PresetLibraryPanel.h"
+#include "../PluginEditor.h"
 
-// Colour palette (same as StardustLookAndFeel)
-static const juce::Colour kBg       { 0xFF0A0A0A };
+// Colour palette — sourced from StardustLookAndFeel for consistency
+static const juce::Colour kBg       = StardustLookAndFeel::kBg;
 static const juce::Colour kPanelBg  { 0xFF111111 };
-static const juce::Colour kFg       { 0xFFE0E0E0 };
-static const juce::Colour kFgDim    { 0xFF888888 };
-static const juce::Colour kFgGhost  { 0xFF3A3A3A };
-static const juce::Colour kAccent   { 0xFFFFFFFF };
+static const juce::Colour kFg       = StardustLookAndFeel::kFg;
+static const juce::Colour kFgDim    = StardustLookAndFeel::kFgDim;
+static const juce::Colour kFgGhost  = StardustLookAndFeel::kFgGhost;
+static const juce::Colour kAccent   = StardustLookAndFeel::kAccent;
 
 // ============================================================================
 // PresetLibraryPanel

@@ -17,9 +17,19 @@ struct StarfieldParams
     float destroyOut = 0.0f;
     float destroyMix = 1.0f;
     float chorusMix = 0.0f;
+    float chorusSpeed = 1.0f;
     float panOuter = 1.0f;
     float panInner = 0.8f;
     int grainShape = 0; // 0=Hanning, 1=Gaussian, 2=Triangle, 3=Trapezoid
+    float filterLfo = 0.0f;
+    float grainPitch = 0.0f;
+    float tapeWow = 0.0f;
+    float tapeFlutter = 0.0f;
+    float tapeHiss = 0.0f;
+    float inputGain = 0.0f;
+    float outputGain = 0.0f;
+    float masterMix = 1.0f;
+    bool tapeEnabled = false;
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;
@@ -40,7 +50,7 @@ public:
 
 private:
     StarfieldParams readParams() const;
-    juce::Image renderStarfield(const StarfieldParams& params, float time);
+    void renderStarfield(const StarfieldParams& params, float time);
 
     static float hash(float x, float y);
 

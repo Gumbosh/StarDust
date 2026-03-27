@@ -34,7 +34,7 @@ void StarfieldBackground::timerCallback()
     const auto params = readParams();
     timeCounter += dt;
 
-    cachedImage = renderStarfield(params, timeCounter);
+    renderStarfield(params, timeCounter);
     repaint();
 }
 
@@ -54,9 +54,19 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("destroyOut"),
         *apvts.getRawParameterValue("destroyMix"),
         *apvts.getRawParameterValue("chorusMix"),
+        *apvts.getRawParameterValue("chorusSpeed"),
         *apvts.getRawParameterValue("multiplyPanOuter"),
         *apvts.getRawParameterValue("multiplyPanInner"),
         static_cast<int>(*apvts.getRawParameterValue("grainShape")),
+        *apvts.getRawParameterValue("filterLfo"),
+        *apvts.getRawParameterValue("grainPitch"),
+        *apvts.getRawParameterValue("tapeWow"),
+        *apvts.getRawParameterValue("tapeFlutter"),
+        *apvts.getRawParameterValue("tapeHiss"),
+        *apvts.getRawParameterValue("inputGain"),
+        *apvts.getRawParameterValue("outputGain"),
+        *apvts.getRawParameterValue("masterMix"),
+        *apvts.getRawParameterValue("tapeEnabled") >= 0.5f,
         *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
         *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
@@ -70,9 +80,9 @@ float StarfieldBackground::hash(float x, float y)
     return h - std::floor(h);
 }
 
-juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, float time)
+void StarfieldBackground::renderStarfield(const StarfieldParams& params, float time)
 {
-    juce::Image img(juce::Image::ARGB, kRenderWidth, kRenderHeight, false);
+    auto& img = cachedImage;
 
     const float crushAmount = (16.0f - 12.0f) / 12.0f;
     // DESTROY Mix → galaxy opacity (0% mix = dim, 100% = full)
@@ -85,7 +95,6 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
     const float scanlineDarken = 0.55f + rateNorm * 0.4f;
     const float blurAmount = 1.0f - params.filterCutoff; // filterCutoff is 0.0-1.0
-    const int blockSize = std::max(1, static_cast<int>(9.0f - 12.0f / 2.0f));
 
     const float fw = static_cast<float>(kRenderWidth);
     const float fh = static_cast<float>(kRenderHeight);
@@ -100,6 +109,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     const float spiralTightness = 0.03f;
     // IN gain → brighter, wider core (0dB=normal, +12dB=hot glow)
     const float inNorm = juce::jlimit(0.0f, 1.0f, (params.destroyIn + 12.0f) / 24.0f); // 0..1
+    // Pixelation driven by input drive (more gain = coarser pixels)
+    const int blockSize = std::max(1, static_cast<int>(1.0f + inNorm * 4.0f));
     const float coreRadius = 25.0f + inNorm * 20.0f;
     const float coreBrightness = (0.7f + inNorm * 0.5f) * galaxyIntensity;
     // OUT gain → overall brightness boost
@@ -167,8 +178,8 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
     // ---- Blur (only when destroy is active) — stronger effect for visible filter response ----
     if (blurAmount > 0.05f && params.destroyEnabled)
     {
-        const int blurPasses = static_cast<int>(blurAmount * 16.0f);
-        const int blurRadius = 2 + static_cast<int>(blurAmount * 3.0f); // 2-5px radius
+        const int blurPasses = 1 + static_cast<int>(blurAmount * 3.0f); // 1-4 passes (was 16)
+        const int blurRadius = 2 + static_cast<int>(blurAmount * 4.0f); // 2-6px radius (wider to compensate)
         auto& temp = tempBuffer_;
 
         for (int pass = 0; pass < blurPasses; ++pass)
@@ -257,6 +268,15 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 const float jy = hash(static_cast<float>(gx) * 3.7f + layerSeed, static_cast<float>(gy) * 1.9f);
                 float starX = (static_cast<float>(gx) + jx) * gridSpacing;
                 float starY = (static_cast<float>(gy) + jy) * gridSpacing;
+
+                // PITCH: vertical shift of star layer (-12..+12 → scroll up/down)
+                if (std::abs(params.grainPitch) > 0.05f)
+                {
+                    const float pitchShift = params.grainPitch * (fh / 24.0f);
+                    starY -= pitchShift;
+                    // Wrap around vertically
+                    starY = std::fmod(starY + fh * 2.0f, fh);
+                }
 
                 // SCATTER: animated wiggle/distortion — stars wobble more as scatter increases
                 if (scatter > 0.01f)
@@ -452,12 +472,88 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         }
     }
 
+    // ---- Tape effects (wow = horizontal drift, flutter = jitter, hiss = noise) ----
+    if (params.tapeEnabled)
+    {
+        // Wow: slow sinusoidal horizontal shift of each row
+        if (params.tapeWow > 0.01f)
+        {
+            auto& temp = tempBuffer_;
+            std::copy(pixelData.begin(), pixelData.end(), temp.begin());
+
+            const float wowDepth = params.tapeWow * 12.0f;
+            for (int y = 0; y < kRenderHeight; ++y)
+            {
+                const float rowPhase = static_cast<float>(y) * 0.03f;
+                const float shift = std::sin(time * 0.8f + rowPhase) * wowDepth;
+                const int iShift = static_cast<int>(shift);
+                const float frac = shift - static_cast<float>(iShift);
+
+                for (int x = 0; x < kRenderWidth; ++x)
+                {
+                    const int src0 = x - iShift;
+                    const int src1 = src0 - 1;
+                    const float v0 = (src0 >= 0 && src0 < kRenderWidth)
+                        ? temp[static_cast<size_t>(y * kRenderWidth + src0)] : 0.0f;
+                    const float v1 = (src1 >= 0 && src1 < kRenderWidth)
+                        ? temp[static_cast<size_t>(y * kRenderWidth + src1)] : 0.0f;
+                    pixelData[static_cast<size_t>(y * kRenderWidth + x)] = v0 * (1.0f - frac) + v1 * frac;
+                }
+            }
+        }
+
+        // Flutter: continuous jitter per row (slow animation)
+        if (params.tapeFlutter > 0.01f)
+        {
+            auto& temp = tempBuffer_;
+            std::copy(pixelData.begin(), pixelData.end(), temp.begin());
+
+            const float flutterDepth = params.tapeFlutter * 6.0f;
+            for (int y = 0; y < kRenderHeight; ++y)
+            {
+                const float rowSeed = hash(static_cast<float>(y) * 3.7f, static_cast<float>(y) * 1.3f);
+                const float jitterF = std::sin(time * (0.8f + rowSeed * 1.5f) + rowSeed * 20.0f) * flutterDepth;
+                const int jitter = static_cast<int>(jitterF);
+
+                for (int x = 0; x < kRenderWidth; ++x)
+                {
+                    const int srcX = x - jitter;
+                    pixelData[static_cast<size_t>(y * kRenderWidth + x)] =
+                        (srcX >= 0 && srcX < kRenderWidth)
+                            ? temp[static_cast<size_t>(y * kRenderWidth + srcX)] : 0.0f;
+                }
+            }
+        }
+
+        // Hiss: continuous animated noise pixels (slow animation)
+        if (params.tapeHiss > 0.01f)
+        {
+            const float hissIntensity = params.tapeHiss * 0.25f;
+            const float hissDensity = params.tapeHiss * 0.15f;
+            for (int y = 0; y < kRenderHeight; ++y)
+            {
+                for (int x = 0; x < kRenderWidth; ++x)
+                {
+                    const float n = hash(static_cast<float>(x) * 1.7f + time * 1.3f,
+                                         static_cast<float>(y) * 2.3f + time * 0.9f);
+                    if (n < hissDensity)
+                    {
+                        auto& pixel = pixelData[static_cast<size_t>(y * kRenderWidth + x)];
+                        pixel = std::min(1.0f, pixel + n * hissIntensity / hissDensity);
+                    }
+                }
+            }
+        }
+    }
+
     // ---- Kaleidoscope (MULTIPLY) ----
     if (params.multiplyEnabled && params.chorusMix > 0.01f)
     {
         const float chorusMix = params.chorusMix;
         const int segments = 2 + static_cast<int>(chorusMix * 6.0f);
         const float wedgeAngle = juce::MathConstants<float>::twoPi / static_cast<float>(segments);
+        // Chorus speed drives kaleidoscope rotation
+        const float kRotation = time * params.chorusSpeed * 0.3f;
 
         auto& source = tempBuffer_;
         std::copy(pixelData.begin(), pixelData.end(), source.begin());
@@ -472,7 +568,7 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
                 const float dx = static_cast<float>(x) - cx;
                 const float dy = static_cast<float>(y) - cy;
                 const float dist = std::sqrt(dx * dx + dy * dy);
-                float angle = std::atan2(dy, dx);
+                float angle = std::atan2(dy, dx) + kRotation;
 
                 // Fold angle into first wedge
                 angle = std::fmod(angle + juce::MathConstants<float>::twoPi, wedgeAngle);
@@ -551,8 +647,38 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         }
     }
 
+    // ---- Filter LFO: pulsing brightness modulation ----
+    if (params.filterLfo > 0.01f)
+    {
+        const float pulse = 0.5f + 0.5f * std::sin(time * 2.0f);
+        const float lfoMod = 1.0f - params.filterLfo * 0.4f * (1.0f - pulse);
+        for (size_t i = 0; i < pixelData.size(); ++i)
+            pixelData[i] *= lfoMod;
+    }
+
+    // ---- Input Gain: overall scene brightness boost (-24..+12 dB) ----
+    {
+        const float inGainNorm = juce::jlimit(0.0f, 1.0f, (params.inputGain + 24.0f) / 36.0f);
+        const float brightMul = 0.5f + inGainNorm * 1.0f;
+        if (std::abs(brightMul - 1.0f) > 0.01f)
+            for (size_t i = 0; i < pixelData.size(); ++i)
+                pixelData[i] *= brightMul;
+    }
+
+    // ---- Output Gain: contrast/gamma adjustment (-24..+12 dB) ----
+    {
+        const float outGainNorm = juce::jlimit(0.0f, 1.0f, (params.outputGain + 24.0f) / 36.0f);
+        const float gamma = 1.5f - outGainNorm * 1.0f;
+        if (std::abs(gamma - 1.0f) > 0.02f)
+            for (size_t i = 0; i < pixelData.size(); ++i)
+                pixelData[i] = std::pow(juce::jlimit(0.0f, 1.0f, pixelData[i]), gamma);
+    }
+
     // ---- Bayer dithering + scanlines + vignette ----
     juce::Image::BitmapData bitmap(img, juce::Image::BitmapData::writeOnly);
+
+    // Master Mix: fade between processed starfield and dark background
+    const float mixAlpha = params.masterMix;
 
     for (int y = 0; y < kRenderHeight; ++y)
     {
@@ -575,6 +701,9 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
 
             value *= scanlineMul;
 
+            // Master Mix: crossfade to black
+            value *= mixAlpha;
+
             const float threshold = kBayerMatrix[y % kBayerSize][x % kBayerSize];
             const float scaled = value * static_cast<float>(kNumShades - 1);
             const float dithered = (scaled - std::floor(scaled)) > threshold
@@ -587,5 +716,4 @@ juce::Image StarfieldBackground::renderStarfield(const StarfieldParams& params, 
         }
     }
 
-    return img;
 }

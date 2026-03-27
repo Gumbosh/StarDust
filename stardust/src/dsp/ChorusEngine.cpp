@@ -4,6 +4,7 @@ void ChorusEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
 {
     sampleRate = newSampleRate;
     mixSmoothed.reset(sampleRate, 0.02);
+    speedSmoothed.reset(sampleRate, 0.02);
 
     for (auto& ch : delayBuffer)
         ch.fill(0.0f);
@@ -104,18 +105,27 @@ void ChorusEngine::setMix(float mix)
     }
 }
 
+void ChorusEngine::setSpeed(float speed)
+{
+    if (currentSpeed != speed)
+    {
+        currentSpeed = speed;
+        speedSmoothed.setTargetValue(speed);
+    }
+}
+
 void ChorusEngine::setPans(float outer, float inner)
 {
-    voices[0].pan = 0.5f - outer * 0.5f;
-    voices[1].pan = 0.5f + outer * 0.5f;
-    voices[2].pan = 0.5f - inner * 0.5f;
-    voices[3].pan = 0.5f + inner * 0.5f;
+    voices[0].panTarget = 0.5f - outer * 0.5f;
+    voices[1].panTarget = 0.5f + outer * 0.5f;
+    voices[2].panTarget = 0.5f - inner * 0.5f;
+    voices[3].panTarget = 0.5f + inner * 0.5f;
 }
 
 float ChorusEngine::readInterpolated(int channel, float delaySamples) const
 {
     const float readPos = static_cast<float>(writePos) - delaySamples;
-    const int pos0 = (static_cast<int>(readPos) % kDelayBufferSize + kDelayBufferSize) % kDelayBufferSize;
+    const int pos0 = (static_cast<int>(std::floor(readPos)) % kDelayBufferSize + kDelayBufferSize) % kDelayBufferSize;
     const int pos1 = (pos0 + 1) % kDelayBufferSize;
     const float frac = readPos - std::floor(readPos);
 
@@ -143,6 +153,7 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
     for (int i = 0; i < numSamples; ++i)
     {
         const float mix = mixSmoothed.getNextValue();
+        const float speedMul = speedSmoothed.getNextValue();
 
         // Write input to delay buffer
         for (int ch = 0; ch < numChannels; ++ch)
@@ -159,6 +170,10 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
 
         for (auto& v : voices)
         {
+            // Smooth pan towards target (avoids zipper noise)
+            constexpr float panSmooth = 0.001f;
+            v.pan += panSmooth * (v.panTarget - v.pan);
+
             // Subtle FM: modulate delay time slightly
             const float fmLfo = std::sin(v.fmLfoPhase);
             const float delaySamples = v.baseDelaySamples + fmLfo * v.fmDepthSamples;
@@ -192,12 +207,12 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
             outL += sampleL * gainL;
             outR += sampleR * gainR;
 
-            // Advance LFOs
-            v.fmLfoPhase += juce::MathConstants<float>::twoPi * v.fmLfoRate * lfoInc;
+            // Advance LFOs (scaled by speed multiplier)
+            v.fmLfoPhase += juce::MathConstants<float>::twoPi * v.fmLfoRate * speedMul * lfoInc;
             if (v.fmLfoPhase >= juce::MathConstants<float>::twoPi)
                 v.fmLfoPhase -= juce::MathConstants<float>::twoPi;
 
-            v.amLfoPhase += juce::MathConstants<float>::twoPi * v.amLfoRate * lfoInc;
+            v.amLfoPhase += juce::MathConstants<float>::twoPi * v.amLfoRate * speedMul * lfoInc;
             if (v.amLfoPhase >= juce::MathConstants<float>::twoPi)
                 v.amLfoPhase -= juce::MathConstants<float>::twoPi;
         }

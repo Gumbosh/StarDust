@@ -111,104 +111,95 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
                                             juce::Slider::SliderStyle style,
                                             juce::Slider& slider)
 {
-    if (style == juce::Slider::LinearVertical && slider.getName() == "destroyFader")
+    if (style == juce::Slider::LinearHorizontal && slider.getName() == "destroyFader")
     {
-        // SP-950 vertical fader — RPM labels, semitone ticks, polished thumb, large value
+        // SP-950 horizontal fader — RPM labels below, semitone ticks, Tune readout
         const float fx = static_cast<float>(x);
         const float fy = static_cast<float>(y);
         const float fw = static_cast<float>(width);
         const float fh = static_cast<float>(height);
         const float val = static_cast<float>(slider.getValue());
 
-        // Layout: track fills most of height, text pinned to bottom with gap above it
-        const float valTextH = 20.0f;
-        const float tuneGap = 16.0f; // gap between track bottom and text
-        const float trackTop = fy + 2.0f;
-        const float trackBot = fy + fh - valTextH - tuneGap;
-        const float trackLen = trackBot - trackTop;
-        // Track offset right to leave room for RPM labels on left
-        const float trackX = fx + fw * 0.62f;
+        const float trackPad = 12.0f;
+        const float trackLeft = fx + trackPad;
+        const float trackRight = fx + fw - trackPad;
+        const float trackLen = trackRight - trackLeft;
+        const float trackY = fy + fh * 0.35f; // track in upper portion, labels below
 
-        // Track — recessed groove
-        const float trackW = 3.0f;
+        // Track — recessed groove (horizontal)
         g.setColour(kAccent.withAlpha(0.08f));
-        g.fillRoundedRectangle(trackX - trackW * 0.5f, trackTop, trackW, trackLen, 3.0f);
+        g.fillRoundedRectangle(trackLeft, trackY - 1.5f, trackLen, 3.0f, 3.0f);
         g.setColour(juce::Colour(0xFF000000).withAlpha(0.25f));
-        g.fillRect(trackX - 0.5f, trackTop + 3.0f, 1.0f, trackLen - 6.0f);
+        g.fillRect(trackLeft + 3.0f, trackY - 0.5f, trackLen - 6.0f, 1.0f);
 
-        // SP-950 order top→bottom: 33 RPM, 45 RPM, x2, 78 RPM
-        // JUCE vertical: val 3=top, val 0=bottom
-        // Reversed data: index 3=33RPM(top), 2=45RPM, 1=x2, 0=78RPM(bottom)
-        // Ticks per segment (bottom to top): 78→x2: 2 ticks, x2→45: 12 ticks, 45→33: 5 ticks
+        // Semitone ticks — vertical lines crossing the track
+        // Horizontal: val 0=left (78RPM), val 3=right (33RPM)
         static constexpr int kTicksPerSeg[3] = { 2, 12, 5 };
-        const float tickHalfW = 14.0f;
+        const float tickHalfH = 6.0f;
         for (int seg = 0; seg < 3; ++seg)
         {
-            const float segBotY = trackBot - (static_cast<float>(seg) / 3.0f) * trackLen;
-            const float segTopY = trackBot - (static_cast<float>(seg + 1) / 3.0f) * trackLen;
-            const float segSpan = segBotY - segTopY;
+            const float segLeftX = trackLeft + (static_cast<float>(seg) / 3.0f) * trackLen;
+            const float segRightX = trackLeft + (static_cast<float>(seg + 1) / 3.0f) * trackLen;
+            const float segSpan = segRightX - segLeftX;
             const int nTicks = kTicksPerSeg[seg];
             for (int t = 1; t < nTicks; ++t)
             {
-                const float ty = segBotY - (static_cast<float>(t) / static_cast<float>(nTicks)) * segSpan;
+                const float tx = segLeftX + (static_cast<float>(t) / static_cast<float>(nTicks)) * segSpan;
                 g.setColour(kAccent.withAlpha(0.15f));
-                g.fillRect(trackX - tickHalfW, ty - 0.5f, tickHalfW * 2.0f, 1.0f);
+                g.fillRect(tx - 0.5f, trackY - tickHalfH, 1.0f, tickHalfH * 2.0f);
             }
         }
 
-        // RPM labels (top→bottom: 33, 45, x2, 78 — mapped to values 3, 2, 1, 0)
+        // RPM labels + major ticks (left→right: 78, x2, 45, 33)
         static const juce::StringArray rpmLabels { "78 RPM", "x2", "45 RPM", "33 RPM" };
         auto labelFont = juce::Font(juce::FontOptions(
-            juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
+            juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
         g.setFont(labelFont);
         for (int i = 0; i < 4; ++i)
         {
-            // i=0 is at bottom (val=0=78RPM), i=3 is at top (val=3=33RPM)
-            const float posY = trackBot - (static_cast<float>(i) / 3.0f) * trackLen;
+            const float posX = trackLeft + (static_cast<float>(i) / 3.0f) * trackLen;
             const float dist = std::abs(val - static_cast<float>(i));
             const bool nearest = (dist < 0.5f);
 
-            // Major tick — wider, full white when active
+            // Major tick — taller, full white when active
             g.setColour(nearest ? kAccent : kAccent.withAlpha(0.20f));
-            g.fillRect(trackX - tickHalfW - 3.0f, posY - 0.5f, (tickHalfW + 3.0f) * 2.0f, 1.0f);
+            g.fillRect(posX - 0.5f, trackY - tickHalfH - 2.0f, 1.0f, (tickHalfH + 2.0f) * 2.0f);
 
-            // Label to left — full white when active
+            // Label below track
             g.setColour(nearest ? kAccent : kAccent.withAlpha(0.35f));
-            g.drawText(rpmLabels[i],
-                       static_cast<int>(fx), static_cast<int>(posY - 7.0f),
-                       static_cast<int>(trackX - tickHalfW - fx - 5.0f), 14,
-                       juce::Justification::centredRight);
+            g.drawText(rpmLabels[i], static_cast<int>(posX - 28.0f),
+                       static_cast<int>(trackY + tickHalfH + 4.0f), 56, 14,
+                       juce::Justification::centred);
         }
 
-        // Thumb — standard JUCE vertical: val=0 at bottom, val=3 at top
-        const float thumbY = trackBot - (val / 3.0f) * trackLen;
-        const float thumbW = 28.0f;
-        const float thumbH = 12.0f;
-        const float thumbLeft = trackX - thumbW * 0.5f;
-        const float thumbTopY = thumbY - thumbH * 0.5f;
+        // Thumb — horizontal slider handle
+        const float thumbX = trackLeft + (val / 3.0f) * trackLen;
+        const float thumbW = 12.0f;
+        const float thumbH = 22.0f;
+        const float thumbLeft2 = thumbX - thumbW * 0.5f;
+        const float thumbTopY = trackY - thumbH * 0.5f;
 
-        juce::ColourGradient grad(juce::Colour(0xFF999999), thumbLeft, thumbTopY,
-                                  juce::Colour(0xFF555555), thumbLeft, thumbTopY + thumbH, false);
+        juce::ColourGradient grad(juce::Colour(0xFF999999), thumbLeft2, thumbTopY,
+                                  juce::Colour(0xFF555555), thumbLeft2, thumbTopY + thumbH, false);
         g.setGradientFill(grad);
-        g.fillRoundedRectangle(thumbLeft, thumbTopY, thumbW, thumbH, 3.0f);
+        g.fillRoundedRectangle(thumbLeft2, thumbTopY, thumbW, thumbH, 3.0f);
 
+        // Center grip line (vertical on horizontal thumb)
         g.setColour(kAccent.withAlpha(0.7f));
-        g.fillRect(thumbLeft + 4.0f, thumbY - 0.5f, thumbW - 8.0f, 1.0f);
+        g.fillRect(thumbX - 0.5f, thumbTopY + 4.0f, 1.0f, thumbH - 8.0f);
 
         g.setColour(kAccent.withAlpha(0.15f));
-        g.drawRoundedRectangle(thumbLeft, thumbTopY, thumbW, thumbH, 3.0f, 1.0f);
+        g.drawRoundedRectangle(thumbLeft2, thumbTopY, thumbW, thumbH, 3.0f, 1.0f);
 
-        // Large value text below: "Tune: X st"
-        // Semitones relative to 45 RPM (which is at fader position 2)
-        // 0=78RPM(+9.5st), 1=x2(+12st), 2=45RPM(0st), 3=33RPM(-5.5st)
+        // Tune readout centered below labels
         const float faderPos = val;
         int semitones = 0;
         if (faderPos <= 1.0f)
-            semitones = static_cast<int>(std::round(9.5f + (12.0f - 9.5f) * faderPos));  // 78→x2: +9.5 to +12
+            semitones = static_cast<int>(std::round(9.5f + (12.0f - 9.5f) * faderPos));
         else if (faderPos <= 2.0f)
-            semitones = static_cast<int>(std::round(12.0f * (2.0f - faderPos)));  // x2→45: +12 to 0
+            semitones = static_cast<int>(std::round(12.0f * (2.0f - faderPos)));
         else
-            semitones = static_cast<int>(std::round(-5.5f * (faderPos - 2.0f)));  // 45→33: 0 to -5.5
+            semitones = static_cast<int>(std::round(-5.5f * (faderPos - 2.0f)));
 
         auto valFont = juce::Font(juce::FontOptions(
             juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
@@ -218,10 +209,8 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
         if (semitones > 0) tuneText += "+" + juce::String(semitones) + " st";
         else if (semitones < 0) tuneText += juce::String(semitones) + " st";
         else tuneText += "0 st";
-        // Center text with the track X position
-        const int textW = 120;
-        g.drawText(tuneText, static_cast<int>(trackX) - textW / 2, static_cast<int>(fy + fh - valTextH),
-                   textW, static_cast<int>(valTextH), juce::Justification::centred);
+        g.drawText(tuneText, static_cast<int>(fx), static_cast<int>(trackY + tickHalfH + 20.0f),
+                   static_cast<int>(fw), 18, juce::Justification::centred);
 
         return;
     }
@@ -690,9 +679,7 @@ StardustDialog::StardustDialog(const juce::String& title, const juce::String& de
     cancelBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     cancelBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFgDim);
     cancelBtn.onClick = [this] {
-        if (auto* parent = getParentComponent())
-            parent->removeChildComponent(this);
-        delete this;
+        if (onDismiss) onDismiss();
     };
     addAndMakeVisible(cancelBtn);
 
@@ -841,9 +828,7 @@ void StardustDialog::doConfirm()
     else if (callback)
         callback(text);
 
-    if (auto* parent = getParentComponent())
-        parent->removeChildComponent(this);
-    delete this;
+    if (onDismiss) onDismiss();
 }
 
 void StardustDialog::setBankOptions(const std::vector<juce::String>& banks)
@@ -1113,9 +1098,10 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(cutoffKnob, "filterCutoff", "Filter");
     setupKnob(destroyOutKnob, "destroyOut", "Out");
     setupKnob(destroyMixKnob, "destroyMix", "Mix");
+    setupKnob(filterLfoKnob, "filterLfo", "LFO");
 
     // SP-950 style vertical fader with RPM snap points
-    destroyFader.setSliderStyle(juce::Slider::LinearVertical);
+    destroyFader.setSliderStyle(juce::Slider::LinearHorizontal);
     destroyFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     destroyFader.setName("destroyFader");
     destroyFaderAttachment = std::make_unique<SliderAttachment>(processorRef.apvts, "destroyFader", destroyFader);
@@ -1139,6 +1125,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(grainSizeKnob, "grainSize", "Size");
     setupKnob(grainScatterKnob, "grainScatter", "Scatter");
     setupKnob(widthKnob, "stereoWidth", "Width");
+    setupKnob(grainPitchKnob, "grainPitch", "Pitch");
 
     grainShapeBox.addItemList({ "Hanning", "Gaussian", "Triangle", "Trapezoid" }, 1);
     grainShapeAttach = std::make_unique<ComboBoxAttachment>(processorRef.apvts, "grainShape", grainShapeBox);
@@ -1148,8 +1135,13 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     addAndMakeVisible(grainShapeBox);
 
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
+    setupKnob(chorusSpeedKnob, "chorusSpeed", "Speed");
     setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
     setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
+
+    setupKnob(tapeWowKnob, "tapeWow", "Wow");
+    setupKnob(tapeFlutterKnob, "tapeFlutter", "Flutter");
+    setupKnob(tapeHissKnob, "tapeHiss", "Hiss");
 
     // Right side knobs: Input, Output, Dry/Wet
     setupKnob(inputGainKnob, "inputGain", "Input");
@@ -1211,12 +1203,12 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             [this](int result) {
                 if (result == 1)
                 {
-                    auto* dlg = new StardustDialog("Save Preset", "", {});
-                    dlg->setBankOptions(processorRef.getUserBanks());
+                    activeDialog = std::make_unique<StardustDialog>("Save Preset", "", std::function<void(const juce::String&)>{});
+                    activeDialog->setBankOptions(processorRef.getUserBanks());
                     // Pre-select current preset's bank
                     {
                         int idx2 = processorRef.getCurrentProgram();
-                        SpinLockGuard guard(processorRef.presetLock);
+                        PresetLockGuard guard(processorRef.presetLock);
                         const auto& presets = processorRef.getAllPresets();
                         if (idx2 >= 0 && idx2 < static_cast<int>(presets.size()))
                         {
@@ -1226,11 +1218,11 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                                 auto banks = processorRef.getUserBanks();
                                 for (int b = 0; b < static_cast<int>(banks.size()); ++b)
                                     if (banks[static_cast<size_t>(b)] == currentBank)
-                                        dlg->selectBank(b + 2);
+                                        activeDialog->selectBank(b + 2);
                             }
                         }
                     }
-                    dlg->onConfirmWithBank = [this](const juce::String& name, const juce::String& bank) {
+                    activeDialog->onConfirmWithBank = [this](const juce::String& name, const juce::String& bank) {
                         processorRef.saveUserPreset(name, bank);
                         refreshPresetList();
                         for (int i = 0; i < processorRef.getPresetCount(); ++i)
@@ -1243,10 +1235,11 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                             }
                         }
                     };
-                    addAndMakeVisible(dlg);
-                    dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
-                    dlg->toFront(true);
-                    dlg->grabKeyboardFocus();
+                    activeDialog->onDismiss = [this] { activeDialog.reset(); };
+                    addAndMakeVisible(activeDialog.get());
+                    activeDialog->setCentrePosition(getWidth() / 2, getHeight() / 2);
+                    activeDialog->toFront(true);
+                    activeDialog->grabKeyboardFocus();
                 }
                 else if (result == 2)
                 {
@@ -1254,12 +1247,12 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                     auto oldName = processorRef.getProgramName(idx2);
                     juce::String presetBank;
                     {
-                        SpinLockGuard g(processorRef.presetLock);
+                        PresetLockGuard g(processorRef.presetLock);
                         const auto& presets = processorRef.getAllPresets();
                         if (idx2 >= 0 && idx2 < static_cast<int>(presets.size()))
                             presetBank = presets[static_cast<size_t>(idx2)].bank;
                     }
-                    auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
+                    activeDialog = std::make_unique<StardustDialog>("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
                         processorRef.saveUserPreset(newName, presetBank);
                         auto dir = StardustProcessor::getUserPresetsDir();
                         if (presetBank.isNotEmpty())
@@ -1272,11 +1265,12 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                         presetSelector.setSelectedId(processorRef.getPresetCount(), juce::dontSendNotification);
                         processorRef.loadPreset(processorRef.getPresetCount() - 1);
                     });
-                    dlg->confirmBtn.setButtonText("Rename");
-                    addAndMakeVisible(dlg);
-                    dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
-                    dlg->toFront(true);
-                    dlg->grabKeyboardFocus();
+                    activeDialog->confirmBtn.setButtonText("Rename");
+                    activeDialog->onDismiss = [this] { activeDialog.reset(); };
+                    addAndMakeVisible(activeDialog.get());
+                    activeDialog->setCentrePosition(getWidth() / 2, getHeight() / 2);
+                    activeDialog->toFront(true);
+                    activeDialog->grabKeyboardFocus();
                 }
                 else if (result == 3)
                 {
@@ -1315,16 +1309,19 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     favoriteBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     favoriteBtn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFg);
     favoriteBtn.onClick = [this] {
-        const auto& presets = processorRef.getAllPresets();
-        int idx = processorRef.getCurrentProgram();
-        if (idx < 0 || idx >= static_cast<int>(presets.size())) return;
-        const auto& name = presets[static_cast<size_t>(idx)].name;
+        juce::String name;
+        {
+            PresetLockGuard guard(processorRef.presetLock);
+            const auto& presets = processorRef.getAllPresets();
+            int idx = processorRef.getCurrentProgram();
+            if (idx < 0 || idx >= static_cast<int>(presets.size())) return;
+            name = presets[static_cast<size_t>(idx)].name;
+        }
         auto favs = StardustProcessor::loadFavorites();
         if (favs.count(name) > 0) favs.erase(name);
         else                       favs.insert(name);
         StardustProcessor::saveFavorites(favs);
         updateFavoriteButton();
-        // Update library panel if open
         if (presetLibraryPanel != nullptr && presetLibraryPanel->isVisible())
             presetLibraryPanel->setFavorites(favs);
     };
@@ -1342,6 +1339,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(destroyToggle, destroyToggleAttach, "destroyEnabled");
     setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
+    setupToggle(tapeToggle, tapeToggleAttach, "tapeEnabled");
 
     // Disable and dim knobs when their section toggle is off
     auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobs) {
@@ -1356,7 +1354,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             }
         };
     };
-    dimSection(destroyToggle, { &destroyInKnob, &cutoffKnob, &destroyOutKnob, &destroyMixKnob });
+    dimSection(destroyToggle, { &destroyInKnob, &cutoffKnob, &destroyOutKnob, &destroyMixKnob, &filterLfoKnob });
     // Also dim the fader with the destroy section
     {
         auto& toggle = destroyToggle;
@@ -1369,7 +1367,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             fader->setAlpha(on ? 1.0f : 0.4f);
         };
     }
-    dimSection(granularToggle, { &grainMixKnob, &grainDensityKnob, &grainSizeKnob, &grainScatterKnob, &widthKnob });
+    dimSection(granularToggle, { &grainMixKnob, &grainDensityKnob, &grainSizeKnob, &grainScatterKnob, &widthKnob, &grainPitchKnob });
     // Also disable the grain shape combobox with the granular section
     {
         auto& toggle = granularToggle;
@@ -1383,13 +1381,15 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         };
     }
     dimSection(distortionToggle, { &driveKnob, &toneKnob });
-    dimSection(multiplyToggle, { &chorusMixKnob, &panOuterKnob, &panInnerKnob });
+    dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
+    dimSection(tapeToggle, { &tapeWowKnob, &tapeFlutterKnob, &tapeHissKnob });
 
     // Apply initial dim state
     destroyToggle.onClick();
     granularToggle.onClick();
     distortionToggle.onClick();
     multiplyToggle.onClick();
+    tapeToggle.onClick();
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
@@ -1449,11 +1449,22 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             if (v < -0.05) return juce::String(v, 1) + " dB";
             return juce::String("0.0 dB");
         };
+    else if (paramId == "grainPitch")
+        knob.slider.textFromValueFunction = [](double v) {
+            const int st = static_cast<int>(std::round(v));
+            if (st > 0) return juce::String("+") + juce::String(st) + " st";
+            if (st < 0) return juce::String(st) + " st";
+            return juce::String("0 st");
+        };
+    else if (paramId == "chorusSpeed")
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(v, 1) + " Hz";
+        };
     else if (paramId == "filterCutoff")
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 99.0)));
         };
-    else if (paramId == "destroyMix"
+    else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "grainMix"
              || paramId == "grainScatter" || paramId == "stereoWidth"
              || paramId == "chorusMix" || paramId == "drive" || paramId == "tone"
@@ -1504,21 +1515,32 @@ void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> 
 
 void StardustEditor::showPresetDropdown()
 {
-    const auto& presets = processorRef.getAllPresets();
+    // Copy preset metadata under lock, then release before file I/O
+    struct PresetInfo { juce::String name; bool isFactory; };
+    std::vector<PresetInfo> presetInfos;
+    int currentIdx;
+    {
+        PresetLockGuard guard(processorRef.presetLock);
+        const auto& presets = processorRef.getAllPresets();
+        currentIdx = processorRef.getCurrentProgram();
+        presetInfos.reserve(presets.size());
+        for (const auto& p : presets)
+            presetInfos.push_back({ p.name, p.isFactory });
+    }
     auto favs = StardustProcessor::loadFavorites();
 
     juce::PopupMenu favMenu, factoryMenu, userMenu;
 
-    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+    for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
     {
         const int itemId = i + 1;
-        const bool ticked = (i == processorRef.getCurrentProgram());
-        if (favs.count(presets[static_cast<size_t>(i)].name) > 0)
-            favMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
-        if (presets[static_cast<size_t>(i)].isFactory)
-            factoryMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
+        const bool ticked = (i == currentIdx);
+        if (favs.count(presetInfos[static_cast<size_t>(i)].name) > 0)
+            favMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
+        if (presetInfos[static_cast<size_t>(i)].isFactory)
+            factoryMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
         else
-            userMenu.addItem(itemId, presets[static_cast<size_t>(i)].name, true, ticked);
+            userMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
     }
 
     juce::PopupMenu menu;
@@ -1552,6 +1574,7 @@ void StardustEditor::showPresetDropdown()
 
 void StardustEditor::refreshPresetList()
 {
+    PresetLockGuard guard(processorRef.presetLock);
     presetSelector.clear(juce::dontSendNotification);
     const auto& presets = processorRef.getAllPresets();
 
@@ -1567,7 +1590,6 @@ void StardustEditor::refreshPresetList()
     {
         std::vector<PresetListItem> factory, user;
         std::map<juce::String, std::vector<PresetListItem>> bankItems;
-        const auto& presets = processorRef.getAllPresets();
         for (int i = 0; i < static_cast<int>(presets.size()); ++i)
         {
             PresetListItem item { presets[i].name, i, presets[i].isFactory, false, presets[i].bank };
@@ -1604,12 +1626,12 @@ void StardustEditor::showPresetLibrary()
             // Get the bank of the preset being renamed
             juce::String presetBank;
             {
-                SpinLockGuard g(processorRef.presetLock);
+                PresetLockGuard g(processorRef.presetLock);
                 const auto& presets = processorRef.getAllPresets();
                 if (idx >= 0 && idx < static_cast<int>(presets.size()))
                     presetBank = presets[static_cast<size_t>(idx)].bank;
             }
-            auto* dlg = new StardustDialog("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
+            activeDialog = std::make_unique<StardustDialog>("Rename Preset", oldName, [this, oldName, presetBank](const juce::String& newName) {
                 processorRef.saveUserPreset(newName, presetBank);
                 auto dir = StardustProcessor::getUserPresetsDir();
                 if (presetBank.isNotEmpty())
@@ -1619,11 +1641,12 @@ void StardustEditor::showPresetLibrary()
                 processorRef.refreshPresets();
                 refreshPresetList();
             });
-            dlg->confirmBtn.setButtonText("Rename");
-            addAndMakeVisible(dlg);
-            dlg->setCentrePosition(getWidth() / 2, getHeight() / 2);
-            dlg->toFront(true);
-            dlg->grabKeyboardFocus();
+            activeDialog->confirmBtn.setButtonText("Rename");
+            activeDialog->onDismiss = [this] { activeDialog.reset(); };
+            addAndMakeVisible(activeDialog.get());
+            activeDialog->setCentrePosition(getWidth() / 2, getHeight() / 2);
+            activeDialog->toFront(true);
+            activeDialog->grabKeyboardFocus();
         };
 
         presetLibraryPanel->onDeletePreset = [this](int idx) {
@@ -1660,22 +1683,28 @@ void StardustEditor::showPresetLibrary()
         };
     }
 
-    // Build items
-    auto favs = StardustProcessor::loadFavorites();
+    // Build items — copy preset data under lock, file I/O after release
     std::vector<PresetListItem> factory, user;
     std::map<juce::String, std::vector<PresetListItem>> bankItems;
-    const auto& presets = processorRef.getAllPresets();
-    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
     {
-        PresetListItem item { presets[i].name, i, presets[i].isFactory,
-                              favs.count(presets[i].name) > 0, presets[i].bank };
-        if (presets[i].isFactory)
-            factory.push_back(item);
-        else if (presets[i].bank.isEmpty())
-            user.push_back(item);
-        else
-            bankItems[presets[i].bank].push_back(item);
+        PresetLockGuard guard(processorRef.presetLock);
+        const auto& presets = processorRef.getAllPresets();
+        for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+        {
+            PresetListItem item { presets[i].name, i, presets[i].isFactory, false, presets[i].bank };
+            if (presets[i].isFactory)
+                factory.push_back(item);
+            else if (presets[i].bank.isEmpty())
+                user.push_back(item);
+            else
+                bankItems[presets[i].bank].push_back(item);
+        }
     }
+    auto favs = StardustProcessor::loadFavorites();
+    for (auto& item : factory) item.isFavorite = favs.count(item.name) > 0;
+    for (auto& item : user) item.isFavorite = favs.count(item.name) > 0;
+    for (auto& [bk, items] : bankItems)
+        for (auto& item : items) item.isFavorite = favs.count(item.name) > 0;
     presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
     presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
 
@@ -1733,6 +1762,7 @@ void StardustEditor::resetToFactory()
 
 void StardustEditor::updateFavoriteButton()
 {
+    PresetLockGuard guard(processorRef.presetLock);
     const auto& presets = processorRef.getAllPresets();
     int idx = processorRef.getCurrentProgram();
     bool isFav = false;
@@ -1750,6 +1780,7 @@ void StardustEditor::updateFavoriteButton()
 
 void StardustEditor::updateDoubleClickDefaults()
 {
+    PresetLockGuard guard(processorRef.presetLock);
     const int procIdx = processorRef.getCurrentProgram();
     const auto& allPresets = processorRef.getAllPresets();
     if (procIdx < 0 || procIdx >= static_cast<int>(allPresets.size()))
@@ -1850,6 +1881,9 @@ void StardustEditor::paint(juce::Graphics& g)
         g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
     };
 
+    // Left column row tops: DESTROY spans 2 rows, TAPE takes 3rd row
+    const int leftRow3Top = rightRow3Top; // TAPE aligned with SATURATION
+
     // Grid dividers
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
     // Vertical divider between columns (full height)
@@ -1860,9 +1894,13 @@ void StardustEditor::paint(juce::Graphics& g)
     g.drawLine(divX + 4, divY1, cpf.getRight() - 8, divY1, 1.0f);
     const float divY2 = static_cast<float>(rightRow3Top) - 0.5f;
     g.drawLine(divX + 4, divY2, cpf.getRight() - 8, divY2, 1.0f);
+    // Horizontal divider on left column between DESTROY and TAPE
+    const float divY3 = static_cast<float>(leftRow3Top) - 0.5f;
+    g.drawLine(cpf.getX() + 8, divY3, divX - 4, divY3, 1.0f);
 
     // Section labels
     drawSectionLabel("D E S T R O Y",       leftX,  panelTop + topPad);
+    drawSectionLabel("T A P E",             leftX,  leftRow3Top + topPad);
     drawSectionLabel("G R A N U L A R",     rightX, rightRow1Top + topPad);
     drawSectionLabel("M U L T I P L Y",     rightX, rightRow2Top + topPad);
     drawSectionLabel("S A T U R A T I O N",  rightX, rightRow3Top + topPad);
@@ -2019,6 +2057,7 @@ void StardustEditor::timerCallback()
 
     // Compute dirty by comparing current param values to loaded preset
     bool dirty = false;
+    PresetLockGuard guard(processorRef.presetLock);
     const auto& allPresets = processorRef.getAllPresets();
     if (procIdx >= 0 && procIdx < static_cast<int>(allPresets.size()))
     {
@@ -2187,48 +2226,55 @@ void StardustEditor::resized()
     const int toggleH = 14;
     const int toggleW = 26;
 
-    // --- LEFT COLUMN: DESTROY (spans full height — vertical fader left, 3 knobs stacked right) ---
+    // --- LEFT TOP: DESTROY (spans 2 right-section rows — horizontal slider + 5 knobs) ---
     {
+        const int destroyBot = rightRow3Top - dividerGap; // DESTROY ends where TAPE starts
         const int hdrY = panelTop + topPad;
         const int contentTop = hdrY + headerH + headerToKnob;
-        const int contentBot = controlsBounds.getBottom() - 8; // minimal bottom margin
-        const int contentH = contentBot - contentTop;
+        const int contentBot = destroyBot - sectionBottomPad;
 
-        // Split left column into fader area (left) and knob column (right)
-        const int knobColW = knobW + 4; // knob column width
-        const int faderAreaW = cellW - cellPadX * 2 - knobColW - 8; // 8px gap between fader area and knobs
-        const int knobAreaX = leftX + cellPadX + faderAreaW + 8;
+        // Knobs in horizontal row at the bottom
+        const int knobRowY = contentBot - knobH;
+        const int dKnobW = (cellW - cellPadX * 2) / 5;
+        const int dOffsetX = leftX + cellPadX;
+        layoutKnobInBounds(destroyInKnob,  { dOffsetX,              knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(destroyOutKnob, { dOffsetX + dKnobW,     knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(cutoffKnob,     { dOffsetX + dKnobW * 2, knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(filterLfoKnob,  { dOffsetX + dKnobW * 3, knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(destroyMixKnob, { dOffsetX + dKnobW * 4, knobRowY, dKnobW, knobH });
 
-        // 4 knobs stacked vertically: In, Out, Filter, Mix
-        const int totalKnobH = knobH * 4;
-        const int knobGap = (contentH - totalKnobH) / 5;
-        const int knob1Y = contentTop + knobGap;
-        const int knob2Y = knob1Y + knobH + knobGap;
-        const int knob3Y = knob2Y + knobH + knobGap;
-        const int knob4Y = knob3Y + knobH + knobGap;
-        layoutKnobInBounds(destroyInKnob,  { knobAreaX, knob1Y, knobW, knobH });
-        layoutKnobInBounds(destroyOutKnob, { knobAreaX, knob2Y, knobW, knobH });
-        layoutKnobInBounds(cutoffKnob,     { knobAreaX, knob3Y, knobW, knobH });
-        layoutKnobInBounds(destroyMixKnob, { knobAreaX, knob4Y, knobW, knobH });
-
-        // Vertical fader spans full content height, wider for RPM labels
-        const int faderVisualW = faderAreaW;
+        // Horizontal fader fills space above knobs (full width)
         const int faderX = leftX + cellPadX;
-        destroyFader.setBounds(faderX, contentTop, faderVisualW, contentH);
+        const int faderW = cellW - cellPadX * 2;
+        const int faderH = knobRowY - contentTop - 4;
+        destroyFader.setBounds(faderX, contentTop, faderW, faderH);
 
         destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- RIGHT ROW 1: GRANULAR (5 knobs + shape dropdown) ---
+    // --- LEFT BOTTOM: TAPE (3 knobs, same row as SATURATION) ---
+    {
+        const int hdrY = rightRow3Top + topPad;
+        const int knobY = hdrY + headerH + headerToKnob;
+        const int gx = cellGridX(leftX, 3);
+        layoutKnobInBounds(tapeWowKnob,     { gx,              knobY, knobW, knobH });
+        layoutKnobInBounds(tapeFlutterKnob,  { gx + knobW,      knobY, knobW, knobH });
+        layoutKnobInBounds(tapeHissKnob,     { gx + knobW * 2,  knobY, knobW, knobH });
+        tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
+    }
+
+    // --- RIGHT ROW 1: GRANULAR (6 knobs + shape dropdown) ---
     {
         const int hdrY = rightRow1Top + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(rightX, 5);
-        layoutKnobInBounds(grainMixKnob,     { gx,              knobY, knobW, knobH });
-        layoutKnobInBounds(grainDensityKnob, { gx + knobW,      knobY, knobW, knobH });
-        layoutKnobInBounds(grainSizeKnob,    { gx + knobW * 2,  knobY, knobW, knobH });
-        layoutKnobInBounds(grainScatterKnob, { gx + knobW * 3,  knobY, knobW, knobH });
-        layoutKnobInBounds(widthKnob,        { gx + knobW * 4,  knobY, knobW, knobH });
+        const int gKnobW = (cellW - cellPadX * 2) / 6;
+        const int gx = rightX + cellPadX;
+        layoutKnobInBounds(grainMixKnob,     { gx,                knobY, gKnobW, knobH });
+        layoutKnobInBounds(grainDensityKnob, { gx + gKnobW,      knobY, gKnobW, knobH });
+        layoutKnobInBounds(grainSizeKnob,    { gx + gKnobW * 2,  knobY, gKnobW, knobH });
+        layoutKnobInBounds(grainScatterKnob, { gx + gKnobW * 3,  knobY, gKnobW, knobH });
+        layoutKnobInBounds(widthKnob,        { gx + gKnobW * 4,  knobY, gKnobW, knobH });
+        layoutKnobInBounds(grainPitchKnob,   { gx + gKnobW * 5,  knobY, gKnobW, knobH });
         granularToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
 
         const int shapeW = 100;
@@ -2236,14 +2282,15 @@ void StardustEditor::resized()
         grainShapeBox.setBounds(rightX + cellW - cellPadX - shapeW, hdrY - 1, shapeW, shapeH);
     }
 
-    // --- RIGHT ROW 2: MULTIPLY (3 knobs, centered) ---
+    // --- RIGHT ROW 2: MULTIPLY (4 knobs, centered) ---
     {
         const int hdrY = rightRow2Top + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(rightX, 3);
-        layoutKnobInBounds(chorusMixKnob, { gx,              knobY, knobW, knobH });
-        layoutKnobInBounds(panOuterKnob,  { gx + knobW,      knobY, knobW, knobH });
-        layoutKnobInBounds(panInnerKnob,  { gx + knobW * 2,  knobY, knobW, knobH });
+        const int gx = cellGridX(rightX, 4);
+        layoutKnobInBounds(chorusMixKnob,   { gx,              knobY, knobW, knobH });
+        layoutKnobInBounds(chorusSpeedKnob, { gx + knobW,      knobY, knobW, knobH });
+        layoutKnobInBounds(panOuterKnob,    { gx + knobW * 2,  knobY, knobW, knobH });
+        layoutKnobInBounds(panInnerKnob,    { gx + knobW * 3,  knobY, knobW, knobH });
         multiplyToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 

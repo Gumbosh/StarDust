@@ -69,6 +69,7 @@ public:
 
     // Called with (presetName, bankName) when bank options are set, otherwise (presetName, "")
     std::function<void(const juce::String&, const juce::String&)> onConfirmWithBank;
+    std::function<void()> onDismiss;
 
     juce::TextButton confirmBtn, cancelBtn;
 
@@ -166,20 +167,21 @@ private:
     void updateFavoriteButton();
 
     LabeledKnob driveKnob, toneKnob;
-    LabeledKnob destroyInKnob, cutoffKnob, destroyOutKnob, destroyMixKnob;
+    LabeledKnob destroyInKnob, cutoffKnob, destroyOutKnob, destroyMixKnob, filterLfoKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
-    LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob;
-    LabeledKnob chorusMixKnob;
+    LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob, grainPitchKnob;
+    LabeledKnob chorusMixKnob, chorusSpeedKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
+    LabeledKnob tapeWowKnob, tapeFlutterKnob, tapeHissKnob;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 
     juce::ComboBox grainShapeBox;
     std::unique_ptr<ComboBoxAttachment> grainShapeAttach;
 
-    juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle;
-    std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach;
+    juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle, tapeToggle;
+    std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 
@@ -192,6 +194,7 @@ private:
     void generateBackgroundTexture();
     float currentScale = 1.0f;
 
+    std::unique_ptr<StardustDialog> activeDialog;
     std::unique_ptr<SettingsPanel> settingsPanel;
     void showSettings();
 

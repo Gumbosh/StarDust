@@ -26,8 +26,7 @@ private:
     float holdCounter[kMaxChannels] = {};
     float holdSample[kMaxChannels] = {};
 
-    // Anti-aliasing: simple 1-pole low-pass before sample-and-hold
-    float aaState[kMaxChannels] = {};
-    float aaAlpha = 1.0f;
-    float lastTargetRate = 0.0f;
+    // SP-1200 bandwidth ceiling: 1-pole LP at 13kHz
+    float nyquistState[kMaxChannels] = {};
+    float nyquistAlpha = 1.0f;
 };
