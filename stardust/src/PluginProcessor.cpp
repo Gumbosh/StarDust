@@ -9,6 +9,7 @@ StardustProcessor::StardustProcessor()
 {
     initFactoryPresets();
     refreshPresets();
+    loadPreset(0);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createParameterLayout()
@@ -365,11 +366,22 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         tapeEngine.process(buffer);
     }
 
-    // Update reported latency (oversampling + tape delay line when active)
-    const int tapeLatency = tapeOn ? 40 : 0;
-    const int totalLatency = static_cast<int>(oversampling->getLatencyInSamples()) + tapeLatency;
-    if (getLatencySamples() != totalLatency)
-        setLatencySamples(totalLatency);
+    // Update reported latency only when tape state actually changes
+    if (tapeOn != lastTapeOn)
+    {
+        lastTapeOn = tapeOn;
+        const int tapeLatency = tapeOn ? 40 : 0;
+        setLatencySamples(static_cast<int>(oversampling->getLatencyInSamples()) + tapeLatency);
+    }
+
+    // Output gain (applied before limiter so limiter catches any boost)
+    const float outputGainDb = *apvts.getRawParameterValue("outputGain");
+    if (std::abs(outputGainDb) > 0.05f)
+    {
+        const float outputGainLinear = std::pow(10.0f, outputGainDb / 20.0f);
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.applyGain(ch, 0, numSamples, outputGainLinear);
+    }
 
     // Output safety limiter — soft-knee tanh, transparent below 0.9
     for (int ch = 0; ch < numChannels; ++ch)
@@ -381,21 +393,11 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             const float absS = std::abs(s);
             if (absS > 0.9f)
             {
-                // Blend from linear to tanh above threshold
-                const float t = (absS - 0.9f) / 0.1f; // 0 at 0.9, 1 at 1.0+
+                const float t = (absS - 0.9f) / 0.1f;
                 const float blend = std::min(1.0f, t);
                 data[i] = s * (1.0f - blend) + std::tanh(s) * blend;
             }
         }
-    }
-
-    // Output gain (applied after limiter)
-    const float outputGainDb = *apvts.getRawParameterValue("outputGain");
-    if (std::abs(outputGainDb) > 0.05f)
-    {
-        const float outputGainLinear = std::pow(10.0f, outputGainDb / 20.0f);
-        for (int ch = 0; ch < numChannels; ++ch)
-            buffer.applyGain(ch, 0, numSamples, outputGainLinear);
     }
 
     // Master dry/wet blend (constant-power crossfade)
@@ -451,8 +453,21 @@ void StardustProcessor::loadPreset(int index)
         if (auto* param = apvts.getParameter(paramId))
             param->setValueNotifyingHost(param->convertTo0to1(value));
     }
+
+    // Snapshot actual normalized values after host has applied them
+    {
+        PresetLockGuard g(presetLock);
+        loadedPresetNormValues.clear();
+        for (const auto& [paramId, value] : values)
+        {
+            if (auto* param = apvts.getParameter(paramId))
+                loadedPresetNormValues[paramId] = param->getValue();
+        }
+    }
+
     presetDirty.store(false);
     loadingPreset.store(false);
+    presetLoadGrace.store(10); // skip dirty check for 10 frames (~330ms)
 }
 
 bool StardustProcessor::isFactoryPreset(int index) const
@@ -737,6 +752,19 @@ void StardustProcessor::setStateInformation(const void* data, int sizeInBytes)
             {
                 currentPresetIndex.store(juce::jlimit(0, juce::jmax(0, static_cast<int>(allPresets.size()) - 1), savedIndex));
             }
+
+            // Snapshot current param values for dirty detection
+            const int idx = currentPresetIndex.load();
+            loadedPresetNormValues.clear();
+            if (idx >= 0 && idx < static_cast<int>(allPresets.size()))
+            {
+                for (const auto& [paramId, val] : allPresets[static_cast<size_t>(idx)].values)
+                {
+                    if (auto* param = apvts.getParameter(paramId))
+                        loadedPresetNormValues[paramId] = param->getValue();
+                }
+            }
+            presetLoadGrace.store(10);
         }
     }
 }

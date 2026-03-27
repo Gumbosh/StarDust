@@ -332,11 +332,11 @@ void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
     const bool on = button.getToggleState();
 
     // Track background
-    g.setColour(on ? kAccent.withAlpha(0.25f) : kFgGhost.withAlpha(0.2f));
+    g.setColour(on ? kAccent.withAlpha(0.25f) : kFgGhost.withAlpha(0.55f));
     g.fillRoundedRectangle(pillX, pillY, w, h, radius);
 
-    // Track border
-    g.setColour(on ? kAccent.withAlpha(0.6f) : kFgGhost.withAlpha(0.4f));
+    // Track border (always full visibility)
+    g.setColour(on ? kAccent.withAlpha(0.6f) : kFgGhost.withAlpha(0.8f));
     g.drawRoundedRectangle(pillX, pillY, w, h, radius, 1.0f);
 
     // Sliding knob
@@ -350,7 +350,8 @@ void StardustLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton
         g.fillEllipse(knobX - 1.0f, knobY - 1.0f, knobSize + 2.0f, knobSize + 2.0f);
     }
 
-    g.setColour(on ? kAccent : kFgGhost.withAlpha(0.6f));
+    // Dot
+    g.setColour(on ? kAccent : kFgDim);
     g.fillEllipse(knobX, knobY, knobSize, knobSize);
 
     // Hover highlight
@@ -1166,6 +1167,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         if (idx < 0) idx = processorRef.getPresetCount() - 1;
         processorRef.loadPreset(idx);
         presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
+        presetSelector.setName("");
         updateDoubleClickDefaults();
         updateFavoriteButton();
     };
@@ -1179,6 +1181,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         if (idx >= processorRef.getPresetCount()) idx = 0;
         processorRef.loadPreset(idx);
         presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
+        presetSelector.setName("");
         updateDoubleClickDefaults();
         updateFavoriteButton();
     };
@@ -1469,7 +1472,8 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
              || paramId == "grainScatter" || paramId == "stereoWidth"
              || paramId == "chorusMix" || paramId == "drive" || paramId == "tone"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
-             || paramId == "masterMix")
+             || paramId == "masterMix"
+             || paramId == "tapeWow" || paramId == "tapeFlutter" || paramId == "tapeHiss")
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
         };
@@ -1566,6 +1570,7 @@ void StardustEditor::showPresetDropdown()
         {
             processorRef.loadPreset(result - 1);
             presetSelector.setSelectedId(result, juce::dontSendNotification);
+            presetSelector.setName("");
             updateDoubleClickDefaults();
             updateFavoriteButton();
         }
@@ -2055,19 +2060,32 @@ void StardustEditor::timerCallback()
     if (presetSelector.getSelectedId() != procIdx + 1)
         presetSelector.setSelectedId(procIdx + 1, juce::dontSendNotification);
 
-    // Compute dirty by comparing current param values to loaded preset
+    // Grace period after preset load — params may still be settling
     bool dirty = false;
-    PresetLockGuard guard(processorRef.presetLock);
-    const auto& allPresets = processorRef.getAllPresets();
-    if (procIdx >= 0 && procIdx < static_cast<int>(allPresets.size()))
+    int grace = processorRef.presetLoadGrace.load();
+    if (grace > 0)
     {
-        const auto& preset = allPresets[static_cast<size_t>(procIdx)];
-        for (const auto& [paramId, presetVal] : preset.values)
+        processorRef.presetLoadGrace.compare_exchange_strong(grace, grace - 1);
+        // Re-snapshot on last grace frame so we capture settled values
+        if (grace == 1)
+        {
+            PresetLockGuard guard(processorRef.presetLock);
+            for (auto& [paramId, normVal] : processorRef.loadedPresetNormValues)
+            {
+                if (auto* param = processorRef.apvts.getParameter(paramId))
+                    normVal = param->getValue();
+            }
+        }
+    }
+    else
+    {
+        PresetLockGuard guard(processorRef.presetLock);
+        const auto& snapshot = processorRef.loadedPresetNormValues;
+        for (const auto& [paramId, snapshotNorm] : snapshot)
         {
             if (auto* param = processorRef.apvts.getParameter(paramId))
             {
-                const float currentVal = param->convertFrom0to1(param->getValue());
-                if (std::abs(currentVal - presetVal) > 0.01f)
+                if (std::abs(param->getValue() - snapshotNorm) > 0.001f)
                 {
                     dirty = true;
                     break;
@@ -2077,14 +2095,10 @@ void StardustEditor::timerCallback()
     }
 
     // Update dirty indicator
-    if (dirty && presetSelector.getName() != "dirty")
+    const bool wasDirty = presetSelector.getName() == "dirty";
+    if (dirty != wasDirty)
     {
-        presetSelector.setName("dirty");
-        presetSelector.repaint();
-    }
-    else if (!dirty && presetSelector.getName() == "dirty")
-    {
-        presetSelector.setName("");
+        presetSelector.setName(dirty ? "dirty" : "");
         presetSelector.repaint();
     }
 }

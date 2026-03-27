@@ -15,6 +15,8 @@ juce_add_plugin(Stardust
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_AUTO_MANIFEST TRUE
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/stardust-logo.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/stardust-logo.png"
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
@@ -45,6 +47,7 @@ target_sources(Stardust PRIVATE
 
 juce_add_binary_data(StardustAssets SOURCES
     assets/logo.png
+    assets/stardust-logo.png
 )
 
 target_compile_definitions(Stardust PUBLIC

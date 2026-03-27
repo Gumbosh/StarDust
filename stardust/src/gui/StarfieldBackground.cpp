@@ -67,6 +67,7 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("outputGain"),
         *apvts.getRawParameterValue("masterMix"),
         *apvts.getRawParameterValue("tapeEnabled") >= 0.5f,
+        *apvts.getRawParameterValue("distortionEnabled") >= 0.5f,
         *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
         *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
@@ -454,7 +455,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
   } // end GRANULAR
 
     // ---- Drive vignette (SATURATION) — applied before multiply so kaleidoscope affects it ----
-    if (params.drive > 0.01f)
+    if (params.distortionEnabled && params.drive > 0.01f)
     {
         const float sharpness = 1.0f + params.tone * 4.0f;
         for (int y = 0; y < kRenderHeight; ++y)

@@ -30,6 +30,7 @@ struct StarfieldParams
     float outputGain = 0.0f;
     float masterMix = 1.0f;
     bool tapeEnabled = false;
+    bool distortionEnabled = true;
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;

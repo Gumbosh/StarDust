@@ -64,6 +64,9 @@ public:
     mutable std::recursive_mutex presetLock;
     std::atomic<bool> presetDirty { false };
     std::atomic<bool> loadingPreset { false };
+    // Snapshot of normalized param values after loading a preset (for dirty detection)
+    std::map<juce::String, float> loadedPresetNormValues;
+    std::atomic<int> presetLoadGrace { 0 }; // frames to skip dirty check after load
     std::atomic<int> ignoreParamChanges { 0 };
     int getPresetCount() const { PresetLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     bool isFactoryPreset(int index) const;
@@ -113,6 +116,7 @@ private:
     float toneStateL = 0.0f;
     float toneStateR = 0.0f;
 
+    bool lastTapeOn = false;
     juce::Random random;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
