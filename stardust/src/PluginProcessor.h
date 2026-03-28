@@ -3,7 +3,6 @@
 #include <juce_dsp/juce_dsp.h>
 #include <set>
 #include <mutex>
-#include "dsp/Saturation.h"
 #include "dsp/BitCrusher.h"
 #include "dsp/DestroyDrive.h"
 #include "dsp/GranularEngine.h"
@@ -89,7 +88,6 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void initFactoryPresets();
 
-    Saturation saturation;
     BitCrusher bitCrusher;
     DestroyDrive destroyDrive;
     GranularEngine granularEngine;
@@ -111,10 +109,6 @@ private:
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> masterDryBuffer;
-
-    // Tone filter state (1-pole low-pass per channel)
-    float toneStateL = 0.0f;
-    float toneStateR = 0.0f;
 
     bool lastTapeOn = false;
     juce::Random random;

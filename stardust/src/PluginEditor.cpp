@@ -55,8 +55,9 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
     const float centreY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
     const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-    // Detect bipolar knob (min < 0 and max > 0, e.g. -24 to +24)
-    const bool isBipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+    // Detect bipolar knob (min < 0 and max > 0, or grainMorph which is 0-1 centered at 0.5)
+    const bool isBipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0)
+                           || slider.getName() == "grainMorph";
     const bool isHovered = slider.isEnabled() && (slider.isMouseOver(true) || slider.isMouseButtonDown());
 
     // Background track arc — brightens on hover
@@ -1120,8 +1121,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     starfield.setExcludeRect({});
     starfield.toBack();
 
-    setupKnob(driveKnob, "drive", "Drive");
-    setupKnob(toneKnob, "tone", "Tone");
+
 
     setupKnob(destroyInKnob, "destroyIn", "In");
     setupKnob(cutoffKnob, "filterCutoff", "Filter");
@@ -1150,18 +1150,27 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     addAndMakeVisible(destroyFader);
 
     setupKnob(grainMixKnob, "grainMix", "Mix");
-    setupKnob(grainDensityKnob, "grainDensity", "Density");
-    setupKnob(grainSizeKnob, "grainSize", "Size");
-    setupKnob(grainScatterKnob, "grainScatter", "Scatter");
-    setupKnob(widthKnob, "stereoWidth", "Width");
-    setupKnob(grainPitchKnob, "grainPitch", "Pitch");
+    setupKnob(grainCloudKnob, "grainCloud", "Cloud");
+    setupKnob(grainDriftKnob, "grainDrift", "Drift");
+    setupKnob(grainSpaceKnob, "grainSpace", "Space");
+    setupKnob(grainMorphKnob, "grainMorph", "Pitch");
 
-    grainShapeBox.addItemList({ "Hanning", "Gaussian", "Triangle", "Trapezoid" }, 1);
-    grainShapeAttach = std::make_unique<ComboBoxAttachment>(processorRef.apvts, "grainShape", grainShapeBox);
-    grainShapeBox.setJustificationType(juce::Justification::centredLeft);
-    grainShapeBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF151515));
-    grainShapeBox.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.4f));
-    addAndMakeVisible(grainShapeBox);
+    // Freeze toggle
+    {
+        auto setupFreezeToggle = [this](juce::ToggleButton& btn, std::unique_ptr<ButtonAttachment>& attach,
+                                         const juce::String& paramId) {
+            btn.setClickingTogglesState(true);
+            attach = std::make_unique<ButtonAttachment>(processorRef.apvts, paramId, btn);
+            addAndMakeVisible(btn);
+        };
+        setupFreezeToggle(grainFreezeToggle, grainFreezeAttach, "grainFreeze");
+    }
+
+    freezeLabel.setText("F R E E Z E", juce::dontSendNotification);
+    freezeLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
+    freezeLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+    freezeLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(freezeLabel);
 
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
     setupKnob(chorusSpeedKnob, "chorusSpeed", "Speed");
@@ -1366,7 +1375,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         attach = std::make_unique<ButtonAttachment>(processorRef.apvts, paramId, btn);
         addAndMakeVisible(btn);
     };
-    setupToggle(distortionToggle, distortionToggleAttach, "distortionEnabled");
     setupToggle(destroyToggle, destroyToggleAttach, "destroyEnabled");
     setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
@@ -1398,27 +1406,27 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             fader->setAlpha(on ? 1.0f : 0.4f);
         };
     }
-    dimSection(granularToggle, { &grainMixKnob, &grainDensityKnob, &grainSizeKnob, &grainScatterKnob, &widthKnob, &grainPitchKnob });
-    // Also disable the grain shape combobox with the granular section
+    dimSection(granularToggle, { &grainMixKnob, &grainCloudKnob, &grainDriftKnob, &grainSpaceKnob, &grainMorphKnob });
+    // Also disable freeze toggle with the granular section
     {
         auto& toggle = granularToggle;
-        auto* box = &grainShapeBox;
+        auto* freezeBtn = &grainFreezeToggle;
+        auto* freezeLbl = &freezeLabel;
         auto origOnClick = toggle.onClick;
-        toggle.onClick = [origOnClick, &toggle, box]() {
+        toggle.onClick = [origOnClick, &toggle, freezeBtn, freezeLbl]() {
             if (origOnClick) origOnClick();
             const bool on = toggle.getToggleState();
-            box->setEnabled(on);
-            box->setAlpha(on ? 1.0f : 0.4f);
+            freezeBtn->setEnabled(on);
+            freezeBtn->setAlpha(on ? 1.0f : 0.4f);
+            freezeLbl->setAlpha(on ? 1.0f : 0.4f);
         };
     }
-    dimSection(distortionToggle, { &driveKnob, &toneKnob });
     dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
     dimSection(tapeToggle, { &tapeWowKnob, &tapeFlutterKnob, &tapeHissKnob });
 
     // Apply initial dim state
     destroyToggle.onClick();
     granularToggle.onClick();
-    distortionToggle.onClick();
     multiplyToggle.onClick();
     tapeToggle.onClick();
 
@@ -1456,6 +1464,7 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     knob.slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     knob.slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
 
+    knob.slider.setName(paramId);
     knob.attachment = std::make_unique<SliderAttachment>(processorRef.apvts, paramId, knob.slider);
 
     if (auto* param = processorRef.apvts.getParameter(paramId))
@@ -1498,12 +1507,21 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "grainMix"
              || paramId == "grainScatter" || paramId == "stereoWidth"
-             || paramId == "chorusMix" || paramId == "drive" || paramId == "tone"
+             || paramId == "chorusMix"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
              || paramId == "masterMix"
-             || paramId == "tapeWow" || paramId == "tapeFlutter" || paramId == "tapeHiss")
+             || paramId == "tapeWow" || paramId == "tapeFlutter" || paramId == "tapeHiss"
+             || paramId == "grainPosition" || paramId == "grainFeedback"
+             || paramId == "grainTexture")
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
+        };
+    else if (paramId == "grainMorph")
+        knob.slider.textFromValueFunction = [](double v) {
+            const int st = static_cast<int>(std::round((v - 0.5) * 24.0));
+            if (st > 0) return juce::String("+") + juce::String(st) + " st";
+            if (st < 0) return juce::String(st) + " st";
+            return juce::String("0 st");
         };
 
     // Force text refresh with the new formatter
@@ -1904,8 +1922,8 @@ void StardustEditor::paint(juce::Graphics& g)
 
     const int panelTop = controlsBounds.getY();
     const int rightRow1Top = panelTop;
-    const int rightRow2Top = rightRow1Top + rightSectionH + dividerGap;
-    const int rightRow3Top = rightRow2Top + rightSectionH + dividerGap;
+    const int rightMultiplyH = rightSectionH;
+    const int rightMultiplyTop = controlsBounds.getBottom() - rightMultiplyH;
 
     const int labelOffset = 32;
     const auto drawSectionLabel = [&](const char* name, int cellX, int hdrY) {
@@ -1914,29 +1932,26 @@ void StardustEditor::paint(juce::Graphics& g)
         g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
     };
 
-    // Left column row tops: DESTROY spans 2 rows, TAPE takes 3rd row
-    const int leftRow3Top = rightRow3Top; // TAPE aligned with SATURATION
+    // Left column: TAPE at bottom
+    const int leftTapeH = rightSectionH;
+    const int leftTapeTop = controlsBounds.getBottom() - leftTapeH;
 
     // Grid dividers
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
-    // Vertical divider between columns (full height)
     const float divX = static_cast<float>(leftX + cellW) + 0.5f;
     g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(controlsBounds.getBottom() - 8), 1.0f);
-    // Horizontal dividers on right column
-    const float divY1 = static_cast<float>(rightRow2Top) - 0.5f;
+    // Horizontal divider on right column between GRANULAR and MULTIPLY
+    const float divY1 = static_cast<float>(rightMultiplyTop) - 0.5f;
     g.drawLine(divX + 4, divY1, cpf.getRight() - 8, divY1, 1.0f);
-    const float divY2 = static_cast<float>(rightRow3Top) - 0.5f;
-    g.drawLine(divX + 4, divY2, cpf.getRight() - 8, divY2, 1.0f);
     // Horizontal divider on left column between DESTROY and TAPE
-    const float divY3 = static_cast<float>(leftRow3Top) - 0.5f;
+    const float divY3 = static_cast<float>(leftTapeTop) - 0.5f;
     g.drawLine(cpf.getX() + 8, divY3, divX - 4, divY3, 1.0f);
 
     // Section labels
     drawSectionLabel("D E S T R O Y",       leftX,  panelTop + topPad);
-    drawSectionLabel("T A P E",             leftX,  leftRow3Top + topPad);
+    drawSectionLabel("T A P E",             leftX,  leftTapeTop + topPad);
     drawSectionLabel("G R A N U L A R",     rightX, rightRow1Top + topPad);
-    drawSectionLabel("M U L T I P L Y",     rightX, rightRow2Top + topPad);
-    drawSectionLabel("S A T U R A T I O N",  rightX, rightRow3Top + topPad);
+    drawSectionLabel("M U L T I P L Y",     rightX, rightMultiplyTop + topPad);
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -2254,51 +2269,57 @@ void StardustEditor::resized()
         updateFavoriteButton();
     };
 
-    // ---- Grid layout: DESTROY full left, 3 sections stacked right ----
+    // ---- Grid layout: DESTROY+TAPE left, GRANULAR+MULTIPLY right ----
     const int panelTop = controlsBounds.getY();
     const int rightRow1Top = panelTop;
-    const int rightRow2Top = rightRow1Top + rightSectionH + dividerGap;
-    const int rightRow3Top = rightRow2Top + rightSectionH + dividerGap;
+    // Multiply takes the bottom 1/3 of right column
+    const int rightMultiplyH = rightSectionH;
+    const int rightMultiplyTop = controlsBounds.getBottom() - rightMultiplyH;
+    // Granular takes the top 2/3
+    const int rightGranularBot = rightMultiplyTop - dividerGap;
 
-    // Helper: compute knob grid X positions centered within a cell
     auto cellGridX = [&](int cellX, int numKnobs) {
         const int totalKnobW = knobW * numKnobs;
         return cellX + cellPadX + (cellW - cellPadX * 2 - totalKnobW) / 2;
     };
 
-    // Toggle button dimensions
     const int toggleH = 14;
     const int toggleW = 26;
 
-    // --- LEFT TOP: DESTROY (spans 2 right-section rows — horizontal slider + 5 knobs) ---
+    // Left column: DESTROY top, TAPE bottom
+    const int leftTapeH = rightSectionH;
+    const int leftTapeTop = controlsBounds.getBottom() - leftTapeH;
+
+    // --- LEFT TOP: DESTROY (above TAPE) ---
     {
-        const int destroyBot = rightRow3Top - dividerGap; // DESTROY ends where TAPE starts
+        const int destroyBot = leftTapeTop - dividerGap;
         const int hdrY = panelTop + topPad;
         const int contentTop = hdrY + headerH + headerToKnob;
         const int contentBot = destroyBot - sectionBottomPad;
 
-        // Knobs in horizontal row at the bottom
-        const int knobRowY = contentBot - knobH;
+        // Knobs in horizontal row at the top
+        const int knobRowY = contentTop;
         const int dKnobW = (cellW - cellPadX * 2) / 5;
         const int dOffsetX = leftX + cellPadX;
-        layoutKnobInBounds(destroyInKnob,  { dOffsetX,              knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(destroyOutKnob, { dOffsetX + dKnobW,     knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(cutoffKnob,     { dOffsetX + dKnobW * 2, knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(filterLfoKnob,  { dOffsetX + dKnobW * 3, knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(destroyMixKnob, { dOffsetX + dKnobW * 4, knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(destroyMixKnob, { dOffsetX,              knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(cutoffKnob,     { dOffsetX + dKnobW,     knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(filterLfoKnob,  { dOffsetX + dKnobW * 2, knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(destroyInKnob,  { dOffsetX + dKnobW * 3, knobRowY, dKnobW, knobH });
+        layoutKnobInBounds(destroyOutKnob, { dOffsetX + dKnobW * 4, knobRowY, dKnobW, knobH });
 
-        // Horizontal fader fills space above knobs (full width)
+        // Horizontal fader fills space below knobs (full width)
         const int faderX = leftX + cellPadX;
         const int faderW = cellW - cellPadX * 2;
-        const int faderH = knobRowY - contentTop - 4;
-        destroyFader.setBounds(faderX, contentTop, faderW, faderH);
+        const int faderTop = knobRowY + knobH + 4;
+        const int faderH = contentBot - faderTop;
+        destroyFader.setBounds(faderX, faderTop, faderW, faderH);
 
         destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- LEFT BOTTOM: TAPE (3 knobs, same row as SATURATION) ---
+    // --- LEFT BOTTOM: TAPE (3 knobs) ---
     {
-        const int hdrY = rightRow3Top + topPad;
+        const int hdrY = leftTapeTop + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
         const int gx = cellGridX(leftX, 3);
         layoutKnobInBounds(tapeWowKnob,     { gx,              knobY, knobW, knobH });
@@ -2307,28 +2328,38 @@ void StardustEditor::resized()
         tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- RIGHT ROW 1: GRANULAR (6 knobs + shape dropdown) ---
+    // --- RIGHT TOP: GRANULAR (2/3 — two rows of knobs) ---
     {
         const int hdrY = rightRow1Top + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
-        const int gKnobW = (cellW - cellPadX * 2) / 6;
+        const int contentBot = rightGranularBot - sectionBottomPad;
+        const int gKnobW = (cellW - cellPadX * 2) / 5;
         const int gx = rightX + cellPadX;
-        layoutKnobInBounds(grainMixKnob,     { gx,                knobY, gKnobW, knobH });
-        layoutKnobInBounds(grainDensityKnob, { gx + gKnobW,      knobY, gKnobW, knobH });
-        layoutKnobInBounds(grainSizeKnob,    { gx + gKnobW * 2,  knobY, gKnobW, knobH });
-        layoutKnobInBounds(grainScatterKnob, { gx + gKnobW * 3,  knobY, gKnobW, knobH });
-        layoutKnobInBounds(widthKnob,        { gx + gKnobW * 4,  knobY, gKnobW, knobH });
-        layoutKnobInBounds(grainPitchKnob,   { gx + gKnobW * 5,  knobY, gKnobW, knobH });
+
+        const int row1Y = hdrY + headerH + headerToKnob;
+        // 5 macro knobs centered vertically in the 2/3 space
+        const int knobMidY = (row1Y + contentBot - knobH) / 2;
+        layoutKnobInBounds(grainMixKnob,   { gx,              knobMidY, gKnobW, knobH });
+        layoutKnobInBounds(grainCloudKnob, { gx + gKnobW,    knobMidY, gKnobW, knobH });
+        layoutKnobInBounds(grainDriftKnob, { gx + gKnobW * 2, knobMidY, gKnobW, knobH });
+        layoutKnobInBounds(grainSpaceKnob, { gx + gKnobW * 3, knobMidY, gKnobW, knobH });
+        layoutKnobInBounds(grainMorphKnob, { gx + gKnobW * 4, knobMidY, gKnobW, knobH });
+
         granularToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
 
-        const int shapeW = 100;
-        const int shapeH = 18;
-        grainShapeBox.setBounds(rightX + cellW - cellPadX - shapeW, hdrY - 1, shapeW, shapeH);
+        // Freeze toggle + label below knobs, centered
+        const int freezeToggleW = 36;
+        const int freezeToggleH = 18;
+        const int freezeLabelW = 60;
+        const int freezeTotalW = freezeToggleW + 4 + freezeLabelW;
+        const int freezeY = knobMidY + knobH + sectionBottomPad;
+        const int freezeX = rightX + (cellW - freezeTotalW) / 2;
+        grainFreezeToggle.setBounds(freezeX, freezeY, freezeToggleW, freezeToggleH);
+        freezeLabel.setBounds(freezeX + freezeToggleW + 4, freezeY, freezeLabelW, freezeToggleH);
     }
 
-    // --- RIGHT ROW 2: MULTIPLY (4 knobs, centered) ---
+    // --- RIGHT BOTTOM: MULTIPLY (1/3 — 4 knobs, centered) ---
     {
-        const int hdrY = rightRow2Top + topPad;
+        const int hdrY = rightMultiplyTop + topPad;
         const int knobY = hdrY + headerH + headerToKnob;
         const int gx = cellGridX(rightX, 4);
         layoutKnobInBounds(chorusMixKnob,   { gx,              knobY, knobW, knobH });
@@ -2336,16 +2367,6 @@ void StardustEditor::resized()
         layoutKnobInBounds(panOuterKnob,    { gx + knobW * 2,  knobY, knobW, knobH });
         layoutKnobInBounds(panInnerKnob,    { gx + knobW * 3,  knobY, knobW, knobH });
         multiplyToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- RIGHT ROW 3: SATURATION (2 knobs, centered) ---
-    {
-        const int hdrY = rightRow3Top + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(rightX, 2);
-        layoutKnobInBounds(driveKnob, { gx,          knobY, knobW, knobH });
-        layoutKnobInBounds(toneKnob,  { gx + knobW,  knobY, knobW, knobH });
-        distortionToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
     // Right padding: 3 knobs stacked vertically (Input, Output, Dry/Wet)

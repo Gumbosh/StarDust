@@ -43,13 +43,11 @@ StarfieldParams StarfieldBackground::readParams() const
     return StarfieldParams {
         *apvts.getRawParameterValue("destroyFader"),
         *apvts.getRawParameterValue("grainMix"),
-        *apvts.getRawParameterValue("grainDensity"),
-        *apvts.getRawParameterValue("grainSize"),
-        *apvts.getRawParameterValue("grainScatter"),
-        *apvts.getRawParameterValue("stereoWidth"),
+        *apvts.getRawParameterValue("grainCloud"),
+        *apvts.getRawParameterValue("grainDrift"),
+        *apvts.getRawParameterValue("grainSpace"),
+        *apvts.getRawParameterValue("grainMorph"),
         *apvts.getRawParameterValue("filterCutoff"),
-        *apvts.getRawParameterValue("drive"),
-        *apvts.getRawParameterValue("tone"),
         *apvts.getRawParameterValue("destroyIn"),
         *apvts.getRawParameterValue("destroyOut"),
         *apvts.getRawParameterValue("destroyMix"),
@@ -57,9 +55,7 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("chorusSpeed"),
         *apvts.getRawParameterValue("multiplyPanOuter"),
         *apvts.getRawParameterValue("multiplyPanInner"),
-        static_cast<int>(*apvts.getRawParameterValue("grainShape")),
         *apvts.getRawParameterValue("filterLfo"),
-        *apvts.getRawParameterValue("grainPitch"),
         *apvts.getRawParameterValue("tapeWow"),
         *apvts.getRawParameterValue("tapeFlutter"),
         *apvts.getRawParameterValue("tapeHiss"),
@@ -67,7 +63,6 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("outputGain"),
         *apvts.getRawParameterValue("masterMix"),
         *apvts.getRawParameterValue("tapeEnabled") >= 0.5f,
-        *apvts.getRawParameterValue("distortionEnabled") >= 0.5f,
         *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
         *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
@@ -89,8 +84,13 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     // DESTROY Mix → galaxy opacity (0% mix = dim, 100% = full)
     const float mixFactor = params.destroyEnabled ? params.destroyMix : 0.0f;
     const float galaxyIntensity = 0.3f + mixFactor * 0.7f;
-    const float starIntensity = params.grain;   // GRAIN → star opacity (0 = invisible, 1 = full)
-    const float scatter = params.grainScatter;
+    const float starIntensity = params.grainMix;
+    const float scatter = params.grainDrift;
+    // Derive visual params from macros (same mappings as DSP)
+    const float derivedDensity = 1.0f + params.grainCloud * 15.0f;
+    const float derivedSize = 80.0f - params.grainCloud * 65.0f;
+    const float derivedWidth = params.grainSpace;
+    const float derivedPitch = (params.grainMorph - 0.5f) * 24.0f;
     // Map fader position to normalized rate (0=slowest, 1=fastest)
     const float rateNorm = juce::jlimit(0.0f, 1.0f, 1.0f - params.destroyFader / 3.0f);
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
@@ -119,8 +119,8 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     const float outBoost = 1.0f + outNorm * 0.6f;
     const float armBrightness = (0.15f + crushAmount * 0.2f) * galaxyIntensity;
 
-    const float densityNorm = (params.grainDensity - 1.0f) / 19.0f;
-    const float sizeNorm = (params.grainSize - 5.0f) / 95.0f;
+    const float densityNorm = std::min(1.0f, (derivedDensity - 1.0f) / 15.0f);
+    const float sizeNorm = std::min(1.0f, (derivedSize - 5.0f) / 75.0f);
 
     auto& pixelData = pixelData_;
     std::fill(pixelData.begin(), pixelData.end(), 0.0f);
@@ -238,7 +238,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     auto& galaxyOnly = tempBuffer_;
     std::copy(pixelData.begin(), pixelData.end(), galaxyOnly.begin());
 
-    const float widthSpread = params.stereoWidth; // WIDTH: brightness spread from center
+    const float widthSpread = derivedWidth; // WIDTH: brightness spread from center
     const float densityMul = 1.0f + densityNorm * 2.0f; // DENSITY: just more stars
 
     struct StarLayer { int count; float brightMul; int spikeLen; float twinkleSpeed; };
@@ -271,9 +271,9 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
                 float starY = (static_cast<float>(gy) + jy) * gridSpacing;
 
                 // PITCH: vertical shift of star layer (-12..+12 → scroll up/down)
-                if (std::abs(params.grainPitch) > 0.05f)
+                if (std::abs(derivedPitch) > 0.05f)
                 {
-                    const float pitchShift = params.grainPitch * (fh / 24.0f);
+                    const float pitchShift = derivedPitch * (fh / 24.0f);
                     starY -= pitchShift;
                     // Wrap around vertically
                     starY = std::fmod(starY + fh * 2.0f, fh);
@@ -306,7 +306,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
                     * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
 
                 // Draw star shape mirroring the grain envelope curve
-                const int shape = params.grainShape;
+                const int shape = static_cast<int>(params.grainMorph * 3.99f);
                 const int radius = sl.spikeLen;
 
                 if (shape == 1) // Gaussian — wide soft bloom, smooth radial falloff
@@ -453,25 +453,6 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         pixelData[i] = galaxyOnly[i] + starOnly * starIntensity;
     }
   } // end GRANULAR
-
-    // ---- Drive vignette (SATURATION) — applied before multiply so kaleidoscope affects it ----
-    if (params.distortionEnabled && params.drive > 0.01f)
-    {
-        const float sharpness = 1.0f + params.tone * 4.0f;
-        for (int y = 0; y < kRenderHeight; ++y)
-        {
-            for (int x = 0; x < kRenderWidth; ++x)
-            {
-                const float vdx = static_cast<float>(x) - cx;
-                const float vdy = static_cast<float>(y) - cy;
-                const float vdist = std::sqrt(vdx * vdx + vdy * vdy);
-                const float edgeNorm = vdist / maxDist;
-                const float edgeFade = std::pow(edgeNorm, sharpness);
-                auto& pixel = pixelData[static_cast<size_t>(y * kRenderWidth + x)];
-                pixel = std::min(1.0f, pixel + edgeFade * params.drive * 0.8f);
-            }
-        }
-    }
 
     // ---- Tape effects (wow = horizontal drift, flutter = jitter, hiss = noise) ----
     if (params.tapeEnabled)

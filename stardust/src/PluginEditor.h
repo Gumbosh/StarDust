@@ -166,22 +166,20 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob driveKnob, toneKnob;
     LabeledKnob destroyInKnob, cutoffKnob, destroyOutKnob, destroyMixKnob, filterLfoKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
-    LabeledKnob grainMixKnob, grainDensityKnob, grainSizeKnob, grainScatterKnob, widthKnob, grainPitchKnob;
+    LabeledKnob grainMixKnob, grainCloudKnob, grainDriftKnob, grainSpaceKnob, grainMorphKnob;
     LabeledKnob chorusMixKnob, chorusSpeedKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
     LabeledKnob tapeWowKnob, tapeFlutterKnob, tapeHissKnob;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 
-    juce::ComboBox grainShapeBox;
-    std::unique_ptr<ComboBoxAttachment> grainShapeAttach;
 
-    juce::ToggleButton distortionToggle, destroyToggle, granularToggle, multiplyToggle, tapeToggle;
-    std::unique_ptr<ButtonAttachment> distortionToggleAttach, destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach;
+    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle, tapeToggle, grainFreezeToggle;
+    juce::Label freezeLabel;
+    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach, grainFreezeAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 

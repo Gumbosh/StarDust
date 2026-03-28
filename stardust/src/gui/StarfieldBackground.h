@@ -5,14 +5,12 @@
 struct StarfieldParams
 {
     float destroyFader = 1.0f;  // 0=33RPM, 1=45RPM, 2=x2, 3=78RPM (continuous)
-    float grain = 0.0f;
-    float grainDensity = 4.0f;
-    float grainSize = 30.0f;
-    float grainScatter = 0.2f;
-    float stereoWidth = 0.0f;
+    float grainMix = 0.0f;
+    float grainCloud = 0.3f;
+    float grainDrift = 0.2f;
+    float grainSpace = 0.3f;
+    float grainMorph = 0.5f;
     float filterCutoff = 99.0f;
-    float drive = 0.0f;
-    float tone = 0.5f;
     float destroyIn = 0.0f;
     float destroyOut = 0.0f;
     float destroyMix = 1.0f;
@@ -20,9 +18,7 @@ struct StarfieldParams
     float chorusSpeed = 1.0f;
     float panOuter = 1.0f;
     float panInner = 0.8f;
-    int grainShape = 0; // 0=Hanning, 1=Gaussian, 2=Triangle, 3=Trapezoid
     float filterLfo = 0.0f;
-    float grainPitch = 0.0f;
     float tapeWow = 0.0f;
     float tapeFlutter = 0.0f;
     float tapeHiss = 0.0f;
@@ -30,7 +26,6 @@ struct StarfieldParams
     float outputGain = 0.0f;
     float masterMix = 1.0f;
     bool tapeEnabled = false;
-    bool distortionEnabled = true;
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;
