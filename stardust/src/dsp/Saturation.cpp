@@ -52,7 +52,7 @@ void Saturation::processInput(juce::AudioBuffer<float>& buffer)
     applyGainAndSaturation(buffer, inputGainSmoothed, driveSmoothed);
 
     // DC blocker: y[n] = x[n] - x[n-1] + R * y[n-1], R = 0.995
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -70,7 +70,7 @@ void Saturation::processInput(juce::AudioBuffer<float>& buffer)
 
 void Saturation::processOutput(juce::AudioBuffer<float>& buffer)
 {
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
 
     for (int i = 0; i < numSamples; ++i)
@@ -85,7 +85,7 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                                          juce::SmoothedValue<float>& gainSmoothed,
                                          juce::SmoothedValue<float>& drvSmoothed)
 {
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
 
     for (int i = 0; i < numSamples; ++i)

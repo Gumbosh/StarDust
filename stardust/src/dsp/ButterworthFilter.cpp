@@ -47,7 +47,7 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
 {
     // Map 0-1 to frequency: 200 Hz to 20000 Hz (logarithmic curve)
     // 200 * 100^n gives perceptually even spacing across the knob range
-    const float freq = 200.0f * std::pow(100.0f, cutoffVal);
+    const float freq = 200.0f * std::exp2f(cutoffVal * 6.643856f); // log2(100) = 6.643856
 
     // Clamp frequency to Nyquist - margin
     const float nyquist = static_cast<float>(sampleRate) * 0.5f;
@@ -101,7 +101,7 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
         return;
     }
 
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
 
     // Always use sample-by-sample when LFO is active or parameters are smoothing
@@ -131,7 +131,7 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
             }
 
             // Recalculate only when values change meaningfully
-            if (std::abs(modulatedCutoff - lastCalcCutoff) > 0.01f
+            if (std::abs(modulatedCutoff - lastCalcCutoff) > 0.002f
                 || std::abs(r - lastCalcResonance) > 0.001f)
             {
                 lastCalcCutoff = modulatedCutoff;

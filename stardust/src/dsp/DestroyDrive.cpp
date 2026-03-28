@@ -28,7 +28,7 @@ void DestroyDrive::setOutputColor(float gainDb)
 void DestroyDrive::processInput(juce::AudioBuffer<float>& buffer)
 {
     juce::ScopedNoDenormals noDenormals;
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), 2);
     const auto numSamples = buffer.getNumSamples();
 
     for (int i = 0; i < numSamples; ++i)
@@ -42,7 +42,7 @@ void DestroyDrive::processInput(juce::AudioBuffer<float>& buffer)
 void DestroyDrive::processOutput(juce::AudioBuffer<float>& buffer)
 {
     juce::ScopedNoDenormals noDenormals;
-    const auto numChannels = buffer.getNumChannels();
+    const auto numChannels = std::min(buffer.getNumChannels(), 2);
     const auto numSamples = buffer.getNumSamples();
 
     for (int i = 0; i < numSamples; ++i)

@@ -18,8 +18,10 @@ public:
             {
                 const float phase = static_cast<float>(i) / static_cast<float>(kTableSize);
                 tables[Hanning][i] = 0.5f * (1.0f - std::cos(2.0f * pi * phase));
-                const float x = (phase - 0.5f) * 4.0f;
-                tables[Gaussian][i] = std::exp(-0.5f * x * x);
+                const float x = (phase - 0.5f) * 6.0f; // ±3σ for proper bell shape
+                const float gRaw = std::exp(-0.5f * x * x);
+                const float gEdge = std::exp(-4.5f); // value at phase=0 and phase=1 (x=±3)
+                tables[Gaussian][i] = (gRaw - gEdge) / (1.0f - gEdge);
                 tables[Triangle][i] = 1.0f - std::abs(2.0f * phase - 1.0f);
                 constexpr float fadeLen = 0.2f;
                 if (phase < fadeLen) tables[Trapezoid][i] = phase / fadeLen;

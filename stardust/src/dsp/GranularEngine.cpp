@@ -2,7 +2,7 @@
 
 static constexpr float kMaxOverlap = 8.0f;
 static constexpr float kTailDurationMs = 300.0f;
-static constexpr float kNormSmoothing = 0.05f;
+static constexpr float kNormSmoothing = 0.005f; // ~10ms time constant (smoother density transitions)
 static constexpr float kMaxNormGain = 2.0f;
 static constexpr float kGrainGainVariation = 0.25f;
 
@@ -18,6 +18,14 @@ float GranularEngine::fastNoise(uint32_t& state)
     return static_cast<float>(state) / static_cast<float>(UINT32_MAX) * 2.0f - 1.0f;
 }
 
+float GranularEngine::fastTanh(float x)
+{
+    if (x > 4.0f) return 1.0f;
+    if (x < -4.0f) return -1.0f;
+    const float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
 void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
 {
     sampleRate = newSampleRate;
@@ -25,6 +33,43 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     const float twoPi = 6.28318530718f;
 
     GrainEnvelopeLUT::initialize();
+
+    // Pre-compute windowed sinc LUT (Kaiser window, beta=6, 8-tap)
+    if (!sincLUT)
+        sincLUT = std::make_unique<std::array<float, kSincTableSize * kSincTaps>>();
+    {
+        constexpr float beta = 6.0f;
+        constexpr float pi = 3.14159265358979f;
+        // Approximate Kaiser window: I0(beta * sqrt(1 - x^2)) / I0(beta)
+        // Using I0 approximation: I0(x) ≈ 1 + (x/2)^2 + (x/2)^4/4 + (x/2)^6/36 + (x/2)^8/576
+        auto besselI0 = [](float x) -> float {
+            const float xh = x * 0.5f;
+            const float xh2 = xh * xh;
+            return 1.0f + xh2 * (1.0f + xh2 * (0.25f + xh2 * (1.0f/36.0f + xh2 * (1.0f/576.0f + xh2 * (1.0f/14400.0f)))));
+        };
+        const float i0Beta = besselI0(beta);
+        for (int fi = 0; fi < kSincTableSize; ++fi)
+        {
+            const float frac = static_cast<float>(fi) / static_cast<float>(kSincTableSize);
+            float tapSum = 0.0f;
+            for (int t = 0; t < kSincTaps; ++t)
+            {
+                const float x = static_cast<float>(t - kSincHalfTaps) + (1.0f - frac);
+                // Sinc function
+                float sincVal = (std::abs(x) < 1e-6f) ? 1.0f : std::sin(pi * x) / (pi * x);
+                // Kaiser window
+                const float nPos = 2.0f * static_cast<float>(t) / static_cast<float>(kSincTaps - 1) - 1.0f;
+                const float kaiserArg = beta * std::sqrt(std::max(0.0f, 1.0f - nPos * nPos));
+                const float window = besselI0(kaiserArg) / i0Beta;
+                (*sincLUT)[static_cast<size_t>(fi * kSincTaps + t)] = sincVal * window;
+                tapSum += sincVal * window;
+            }
+            // Normalize so taps sum to 1.0
+            if (std::abs(tapSum) > 1e-6f)
+                for (int t = 0; t < kSincTaps; ++t)
+                    (*sincLUT)[static_cast<size_t>(fi * kSincTaps + t)] /= tapSum;
+        }
+    }
 
     grainSizeSmoothed.reset(sampleRate, 0.02);
     grainDensitySmoothed.reset(sampleRate, 0.02);
@@ -45,7 +90,7 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
         feedbackBuffer[ch] = 0.0f;
         feedbackLpState[ch] = 0.0f;
     }
-    feedbackLpAlpha = 1.0f - std::exp(-twoPi * 3000.0f / sr);
+    feedbackLpAlpha = 1.0f - std::exp(-twoPi * 8000.0f / sr);
 
     writePos = 0; frozenWritePos = 0;
     samplesSinceLastGrain = 0; nextGrainInterval = 0;
@@ -54,6 +99,7 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     freezeFadeInc = 1.0f / (0.01f * sr); // 10ms crossfade
 
     for (auto& g : grains) g.active = false;
+    activeCount = 0;
 
     inputRmsState = 0.0f;
     rmsAlpha = 1.0f - std::exp(-twoPi * 30.0f / sr);
@@ -61,12 +107,15 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     tailDurationSamples = static_cast<int>(kTailDurationMs * 0.001f * sr);
     normSmoothed = 1.0f;
 
-    posLfoPhase = 0.0f;   posLfoInc = twoPi * 0.1f / sr;
-    sizeLfoPhase = 0.0f;  sizeLfoInc = twoPi * 0.07f / sr;
-    pitchLfoPhase = 0.0f; pitchLfoInc = twoPi * 0.13f / sr;
+    posLfo.init(0.1f, sr);
+    sizeLfo.init(0.07f, sr);
+    pitchLfo.init(0.13f, sr);
+    lfoNormCounter = 0;
 
-    freezeJitterPhase = 0.0f;      freezeJitterInc = twoPi * 0.3f / sr;
-    freezePitchJitterPhase = 0.0f;  freezePitchJitterInc = twoPi * 0.17f / sr;
+    freezePosNoise = 0.0f;
+    freezePitchNoise = 0.0f;
+    freezeNoiseAlpha = 1.0f - std::exp(-twoPi * 0.5f / sr); // ~0.5Hz bandwidth for organic drift
+    freezeNoiseState = 31337;
 
     dattorro.prepare(sampleRate);
     inputFollower.prepare(sampleRate);
@@ -94,8 +143,7 @@ void GranularEngine::setPosition(float position)
 
 void GranularEngine::setFreeze(bool freeze)
 {
-    if (freeze && !freezeTarget) frozenWritePos = writePos;
-    freezeTarget = freeze;
+    freezeTarget.store(freeze, std::memory_order_relaxed);
 }
 
 void GranularEngine::setFeedback(float amount)
@@ -126,11 +174,10 @@ void GranularEngine::setCloud(float cloud)
 
 float GranularEngine::readHermite(int channel, float position) const
 {
-    int idx1 = static_cast<int>(std::floor(position)) % kInputBufferSize;
-    if (idx1 < 0) idx1 += kInputBufferSize;
-    const int idx0 = (idx1 - 1 + kInputBufferSize) % kInputBufferSize;
-    const int idx2 = (idx1 + 1) % kInputBufferSize;
-    const int idx3 = (idx1 + 2) % kInputBufferSize;
+    int idx1 = static_cast<int>(std::floor(position)) & kInputBufferMask;
+    const int idx0 = (idx1 - 1) & kInputBufferMask;
+    const int idx2 = (idx1 + 1) & kInputBufferMask;
+    const int idx3 = (idx1 + 2) & kInputBufferMask;
     const float frac = position - std::floor(position);
     const auto& buf = (*inputBuffer)[static_cast<size_t>(channel)];
     const float y0 = buf[static_cast<size_t>(idx0)], y1 = buf[static_cast<size_t>(idx1)];
@@ -141,6 +188,22 @@ float GranularEngine::readHermite(int channel, float position) const
     return ((c3 * frac + c2) * frac + c1) * frac + y1;
 }
 
+float GranularEngine::readSinc(int channel, float position) const
+{
+    const int idx = static_cast<int>(std::floor(position));
+    const float frac = position - std::floor(position);
+    const int tableIdx = std::min(kSincTableSize - 1, static_cast<int>(frac * static_cast<float>(kSincTableSize)));
+    const auto& buf = (*inputBuffer)[static_cast<size_t>(channel)];
+    const float* taps = &(*sincLUT)[static_cast<size_t>(tableIdx * kSincTaps)];
+    float result = 0.0f;
+    for (int t = 0; t < kSincTaps; ++t)
+    {
+        const int sampleIdx = (idx - kSincHalfTaps + t) & kInputBufferMask;
+        result += buf[static_cast<size_t>(sampleIdx)] * taps[t];
+    }
+    return result;
+}
+
 bool GranularEngine::isBufferSilent(float position, int lengthSamples) const
 {
     constexpr int kCheckPoints = 8;
@@ -148,8 +211,7 @@ bool GranularEngine::isBufferSilent(float position, int lengthSamples) const
     float peak = 0.0f;
     for (int p = 0; p < kCheckPoints; ++p)
     {
-        int idx = static_cast<int>(position + step * static_cast<float>(p)) % kInputBufferSize;
-        if (idx < 0) idx += kInputBufferSize;
+        int idx = static_cast<int>(position + step * static_cast<float>(p)) & kInputBufferMask;
         peak = std::max(peak, std::abs((*inputBuffer)[0][static_cast<size_t>(idx)]));
     }
     return peak < kSilenceThreshold;
@@ -161,11 +223,19 @@ int GranularEngine::findNearestZeroCrossing(int startIdx, int searchRange) const
     float bestAbs = 999.0f;
     for (int off = -searchRange; off <= searchRange; ++off)
     {
-        int idx = (startIdx + off + kInputBufferSize) % kInputBufferSize;
+        int idx = (startIdx + off) & kInputBufferMask;
         float s = std::abs((*inputBuffer)[0][static_cast<size_t>(idx)]);
         if (s < bestAbs) { bestAbs = s; bestIdx = idx; }
     }
     return bestIdx;
+}
+
+void GranularEngine::rebuildActiveList()
+{
+    activeCount = 0;
+    for (int i = 0; i < kMaxGrains; ++i)
+        if (grains[static_cast<size_t>(i)].active)
+            activeIndices[static_cast<size_t>(activeCount++)] = i;
 }
 
 // ============================================================================
@@ -179,28 +249,47 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
     const float twoPi = 6.28318530718f;
     const float bufDepth = static_cast<float>(kInputBufferSize) * 0.9f;
 
-    // Poisson scheduling
-    const float rate = effectiveDensity * overlapFactor / static_cast<float>(grainSizeSamples);
-    const float U = std::max(0.001f, fastNoise(noiseState) * 0.5f + 0.5f);
+    // Poisson scheduling: inter-onset rate = density / grainLength
+    // Mean interval = grainLength / density (in samples)
+    // This ensures actual grain overlap matches the normalization model
+    const float meanIntervalSamples = static_cast<float>(grainSizeSamples) / std::max(0.1f, effectiveDensity);
+    const float rate = 1.0f / std::max(1.0f, meanIntervalSamples);
+    const float U = std::max(0.001f, fastNoise(schedulerNoiseState) * 0.5f + 0.5f);
     nextGrainInterval = std::max(1, static_cast<int>(-std::log(U) / rate));
 
-    const int spawnCount = effectiveDensity > 8.0f ? 3 : (effectiveDensity > 4.0f ? 2 : 1);
-    int spawned = 0;
-
+    // Single grain per trigger — steal oldest grain if pool is full
+    Grain* target = nullptr;
     for (auto& g : grains)
     {
-        if (spawned >= spawnCount) break;
-        if (g.active) continue;
+        if (!g.active) { target = &g; break; }
+    }
+    // Voice stealing: if no free slot, steal the grain closest to finishing
+    if (!target)
+    {
+        int maxProgress = -1;
+        for (auto& g : grains)
+        {
+            if (g.currentSample > maxProgress) { maxProgress = g.currentSample; target = &g; }
+        }
+    }
+    if (target)
+    {
+        auto& g = *target;
+        g.active = false; // reset before re-spawning
 
         const float maxScatter = scatter * bufDepth * 0.3f;
         float startPos = readAnchor + fastNoise(noiseState) * maxScatter;
 
-        // Freeze micro-variation: add position and pitch jitter
+        // Freeze micro-variation: noise-shaped drift + per-grain random offset
+        g.freezeJitterOffset = fastNoise(spatialNoiseState); // random ±1 per grain (spatial PRNG)
         if (frozen)
-            startPos += std::sin(freezeJitterPhase) * sr * 0.020f; // ±20ms
+        {
+            const float jitterDepth = std::min(sr * 0.020f, static_cast<float>(grainSizeSamples) * 0.5f);
+            // Combine shared noise drift with per-grain random offset for organic texture
+            startPos += (freezePosNoise + g.freezeJitterOffset * 0.5f) * jitterDepth;
+        }
 
-        startPos = std::fmod(startPos + static_cast<float>(kInputBufferSize),
-                             static_cast<float>(kInputBufferSize));
+        startPos = static_cast<float>(static_cast<int>(startPos + static_cast<float>(kInputBufferSize)) & kInputBufferMask);
 
         // Zero-crossing alignment for small grains
         if (grainSizeSamples < static_cast<int>(sr * 0.01f))
@@ -210,14 +299,14 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         }
 
         if (!frozen && isBufferSilent(startPos, grainSizeSamples))
-            continue;
+            return; // skip spawning on silent buffer region
 
         g.currentPosition = startPos;
 
         // Pitch with quantized scatter
         float pitchRate = basePitchRate * (1.0f + pitchMod);
         if (frozen)
-            pitchRate *= 1.0f + std::sin(freezePitchJitterPhase) * 0.015f; // ±25 cents
+            pitchRate *= 1.0f + (freezePitchNoise + g.freezeJitterOffset * 0.3f) * 0.015f; // ±25 cents noise-shaped
 
         if (scatter > 0.3f)
         {
@@ -236,10 +325,10 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         if (g.reverse) g.playbackRate = -std::abs(g.playbackRate);
 
         // Pan + gain
-        const float pan = 0.5f + fastNoise(noiseState) * 0.5f * stereoWidth;
+        const float pan = 0.5f + fastNoise(spatialNoiseState) * 0.5f * stereoWidth;
         g.panL = std::cos(pan * 1.5707963f);
         g.panR = std::sin(pan * 1.5707963f);
-        g.gainMul = 1.0f + fastNoise(noiseState) * kGrainGainVariation;
+        g.gainMul = 1.0f + fastNoise(spatialNoiseState) * kGrainGainVariation;
 
         // Length
         g.lengthInSamples = std::max(16, static_cast<int>(
@@ -251,21 +340,35 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         const float driftTarget = g.playbackRate * std::pow(2.0f, driftCents / 1200.0f);
         g.pitchDriftRate = (driftTarget - g.playbackRate) / static_cast<float>(g.lengthInSamples);
 
-        // AA biquad
+        // AA biquad (cascaded 4-pole Butterworth for rate > 1.5x)
         const float absRate = std::abs(g.playbackRate);
         if (absRate > 1.05f)
         {
-            const float w0 = twoPi * std::min(sr * 0.45f, (sr * 0.45f) / absRate) / sr;
-            const float alpha = std::sin(w0) / 1.414f;
+            const float fc = std::min(sr * 0.45f, (sr * 0.45f) / absRate);
+            const float w0 = twoPi * fc / sr;
             const float cosw0 = std::cos(w0);
-            const float a0 = 1.0f + alpha;
-            g.aaB0 = ((1.0f - cosw0) * 0.5f) / a0;
-            g.aaB1 = (1.0f - cosw0) / a0; g.aaB2 = g.aaB0;
-            g.aaA1 = (-2.0f * cosw0) / a0; g.aaA2 = (1.0f - alpha) / a0;
+            // Stage 1: Q = 0.5412 for 4-pole Butterworth (or 0.707 if single stage)
+            const float q1 = (absRate > 1.5f) ? 0.5412f : 0.7071f;
+            const float alpha1 = std::sin(w0) / (2.0f * q1);
+            const float a0_1 = 1.0f + alpha1;
+            g.aaB0 = ((1.0f - cosw0) * 0.5f) / a0_1;
+            g.aaB1 = (1.0f - cosw0) / a0_1; g.aaB2 = g.aaB0;
+            g.aaA1 = (-2.0f * cosw0) / a0_1; g.aaA2 = (1.0f - alpha1) / a0_1;
             g.aaActive = true;
+            g.aa2Active = absRate > 1.5f;
+            if (g.aa2Active)
+            {
+                // Stage 2: Q = 1.3066 for proper 4-pole Butterworth maximally-flat passband
+                const float alpha2 = std::sin(w0) / (2.0f * 1.3066f);
+                const float a0_2 = 1.0f + alpha2;
+                g.aa2B0 = ((1.0f - cosw0) * 0.5f) / a0_2;
+                g.aa2B1 = (1.0f - cosw0) / a0_2; g.aa2B2 = g.aa2B0;
+                g.aa2A1 = (-2.0f * cosw0) / a0_2; g.aa2A2 = (1.0f - alpha2) / a0_2;
+            }
         }
-        else g.aaActive = false;
+        else { g.aaActive = false; g.aa2Active = false; }
         g.aaS1[0] = g.aaS1[1] = g.aaS2[0] = g.aaS2[1] = 0.0f;
+        g.aa2S1[0] = g.aa2S1[1] = g.aa2S2[0] = g.aa2S2[1] = 0.0f;
 
         // SVF mode (scatter-adaptive)
         g.svfActive = true;
@@ -288,13 +391,12 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         g.svfIc1[0] = g.svfIc1[1] = g.svfIc2[0] = g.svfIc2[1] = 0.0f;
         g.svfUpdateCounter = 0;
 
-        // Decorrelation allpass
-        g.decorrelCoeff = 0.3f + (fastNoise(noiseState) * 0.5f + 0.5f) * 0.5f;
+        // Decorrelation allpass (0.2–0.6 range safer for mono compatibility)
+        g.decorrelCoeff = 0.2f + (fastNoise(spatialNoiseState) * 0.5f + 0.5f) * 0.4f;
         g.decorrelState = 0.0f;
 
         g.active = true;
-        ++spawned;
-    }
+    } // single grain per Poisson trigger via target selection above
 }
 
 // ============================================================================
@@ -303,7 +405,7 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
 void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFollow,
                                    float& outL, float& outR)
 {
-    if (g.lengthInSamples < 1) { g.active = false; return; }
+    if (g.lengthInSamples < 1) { g.active = false; activeListDirty = true; return; }
 
     const float phase = static_cast<float>(g.currentSample) / static_cast<float>(g.lengthInSamples);
 
@@ -323,15 +425,23 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
             (currentCloud - 0.5f) * 2.0f, phase);
     }
 
-    // Enhanced short-grain envelope
+    // Softer attack for short grains (reduces clicks — opposite of sharpening)
     if (currentCloud < 0.3f && g.lengthInSamples < static_cast<int>(sr * 0.01f))
-        envelope = std::sqrt(envelope * envelope * envelope);
+        envelope = envelope * envelope; // power-2 softens the onset
 
-    // Read from buffer
-    float sL = readHermite(0, g.currentPosition);
-    float sR = isStereo ? readHermite(1, g.currentPosition) : sL;
+    // Minimum 16-sample fade-in/fade-out guard (prevents clicks regardless of envelope shape)
+    constexpr int kMinFadeSamples = 16;
+    if (g.currentSample < kMinFadeSamples)
+        envelope *= static_cast<float>(g.currentSample) / static_cast<float>(kMinFadeSamples);
+    else if (g.currentSample >= g.lengthInSamples - kMinFadeSamples)
+        envelope *= std::max(0.0f, static_cast<float>(g.lengthInSamples - 1 - g.currentSample) / static_cast<float>(kMinFadeSamples));
 
-    // AA biquad
+    // Read from buffer (sinc HQ mode for high pitch ratios, Hermite otherwise)
+    const bool useSinc = hqMode && sincLUT && std::abs(g.playbackRate) > 1.5f;
+    float sL = useSinc ? readSinc(0, g.currentPosition) : readHermite(0, g.currentPosition);
+    float sR = isStereo ? (useSinc ? readSinc(1, g.currentPosition) : readHermite(1, g.currentPosition)) : sL;
+
+    // AA biquad (first stage — 12dB/oct)
     if (g.aaActive)
     {
         for (int ch = 0; ch < (isStereo ? 2 : 1); ++ch)
@@ -341,6 +451,18 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
             g.aaS1[ch] = g.aaB1 * s - g.aaA1 * out + g.aaS2[ch];
             g.aaS2[ch] = g.aaB2 * s - g.aaA2 * out;
             s = out;
+        }
+        // Second cascade stage (Q=1.3066 for 4-pole Butterworth flat passband)
+        if (g.aa2Active)
+        {
+            for (int ch = 0; ch < (isStereo ? 2 : 1); ++ch)
+            {
+                float& s = (ch == 0) ? sL : sR;
+                const float out = g.aa2B0 * s + g.aa2S1[ch];
+                g.aa2S1[ch] = g.aa2B1 * s - g.aa2A1 * out + g.aa2S2[ch];
+                g.aa2S2[ch] = g.aa2B2 * s - g.aa2A2 * out;
+                s = out;
+            }
         }
     }
 
@@ -359,7 +481,10 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
         if (g.svfUpdateCounter <= 0)
         {
             const float cutoff = std::min(g.svfBaseFreq + envelope * g.svfRange, sr * 0.45f);
-            g.svfCachedG0 = std::tan(3.14159265f * cutoff / sr);
+            // Fast tan approximation clamped to valid range (fix 3.6)
+            const float x = std::min(0.785f, 3.14159265f * cutoff / sr);
+            const float x2 = x * x;
+            g.svfCachedG0 = x * (1.0f + x2 * (1.0f/3.0f + x2 * (2.0f/15.0f)));
             g.svfCachedK = 1.0f / g.svfQ;
             g.svfUpdateCounter = 16;
         }
@@ -388,13 +513,12 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
     outL += sL * gainEnv * g.panL;
     if (isStereo) outR += sR * gainEnv * g.panR;
 
-    // Advance grain
+    // Advance grain (bitmask wrap — power-of-2 buffer)
     g.currentPosition += g.playbackRate;
     g.playbackRate += g.pitchDriftRate;
-    g.currentPosition = std::fmod(g.currentPosition + static_cast<float>(kInputBufferSize),
-                                  static_cast<float>(kInputBufferSize));
+    g.currentPosition = static_cast<float>(static_cast<int>(g.currentPosition + static_cast<float>(kInputBufferSize)) & kInputBufferMask);
     g.currentSample++;
-    if (g.currentSample >= g.lengthInSamples) g.active = false;
+    if (g.currentSample >= g.lengthInSamples) { g.active = false; activeListDirty = true; }
 }
 
 // ============================================================================
@@ -408,6 +532,9 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
     const bool isStereo = numChannels > 1;
     const float sr = static_cast<float>(sampleRate);
     const float twoPi = 6.28318530718f;
+
+    // Block-local PPQ snapshot — avoids cross-block drift from per-sample accumulation (fix 2.10)
+    double blockPpq = hostPpqPosition.load(std::memory_order_relaxed);
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -423,39 +550,51 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         const float space = spaceSmoothed.getNextValue();
 
         // Freeze crossfade (10ms smooth transition)
-        const float freezeGoal = freezeTarget ? 1.0f : 0.0f;
+        const float freezeGoal = freezeTarget.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
         if (freezeFade < freezeGoal)
             freezeFade = std::min(freezeGoal, freezeFade + freezeFadeInc);
         else if (freezeFade > freezeGoal)
             freezeFade = std::max(freezeGoal, freezeFade - freezeFadeInc);
-        frozen = freezeFade > 0.5f;
+        // Capture write position at the exact moment freeze activates (fix 2.9)
+        const bool shouldFreeze = freezeFade > 0.5f;
+        if (shouldFreeze && !frozen) frozenWritePos = writePos;
+        frozen = shouldFreeze;
 
-        // Update Dattorro reverb from texture parameter
-        dattorro.setDecay(0.2f + texture * 0.78f);
-        dattorro.setDamping(1.0f - texture * 0.7f);
-        dattorro.setDiffusion(0.4f + texture * 0.5f);
+        // Update Dattorro reverb only when texture changes (fix 3.15)
+        if (std::abs(texture - lastDattorroTexture) > 0.001f)
+        {
+            lastDattorroTexture = texture;
+            dattorro.setDecay(0.2f + texture * 0.78f);
+            dattorro.setDamping(1.0f - texture * 0.7f);
+            dattorro.setDiffusion(0.4f + texture * 0.5f);
+        }
 
         const float densityRateScale = 1.5f - std::min(density, 12.0f) / 12.0f;
         const float sizeModDepth = scatter * 0.15f;
-        const float sizeMod = 1.0f + std::sin(sizeLfoPhase) * sizeModDepth;
-        const float pitchMod = std::sin(pitchLfoPhase) * scatter * 0.003f;
+        const float sizeMod = 1.0f + sizeLfo.sinVal * sizeModDepth;
+        const float pitchMod = pitchLfo.sinVal * scatter * 0.003f;
 
         const int grainSizeSamples = std::max(16, static_cast<int>(grainSizeMs * sizeMod * 0.001f * sr));
         const float overlapFactor = 2.0f + (std::min(density, 16.0f) / 16.0f) * (kMaxOverlap - 2.0f);
 
         // Write input (crossfaded during freeze transition)
+        // Feedback continues during freeze — only external input is gated by writeMix
         const float writeMix = 1.0f - freezeFade;
-        if (writeMix > 0.001f)
         {
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                float in = buffer.getReadPointer(ch)[i] + feedbackBuffer[ch] * feedback;
-                in = std::tanh(in);
+                const float extIn = buffer.getReadPointer(ch)[i] * writeMix;
+                float in = extIn + feedbackBuffer[ch] * feedback;
+                in = fastTanh(in);
                 auto& bufSample = (*inputBuffer)[static_cast<size_t>(ch)][static_cast<size_t>(writePos)];
-                bufSample = bufSample * (1.0f - writeMix) + in * writeMix;
+                if (writeMix > 0.001f)
+                    bufSample = bufSample * (1.0f - writeMix) + in * writeMix;
+                else if (feedback > 0.001f)
+                    bufSample = in; // during full freeze, write only feedback (self-oscillation continues)
             }
-            inputFollower.processSample(buffer.getReadPointer(0)[i],
-                                        isStereo ? buffer.getReadPointer(1)[i] : buffer.getReadPointer(0)[i]);
+            if (writeMix > 0.001f)
+                inputFollower.processSample(buffer.getReadPointer(0)[i],
+                                            isStereo ? buffer.getReadPointer(1)[i] : buffer.getReadPointer(0)[i]);
         }
 
         // RMS tail detection
@@ -475,7 +614,7 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         if (warmupSamples > 0)
         {
             --warmupSamples;
-            if (!frozen) writePos = (writePos + 1) % kInputBufferSize;
+            if (!frozen || feedback > 0.001f) writePos = (writePos + 1) & kInputBufferMask;
             for (int ch = 0; ch < numChannels; ++ch)
                 buffer.getWritePointer(ch)[i] = 0.0f;
             continue;
@@ -484,36 +623,63 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         // Read anchor
         const int ewp = frozen ? frozenWritePos : writePos;
         const float bufDepth = static_cast<float>(kInputBufferSize) * 0.9f;
-        const float lfoOff = std::sin(posLfoPhase) * 0.02f;
+        const float lfoOff = posLfo.sinVal * 0.02f;
         const float effPos = std::max(0.0f, std::min(1.0f, position + lfoOff));
         float readAnchor = static_cast<float>(ewp) - (1.0f - effPos) * bufDepth;
         if (readAnchor < 0.0f) readAnchor += static_cast<float>(kInputBufferSize);
 
-        // Grain scheduling
+        // Grain scheduling (Poisson free-running or tempo-synced)
         ++samplesSinceLastGrain;
         const bool canSpawn = mix > 0.001f && effectiveDensity > 0.01f
                               && !(inTailMode && tailSamplesRemaining <= 0);
 
-        if (samplesSinceLastGrain >= nextGrainInterval && canSpawn)
+        bool shouldSpawn = false;
+        const double currentBpm = hostBpm.load(std::memory_order_relaxed);
+        if (syncMode > 0 && currentBpm > 0.0)
+        {
+            // Tempo-synced: fire grains at beat subdivisions (fix 2.10)
+            static constexpr double kSyncDivisions[] = { 0.0, 1.0, 0.5, 0.25, 0.125 };
+            const double division = kSyncDivisions[std::min(syncMode, 4)];
+            // Reset on transport jump (loop, locate) to prevent burst/silence (fix 3.5)
+            if (std::abs(blockPpq - lastGrainPpq) > 2.0 * division && division > 0.0)
+                lastGrainPpq = blockPpq;
+            if (blockPpq >= lastGrainPpq + division)
+            {
+                shouldSpawn = true;
+                lastGrainPpq = blockPpq;
+            }
+            // Advance block-local PPQ per sample (does not persist across blocks)
+            blockPpq += currentBpm / (60.0 * sampleRate);
+        }
+        else
+        {
+            // Free-running Poisson
+            shouldSpawn = (samplesSinceLastGrain >= nextGrainInterval);
+        }
+
+        if (shouldSpawn && canSpawn)
         {
             samplesSinceLastGrain = 0;
             spawnGrains(readAnchor, scatter, basePitchRate, pitchMod,
                         grainSizeSamples, effectiveDensity, overlapFactor, stereoWidth, isStereo);
+            rebuildActiveList();
         }
 
         // Input envelope following (bypass during freeze)
         const float envFollow = frozen ? 1.0f : (0.3f + 0.7f * inputFollower.getEnvelope());
 
-        // Process active grains
+        // Process active grains (using packed index array — skips inactive slots)
         float grainOutputL = 0.0f, grainOutputR = 0.0f;
-        for (auto& g : grains)
+        for (int ai = 0; ai < activeCount; ++ai)
         {
-            if (!g.active) continue;
+            auto& g = grains[static_cast<size_t>(activeIndices[static_cast<size_t>(ai)])];
             processGrain(g, isStereo, sr, envFollow, grainOutputL, grainOutputR);
         }
+        // Rebuild active list only when grains deactivated during processing (fix 2.6)
+        if (activeListDirty) { rebuildActiveList(); activeListDirty = false; }
 
-        // Density normalization
-        const float densNorm = 1.0f / std::sqrt(std::max(1.0f, effectiveDensity * overlapFactor));
+        // Density normalization (use density alone — overlapFactor already scales with density)
+        const float densNorm = 1.0f / std::sqrt(std::max(1.0f, effectiveDensity));
         normSmoothed += kNormSmoothing * (std::min(kMaxNormGain, densNorm) - normSmoothed);
         grainOutputL *= normSmoothed;
         grainOutputR *= normSmoothed;
@@ -536,17 +702,23 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             {
                 const float over = std::min(1.0f, (ax - 0.75f) / 0.25f);
                 const float knee = over * over * (3.0f - 2.0f * over);
-                *s = *s * (1.0f - knee) + std::tanh(*s) * knee;
+                *s = *s * (1.0f - knee) + fastTanh(*s) * knee;
             }
         }
 
-        // Feedback (LP filtered)
+        // Feedback (LP filtered + cross-channel coupling for stereo evolution)
         feedbackLpState[0] += feedbackLpAlpha * (grainOutputL - feedbackLpState[0]);
-        feedbackBuffer[0] = feedbackLpState[0];
+        feedbackLpState[1] += feedbackLpAlpha * (grainOutputR - feedbackLpState[1]);
         if (isStereo)
         {
-            feedbackLpState[1] += feedbackLpAlpha * (grainOutputR - feedbackLpState[1]);
-            feedbackBuffer[1] = feedbackLpState[1];
+            // Hadamard-style cross-coupling (5% bleed for subtle stereo widening in self-oscillation)
+            constexpr float kCrossBleed = 0.05f;
+            feedbackBuffer[0] = feedbackLpState[0] + kCrossBleed * (feedbackLpState[1] - feedbackLpState[0]);
+            feedbackBuffer[1] = feedbackLpState[1] + kCrossBleed * (feedbackLpState[0] - feedbackLpState[1]);
+        }
+        else
+        {
+            feedbackBuffer[0] = feedbackLpState[0];
         }
 
         // Dry/wet (precompute once — mix changes slowly)
@@ -558,18 +730,25 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             data[i] = data[i] * dryGain + ((ch == 0) ? grainOutputL : grainOutputR) * wetGain;
         }
 
-        if (!frozen) writePos = (writePos + 1) % kInputBufferSize;
+        // Advance write position (always advance when feedback is active, even during freeze)
+        if (!frozen || feedback > 0.001f)
+            writePos = (writePos + 1) & kInputBufferMask;
 
-        // Advance LFOs (rate scales with density)
-        posLfoPhase += posLfoInc * densityRateScale; if (posLfoPhase >= twoPi) posLfoPhase -= twoPi;
-        sizeLfoPhase += sizeLfoInc * densityRateScale; if (sizeLfoPhase >= twoPi) sizeLfoPhase -= twoPi;
-        pitchLfoPhase += pitchLfoInc * densityRateScale; if (pitchLfoPhase >= twoPi) pitchLfoPhase -= twoPi;
+        // Advance LFOs via incremental oscillators (zero trig per sample)
+        posLfo.advance(densityRateScale);
+        sizeLfo.advance(densityRateScale);
+        pitchLfo.advance(densityRateScale);
+        if (++lfoNormCounter >= 512)
+        {
+            lfoNormCounter = 0;
+            posLfo.normalize(); sizeLfo.normalize(); pitchLfo.normalize();
+        }
 
-        // Freeze jitter LFOs (only advance when frozen)
+        // Freeze noise-shaped drift (LP-filtered random walk — organic, not periodic)
         if (frozen)
         {
-            freezeJitterPhase += freezeJitterInc; if (freezeJitterPhase >= twoPi) freezeJitterPhase -= twoPi;
-            freezePitchJitterPhase += freezePitchJitterInc; if (freezePitchJitterPhase >= twoPi) freezePitchJitterPhase -= twoPi;
+            freezePosNoise += freezeNoiseAlpha * (fastNoise(freezeNoiseState) - freezePosNoise);
+            freezePitchNoise += freezeNoiseAlpha * (fastNoise(freezeNoiseState) - freezePitchNoise);
         }
     }
 }

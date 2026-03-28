@@ -50,11 +50,13 @@ void DattorroReverb::prepare(double sampleRate)
     sr = sampleRate;
     const float twoPi = 2.0f * 3.14159265358979f;
 
-    // Input diffusers
+    // Input diffusers (mid: 4 series, side: 2 series for stereo content)
     inDiffA.init(poolInDiffA, scaleDelay(kInDiffA, sr), inputDiffusion1);
     inDiffB.init(poolInDiffB, scaleDelay(kInDiffB, sr), inputDiffusion1);
     inDiffC.init(poolInDiffC, scaleDelay(kInDiffC, sr), inputDiffusion2);
     inDiffD.init(poolInDiffD, scaleDelay(kInDiffD, sr), inputDiffusion2);
+    sideDiffA.init(poolSideDiffA, scaleDelay(kInDiffC, sr), inputDiffusion2);
+    sideDiffB.init(poolSideDiffB, scaleDelay(kInDiffD, sr), inputDiffusion2);
 
     // Tank A
     tankApA1.init(poolTankApA1, scaleDelay(kTankApA1Delay, sr), -0.7f);
@@ -68,11 +70,12 @@ void DattorroReverb::prepare(double sampleRate)
     tankApB2.init(poolTankApB2, scaleDelay(kTankApB2Delay, sr), 0.5f);
     tankDelB2.init(poolTankDelB2, scaleDelay(kTankDelB2Delay, sr));
 
-    // LFOs for tank modulation
-    lfoPhase1 = 0.0f;
-    lfoInc1 = twoPi * 0.8f / static_cast<float>(sr);
-    lfoPhase2 = 1.57f;
-    lfoInc2 = twoPi * 1.1f / static_cast<float>(sr);
+    // Incremental oscillators for tank modulation (zero trig per sample)
+    lfo1.init(0.8f, static_cast<float>(sr));
+    lfo2.init(1.1f, static_cast<float>(sr));
+    // Offset lfo2 phase by ~90 degrees
+    lfo2.cosVal = 0.0f; lfo2.sinVal = 1.0f;
+    lfoCounter = 0;
 
     // Scale modulation depth with sample rate (Dattorro reference: 29761 Hz)
     modDepthSamples = 8.0f * static_cast<float>(sampleRate) / 29761.0f;
@@ -126,6 +129,8 @@ void DattorroReverb::setDiffusion(float amount)
     inDiffB.feedback = inputDiffusion1;
     inDiffC.feedback = inputDiffusion2;
     inDiffD.feedback = inputDiffusion2;
+    sideDiffA.feedback = inputDiffusion2;
+    sideDiffB.feedback = inputDiffusion2;
 }
 
 void DattorroReverb::reset()
@@ -142,6 +147,8 @@ void DattorroReverb::reset()
     std::memset(poolTankApB2, 0, sizeof(poolTankApB2));
     std::memset(poolTankDelB1, 0, sizeof(poolTankDelB1));
     std::memset(poolTankDelB2, 0, sizeof(poolTankDelB2));
+    std::memset(poolSideDiffA, 0, sizeof(poolSideDiffA));
+    std::memset(poolSideDiffB, 0, sizeof(poolSideDiffB));
     tankDampA = 0.0f;
     tankDampB = 0.0f;
     std::memset(preDelayBuffer, 0, sizeof(preDelayBuffer));
@@ -150,35 +157,36 @@ void DattorroReverb::reset()
 
 void DattorroReverb::processSample(float inL, float inR, float& outL, float& outR)
 {
-    // Mix input to mono
-    const float inputMono = (inL + inR) * 0.5f;
+    // True stereo: M/S decomposition, diffuse both mid and side before tanks
+    const float inputMid = (inL + inR) * 0.5f;
+    const float inputSide = (inL - inR) * 0.5f;
 
-    // Pre-delay (20ms) for clarity
-    preDelayBuffer[preDelayWritePos] = inputMono;
-    const float preDelayed = preDelayBuffer[(preDelayWritePos - preDelayLength + 8192) % kPreDelaySize];
-    preDelayWritePos = (preDelayWritePos + 1) % kPreDelaySize;
+    preDelayBuffer[preDelayWritePos] = inputMid;
+    const float preDelayed = preDelayBuffer[(preDelayWritePos - preDelayLength + kPreDelaySize) & (kPreDelaySize - 1)];
+    preDelayWritePos = (preDelayWritePos + 1) & (kPreDelaySize - 1);
 
-    // Input diffuser chain (4 series allpasses)
-    float diffused = inDiffA.process(preDelayed);
-    diffused = inDiffB.process(diffused);
-    diffused = inDiffC.process(diffused);
-    diffused = inDiffD.process(diffused);
+    // Diffuse mid (4 allpasses) and side (2 allpasses) independently
+    float diffusedMid = inDiffA.process(preDelayed);
+    diffusedMid = inDiffB.process(diffusedMid);
+    diffusedMid = inDiffC.process(diffusedMid);
+    diffusedMid = inDiffD.process(diffusedMid);
+    float diffusedSide = sideDiffA.process(inputSide);
+    diffusedSide = sideDiffB.process(diffusedSide);
 
-    // LFO modulation for tank allpasses
-    const float mod1 = std::sin(lfoPhase1) * modDepthSamples;
-    const float mod2 = std::sin(lfoPhase2) * modDepthSamples;
-    lfoPhase1 += lfoInc1;
-    if (lfoPhase1 >= 6.28318530718f) lfoPhase1 -= 6.28318530718f;
-    lfoPhase2 += lfoInc2;
-    if (lfoPhase2 >= 6.28318530718f) lfoPhase2 -= 6.28318530718f;
+    // LFO modulation via incremental oscillators (zero trig per sample)
+    const float mod1 = lfo1.sinVal * modDepthSamples;
+    const float mod2 = lfo2.sinVal * modDepthSamples;
+    lfo1.advance();
+    lfo2.advance();
+    if (++lfoCounter >= 512) { lfoCounter = 0; lfo1.normalize(); lfo2.normalize(); }
 
     // Read from end of Tank B (crossed feedback into Tank A)
     const float feedbackA = tankDelB2.read();
     // Read from end of Tank A (crossed feedback into Tank B)
     const float feedbackB = tankDelA2.read();
 
-    // Tank A processing
-    float tankA = diffused + feedbackA;
+    // True stereo: inject diffused mid + diffused side into separate tanks
+    float tankA = diffusedMid + diffusedSide + feedbackA;
     tankA = tankApA1.processModulated(tankA, mod1);
     tankDelA1.write(tankA);
     tankA = tankDelA1.read();
@@ -188,8 +196,8 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     tankA = tankApA2.process(tankA);
     tankDelA2.write(tankA);
 
-    // Tank B processing
-    float tankB = diffused + feedbackB;
+    // Tank B processing (mid - side = R-biased)
+    float tankB = diffusedMid - diffusedSide + feedbackB;
     tankB = tankApB1.processModulated(tankB, mod2);
     tankDelB1.write(tankB);
     tankB = tankDelB1.read();
@@ -203,22 +211,22 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     // Left output: taps from Tank A delay lines + taps from Tank B (subtracted)
     outL = tankDelA1.readAt(tapA1)
          + tankDelA1.readAt(tapA2)
-         - tankApA2.buffer[(tankApA2.writePos - tapA3 + kPoolSize) % kPoolSize]
+         - tankApA2.buffer[(tankApA2.writePos - tapA3 + kPoolSize) & (kPoolSize - 1)]
          + tankDelA2.readAt(tapA4)
          - tankDelB1.readAt(tapB1)
-         - tankApB2.buffer[(tankApB2.writePos - tapB3 + kPoolSize) % kPoolSize]
+         - tankApB2.buffer[(tankApB2.writePos - tapB3 + kPoolSize) & (kPoolSize - 1)]
          - tankDelB2.readAt(tapB4);
 
     // Right output: taps from Tank B + taps from Tank A (subtracted)
     outR = tankDelB1.readAt(tapB2)
          + tankDelB1.readAt(tapB5)
-         - tankApB2.buffer[(tankApB2.writePos - tapB6 + kPoolSize) % kPoolSize]
+         - tankApB2.buffer[(tankApB2.writePos - tapB6 + kPoolSize) & (kPoolSize - 1)]
          + tankDelB2.readAt(tapB7)
          - tankDelA1.readAt(tapA5)
-         - tankApA2.buffer[(tankApA2.writePos - tapA6 + kPoolSize) % kPoolSize]
+         - tankApA2.buffer[(tankApA2.writePos - tapA6 + kPoolSize) & (kPoolSize - 1)]
          - tankDelA2.readAt(tapA7);
 
-    // Scale output
-    outL *= 0.35f;
-    outR *= 0.35f;
+    // Scale output (0.5 for adequate reverb presence at full space)
+    outL *= 0.5f;
+    outR *= 0.5f;
 }

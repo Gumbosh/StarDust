@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include "Oscillator.h"
 
 // Dattorro plate reverb (Griesinger topology)
 // Reference: Jon Dattorro, "Effect Design Part 1", 1997
@@ -35,11 +36,11 @@ private:
 
         float process(float input)
         {
-            const int readPos = (writePos - length + maxDelay) % maxDelay;
+            const int readPos = (writePos - length + maxDelay) & kMask;
             const float delayed = buffer[readPos];
             const float output = delayed - feedback * input;
             buffer[writePos] = input + feedback * output;
-            writePos = (writePos + 1) % maxDelay;
+            writePos = (writePos + 1) & kMask;
             return output;
         }
 
@@ -48,18 +49,19 @@ private:
         {
             const float readPosF = static_cast<float>(writePos) - static_cast<float>(length) + modOffset;
             const float wrapped = readPosF + static_cast<float>(maxDelay);
-            const int r0 = static_cast<int>(wrapped) % maxDelay;
-            const int r1 = (r0 + 1) % maxDelay;
+            const int r0 = static_cast<int>(wrapped) & kMask;
+            const int r1 = (r0 + 1) & kMask;
             const float frac = wrapped - std::floor(wrapped);
             const float delayed = buffer[r0] * (1.0f - frac) + buffer[r1] * frac;
 
             const float output = delayed - feedback * input;
             buffer[writePos] = input + feedback * output;
-            writePos = (writePos + 1) % maxDelay;
+            writePos = (writePos + 1) & kMask;
             return output;
         }
 
         static constexpr int maxDelay = 32768;
+        static constexpr int kMask = maxDelay - 1;
     };
 
     // Delay line helper
@@ -77,20 +79,21 @@ private:
         void write(float input)
         {
             buffer[writePos] = input;
-            writePos = (writePos + 1) % maxDelay;
+            writePos = (writePos + 1) & kMask;
         }
 
         float read() const
         {
-            return buffer[(writePos - length + maxDelay) % maxDelay];
+            return buffer[(writePos - length + maxDelay) & kMask];
         }
 
         float readAt(int offset) const
         {
-            return buffer[(writePos - offset + maxDelay) % maxDelay];
+            return buffer[(writePos - offset + maxDelay) & kMask];
         }
 
         static constexpr int maxDelay = 32768;
+        static constexpr int kMask = maxDelay - 1;
     };
 
     double sr = 44100.0;
@@ -106,8 +109,9 @@ private:
     int preDelayLength = 0;
     int preDelayWritePos = 0;
 
-    // Input diffusers (4 series allpasses)
+    // Input diffusers (4 series allpasses for mid, 2 for side)
     Allpass inDiffA, inDiffB, inDiffC, inDiffD;
+    Allpass sideDiffA, sideDiffB;
 
     // Tank A: modulated allpass → delay → damper → allpass → delay
     Allpass tankApA1, tankApA2;
@@ -119,9 +123,9 @@ private:
     DelayLine tankDelB1, tankDelB2;
     float tankDampB = 0.0f;
 
-    // LFO for tank modulation
-    float lfoPhase1 = 0.0f, lfoInc1 = 0.0f;
-    float lfoPhase2 = 0.0f, lfoInc2 = 0.0f;
+    // Shared incremental oscillator (zero trig per sample)
+    IncrementalOscillator lfo1, lfo2;
+    int lfoCounter = 0;
 
     // Output tap offsets (scaled at prepare time)
     int tapA1 = 0, tapA2 = 0, tapA3 = 0, tapA4 = 0, tapA5 = 0, tapA6 = 0, tapA7 = 0;
@@ -141,4 +145,6 @@ private:
     float poolTankApB2[kPoolSize] = {};
     float poolTankDelB1[kPoolSize] = {};
     float poolTankDelB2[kPoolSize] = {};
+    float poolSideDiffA[kPoolSize] = {};
+    float poolSideDiffB[kPoolSize] = {};
 };

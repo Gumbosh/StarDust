@@ -395,6 +395,17 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
         return;
     }
 
+    // Tape speed radio buttons — dark bg, subtle border lift when active
+    if (button.getComponentID() == "tapeSpeedBtn")
+    {
+        const bool active = button.getToggleState();
+        g.setColour(juce::Colour(0xFF141414));
+        g.fillRoundedRectangle(bounds.reduced(0.5f), 3.0f);
+        g.setColour(active ? kFgGhost.withAlpha(0.7f) : kFgGhost.withAlpha(0.25f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 3.0f, 1.0f);
+        return;
+    }
+
     // Shared hover effect for all preset bar buttons
     if (shouldDrawButtonAsHighlighted && (isPresetBarBtn))
     {
@@ -1180,6 +1191,40 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(tapeWowKnob, "tapeWow", "Wow");
     setupKnob(tapeFlutterKnob, "tapeFlutter", "Flutter");
     setupKnob(tapeHissKnob, "tapeHiss", "Hiss");
+    setupKnob(tapeDriveKnob, "tapeDrive", "Drive");
+    setupKnob(tapeToneKnob, "tapeBias", "Tone");
+    setupKnob(tapeMixKnob, "tapeMix", "Mix");
+
+    // Tape speed radio buttons (only one active at a time)
+    {
+        static constexpr const char* speedLabels[] = { "7.5", "15", "30" };
+        auto* speedParam = processorRef.apvts.getParameter("tapeSpeed");
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& btn = tapeSpeedBtns[i];
+            btn.setButtonText(speedLabels[i]);
+            btn.setClickingTogglesState(false);
+            btn.setComponentID("tapeSpeedBtn");
+            btn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF141414));
+            btn.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF141414));
+            btn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFgDim);
+            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            btn.onClick = [this, i, speedParam]() {
+                speedParam->setValueNotifyingHost(static_cast<float>(i) / 2.0f);
+            };
+            addAndMakeVisible(btn);
+        }
+    }
+
+    // Tape type dropdown
+    tapeTypeCombo.addItemList({"456", "GP9", "SM900"}, 1);
+    tapeTypeCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF141414));
+    tapeTypeCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
+    tapeTypeCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+    tapeTypeCombo.setColour(juce::ComboBox::arrowColourId, StardustLookAndFeel::kFgDim);
+    tapeTypeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processorRef.apvts, "tapeFormulation", tapeTypeCombo);
+    addAndMakeVisible(tapeTypeCombo);
 
     // Right side knobs: Input, Output, Dry/Wet
     setupKnob(inputGainKnob, "inputGain", "Input");
@@ -1422,7 +1467,27 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         };
     }
     dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
-    dimSection(tapeToggle, { &tapeWowKnob, &tapeFlutterKnob, &tapeHissKnob });
+    dimSection(tapeToggle, { &tapeWowKnob, &tapeFlutterKnob, &tapeHissKnob,
+                             &tapeDriveKnob, &tapeToneKnob, &tapeMixKnob });
+    // Also dim tape speed buttons and type dropdown
+    {
+        auto& toggle = tapeToggle;
+        auto* speedBtns = tapeSpeedBtns;
+        auto* typeCombo = &tapeTypeCombo;
+        auto origOnClick = toggle.onClick;
+        toggle.onClick = [origOnClick, &toggle, speedBtns, typeCombo]() {
+            if (origOnClick) origOnClick();
+            const bool on = toggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            for (int i = 0; i < 3; ++i)
+            {
+                speedBtns[i].setEnabled(on);
+                speedBtns[i].setAlpha(alpha);
+            }
+            typeCombo->setEnabled(on);
+            typeCombo->setAlpha(alpha);
+        };
+    }
 
     // Apply initial dim state
     destroyToggle.onClick();
@@ -1922,8 +1987,6 @@ void StardustEditor::paint(juce::Graphics& g)
 
     const int panelTop = controlsBounds.getY();
     const int rightRow1Top = panelTop;
-    const int rightMultiplyH = rightSectionH;
-    const int rightMultiplyTop = controlsBounds.getBottom() - rightMultiplyH;
 
     const int labelOffset = 32;
     const auto drawSectionLabel = [&](const char* name, int cellX, int hdrY) {
@@ -1932,20 +1995,18 @@ void StardustEditor::paint(juce::Graphics& g)
         g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
     };
 
-    // Left column: TAPE at bottom
-    const int leftTapeH = rightSectionH;
-    const int leftTapeTop = controlsBounds.getBottom() - leftTapeH;
+    // Equal 2x2 grid: each section is half the panel height
+    const int halfH = (controlsBounds.getHeight() - 1) / 2;  // -1 for divider
+    const int leftTapeTop = panelTop + halfH + 1;
+    const int rightMultiplyTop = leftTapeTop;
 
     // Grid dividers
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
     const float divX = static_cast<float>(leftX + cellW) + 0.5f;
     g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(controlsBounds.getBottom() - 8), 1.0f);
-    // Horizontal divider on right column between GRANULAR and MULTIPLY
-    const float divY1 = static_cast<float>(rightMultiplyTop) - 0.5f;
-    g.drawLine(divX + 4, divY1, cpf.getRight() - 8, divY1, 1.0f);
-    // Horizontal divider on left column between DESTROY and TAPE
-    const float divY3 = static_cast<float>(leftTapeTop) - 0.5f;
-    g.drawLine(cpf.getX() + 8, divY3, divX - 4, divY3, 1.0f);
+    // Horizontal divider across full width (equal split)
+    const float divY = static_cast<float>(leftTapeTop) - 0.5f;
+    g.drawLine(cpf.getX() + 8, divY, cpf.getRight() - 8, divY, 1.0f);
 
     // Section labels
     drawSectionLabel("D E S T R O Y",       leftX,  panelTop + topPad);
@@ -2098,6 +2159,19 @@ void StardustEditor::timerCallback()
     presetSelector.repaint();
     repaint(); // refresh signal flow display
 
+    // Sync tape speed radio buttons with parameter
+    {
+        const int speedIdx = static_cast<int>(*processorRef.apvts.getRawParameterValue("tapeSpeed"));
+        for (int i = 0; i < 3; ++i)
+        {
+            const bool active = (i == speedIdx);
+            tapeSpeedBtns[i].setToggleState(active, juce::dontSendNotification);
+            // Force text color based on active state (TextButton uses textColourOffId when not toggled)
+            tapeSpeedBtns[i].setColour(juce::TextButton::textColourOffId,
+                active ? juce::Colours::white : StardustLookAndFeel::kFgDim);
+        }
+    }
+
     // Sync preset selection with processor (for DAW session restore)
     const int procIdx = processorRef.getCurrentProgram();
     if (presetSelector.getSelectedId() != procIdx + 1)
@@ -2212,9 +2286,10 @@ void StardustEditor::resized()
     const int leftX = margin;
     const int rightX = margin + cellW + dividerGap;
 
-    // Right column: 3 sections stacked. DESTROY spans full left column.
-    const int rightSectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
-    const int panelH = rightSectionH * 3 + dividerGap * 2;
+    // 2x2 grid: each section gets equal height (2 rows of full-size knobs)
+    const int row2Gap = 4;  // gap between row 1 and row 2
+    const int sectionH = topPad + headerH + headerToKnob + knobH + row2Gap + knobH + sectionBottomPad;
+    const int panelH = sectionH * 2 + dividerGap;
     controlsBounds = { margin, bottomBarBounds.getY() - gap - panelH, panelW, panelH };
 
     // Galaxy viewport: top, between top margin and controls
@@ -2269,14 +2344,14 @@ void StardustEditor::resized()
         updateFavoriteButton();
     };
 
-    // ---- Grid layout: DESTROY+TAPE left, GRANULAR+MULTIPLY right ----
+    // ---- Grid layout: 2x2 equal sections ----
     const int panelTop = controlsBounds.getY();
+    const int topRowBot = panelTop + sectionH;
+    const int botRowTop = topRowBot + dividerGap;
+    // Right column: GRANULAR top, MULTIPLY bottom (equal height)
     const int rightRow1Top = panelTop;
-    // Multiply takes the bottom 1/3 of right column
-    const int rightMultiplyH = rightSectionH;
-    const int rightMultiplyTop = controlsBounds.getBottom() - rightMultiplyH;
-    // Granular takes the top 2/3
-    const int rightGranularBot = rightMultiplyTop - dividerGap;
+    const int rightGranularBot = topRowBot;
+    const int rightMultiplyTop = botRowTop;
 
     auto cellGridX = [&](int cellX, int numKnobs) {
         const int totalKnobW = knobW * numKnobs;
@@ -2286,13 +2361,13 @@ void StardustEditor::resized()
     const int toggleH = 14;
     const int toggleW = 26;
 
-    // Left column: DESTROY top, TAPE bottom
-    const int leftTapeH = rightSectionH;
-    const int leftTapeTop = controlsBounds.getBottom() - leftTapeH;
+    // Left column: DESTROY top, TAPE bottom (equal height)
+    const int tapeRow2H = 28;  // height for second row (dropdowns + mix knob)
+    const int leftTapeTop = botRowTop;
 
-    // --- LEFT TOP: DESTROY (above TAPE) ---
+    // --- LEFT TOP: DESTROY (above TAPE, equal height) ---
     {
-        const int destroyBot = leftTapeTop - dividerGap;
+        const int destroyBot = topRowBot;
         const int hdrY = panelTop + topPad;
         const int contentTop = hdrY + headerH + headerToKnob;
         const int contentBot = destroyBot - sectionBottomPad;
@@ -2317,14 +2392,37 @@ void StardustEditor::resized()
         destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- LEFT BOTTOM: TAPE (3 knobs) ---
+    // --- LEFT BOTTOM: TAPE (2 rows: Drive/Wow/Flutter/Hiss + Tone/Mix/Speed/Type) ---
     {
         const int hdrY = leftTapeTop + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
-        const int gx = cellGridX(leftX, 3);
-        layoutKnobInBounds(tapeWowKnob,     { gx,              knobY, knobW, knobH });
-        layoutKnobInBounds(tapeFlutterKnob,  { gx + knobW,      knobY, knobW, knobH });
-        layoutKnobInBounds(tapeHissKnob,     { gx + knobW * 2,  knobY, knobW, knobH });
+        const int row1Y = hdrY + headerH + headerToKnob;
+
+        // Row 1: Drive, Wow, Flutter, Hiss (4 full-size knobs)
+        const int tKnobW = (cellW - cellPadX * 2) / 4;
+        const int tOffsetX = leftX + cellPadX;
+        layoutKnobInBounds(tapeDriveKnob,    { tOffsetX,              row1Y, tKnobW, knobH });
+        layoutKnobInBounds(tapeWowKnob,      { tOffsetX + tKnobW,     row1Y, tKnobW, knobH });
+        layoutKnobInBounds(tapeFlutterKnob,  { tOffsetX + tKnobW * 2, row1Y, tKnobW, knobH });
+        layoutKnobInBounds(tapeHissKnob,     { tOffsetX + tKnobW * 3, row1Y, tKnobW, knobH });
+
+        // Row 2: Tone + Mix (full-size knobs) + Speed/Type (dropdowns centered vertically)
+        const int row2Y = row1Y + knobH + row2Gap;
+        layoutKnobInBounds(tapeToneKnob, { tOffsetX,              row2Y, tKnobW, knobH });
+        layoutKnobInBounds(tapeMixKnob,  { tOffsetX + tKnobW,    row2Y, tKnobW, knobH });
+        // Speed radio buttons (3 across) + Type dropdown below
+        const int btnAreaX = tOffsetX + tKnobW * 2 + 2;
+        const int btnAreaW = tKnobW * 2 - 4;
+        const int btnH = 22;
+        const int btnGap = 6;
+        const int btnW = (btnAreaW - btnGap * 2) / 3;
+        const int comboH = 22;
+        const int totalH = btnH + 6 + comboH;
+        const int startY = row2Y + (knobH - totalH) / 2;
+
+        for (int b = 0; b < 3; ++b)
+            tapeSpeedBtns[b].setBounds(btnAreaX + b * (btnW + btnGap), startY, btnW, btnH);
+        tapeTypeCombo.setBounds(btnAreaX, startY + btnH + 6, btnAreaW, comboH);
+
         tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 

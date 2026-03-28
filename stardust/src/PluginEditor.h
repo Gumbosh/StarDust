@@ -173,6 +173,10 @@ private:
     LabeledKnob chorusMixKnob, chorusSpeedKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
     LabeledKnob tapeWowKnob, tapeFlutterKnob, tapeHissKnob;
+    LabeledKnob tapeDriveKnob, tapeToneKnob, tapeMixKnob;
+    juce::TextButton tapeSpeedBtns[3];  // 7.5 / 15 / 30 ips radio buttons
+    juce::ComboBox tapeTypeCombo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tapeTypeAttach;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 

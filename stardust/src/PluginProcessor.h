@@ -9,6 +9,7 @@
 #include "dsp/ButterworthFilter.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/TapeEngine.h"
+#include "dsp/ModulationMatrix.h"
 
 struct Preset
 {
@@ -111,6 +112,10 @@ private:
     juce::AudioBuffer<float> masterDryBuffer;
 
     bool lastTapeOn = false;
+    juce::SmoothedValue<float> msWidthSmoothed { 1.0f };
+    juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
+    juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
+    ModulationMatrix modMatrix;
     juce::Random random;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
