@@ -1,3 +1,6 @@
+# OS files
+.DS_Store
+
 # Build artifacts
 stardust/build/
 installer/staging/
