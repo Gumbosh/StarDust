@@ -10,6 +10,7 @@ public:
     void prepare(double sampleRate, int samplesPerBlock);
     void setBitDepth(float bits);
     void setSampleRate(float targetRate);
+    void setJitter(float amount) { jitterAmount = juce::jlimit(0.0f, 1.0f, amount); }
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
@@ -32,4 +33,8 @@ private:
     // SP-1200 bandwidth ceiling: 1-pole LP at 13kHz
     float nyquistState[kMaxChannels] = {};
     float nyquistAlpha = 1.0f;
+
+    // Clock jitter — simulates unstable sample-and-hold timing
+    float jitterAmount = 0.0f;
+    uint32_t jitterState = 12345u;
 };

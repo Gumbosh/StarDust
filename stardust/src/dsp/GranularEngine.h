@@ -30,6 +30,9 @@ public:
     void setCloud(float cloud);
     void setGrainShape(GrainShape newShape) { shape = newShape; }
     void setHQMode(bool hq) { hqMode = hq; }
+    void setReverse(float prob);
+    void setVoices(int count);
+    void setVoiceInterval(float semitones);
     void setTempoSync(int mode, double bpm, double ppq)
     {
         syncMode = mode;
@@ -37,6 +40,12 @@ public:
         hostPpqPosition.store(ppq, std::memory_order_relaxed);
     }
     void process(juce::AudioBuffer<float>& buffer);
+
+    static constexpr int kMaxGrains = 32;
+
+    // Visual feedback: normalized buffer positions + grain phase for each active grain
+    struct GrainDisplayInfo { float normPos = 0.0f; float phase = 0.0f; bool active = false; };
+    void getGrainDisplayInfo(std::array<GrainDisplayInfo, kMaxGrains>& out) const;
 
 private:
     struct Grain
@@ -124,11 +133,10 @@ private:
     float freezeFadeInc = 0.0f;
     std::atomic<bool> freezeTarget { false };
 
-    // Buffer (power-of-2 for bitmask indexing — ~23.8s at 44.1kHz)
-    static constexpr int kInputBufferSize = 1048576; // 2^20
+    // Buffer (power-of-2 for bitmask indexing — ~3s at 44.1kHz, covers GRN Lite 2s buffer)
+    static constexpr int kInputBufferSize = 131072; // 2^17
     static constexpr int kInputBufferMask = kInputBufferSize - 1;
     static constexpr int kMaxChannels = 2;
-    static constexpr int kMaxGrains = 256;
 
     std::unique_ptr<std::array<std::array<float, kInputBufferSize>, kMaxChannels>> inputBuffer;
     int writePos = 0, frozenWritePos = 0;
@@ -181,4 +189,8 @@ private:
     uint32_t noiseState = 42;
     uint32_t schedulerNoiseState = 7919; // separate state for grain scheduling (decorrelated from grain params)
     uint32_t spatialNoiseState = 54773;  // separate PRNG for pan/stereo/decorrelation
+
+    float reverseProb = 0.0f;
+    int numVoices = 1;
+    float voiceIntervalSemitones = 7.0f;
 };

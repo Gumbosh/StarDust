@@ -88,18 +88,21 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
         }
     }
 
-    // Tick marks at start, center, end
-    const float tickOuter = radius + 5.0f;
-    const float tickInner = radius + 2.0f;
-    g.setColour(kFgGhost.withAlpha(isHovered ? 0.4f : 0.25f));
-    for (int i = 0; i < 3; ++i)
+    // Tick marks — 3 generic positions for all knobs except Rate
+    if (slider.getName() != "destroyFader")
     {
-        const float tickAngle = rotaryStartAngle
-            + static_cast<float>(i) * 0.5f * (rotaryEndAngle - rotaryStartAngle);
-        g.drawLine(centreX + tickInner * std::sin(tickAngle),
-                   centreY - tickInner * std::cos(tickAngle),
-                   centreX + tickOuter * std::sin(tickAngle),
-                   centreY - tickOuter * std::cos(tickAngle), 0.7f);
+        const float tickOuter = radius + 5.0f;
+        const float tickInner = radius + 2.0f;
+        g.setColour(kFgGhost.withAlpha(isHovered ? 0.4f : 0.25f));
+        for (int i = 0; i < 3; ++i)
+        {
+            const float tickAngle = rotaryStartAngle
+                + static_cast<float>(i) * 0.5f * (rotaryEndAngle - rotaryStartAngle);
+            g.drawLine(centreX + tickInner * std::sin(tickAngle),
+                       centreY - tickInner * std::cos(tickAngle),
+                       centreX + tickOuter * std::sin(tickAngle),
+                       centreY - tickOuter * std::cos(tickAngle), 0.7f);
+        }
     }
 }
 
@@ -1152,54 +1155,39 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
 
 
-    setupKnob(destroyInKnob, "destroyIn", "In");
-    setupKnob(cutoffKnob, "filterCutoff", "Filter");
-    setupKnob(destroyOutKnob, "destroyOut", "Out");
     setupKnob(destroyMixKnob, "destroyMix", "Mix");
+    setupKnob(destroyBitsKnob, "destroyBits", "Bits");
+    setupKnob(cutoffKnob, "filterCutoff", "Filter");
     setupKnob(filterLfoKnob, "filterLfo", "LFO");
+    setupKnob(destroyInKnob, "destroyIn", "In");
+    setupKnob(destroyOutKnob, "destroyOut", "Out");
 
-    // SP-950 style vertical fader with RPM snap points
-    destroyFader.setSliderStyle(juce::Slider::LinearHorizontal);
-    destroyFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    destroyFader.setName("destroyFader");
-    destroyFaderAttachment = std::make_unique<SliderAttachment>(processorRef.apvts, "destroyFader", destroyFader);
-    // Snap to nearest semitone tick (reversed: 0=78RPM, 1=x2, 2=45RPM, 3=33RPM)
-    // 78→x2: 2 ticks, x2→45: 12 ticks, 45→33: 5 ticks
-    destroyFader.onValueChange = [this]() {
-        const double raw = destroyFader.getValue();
-        const int seg = juce::jlimit(0, 2, static_cast<int>(raw));
-        const double segFrac = raw - static_cast<double>(seg);
-        static constexpr int kTicks[3] = { 2, 12, 5 };
-        const double step = 1.0 / static_cast<double>(kTicks[seg]);
-        const double snappedFrac = std::round(segFrac / step) * step;
-        const double snapped = juce::jlimit(0.0, 3.0, static_cast<double>(seg) + snappedFrac);
-        if (std::abs(raw - snapped) > 0.001)
-            destroyFader.setValue(snapped, juce::sendNotificationAsync);
+    // Rate knob — rotary attached to destroyFader param, shows kHz value
+    setupKnob(destroyRateKnob, "destroyFader", "Rate");
+    destroyRateKnob.slider.textFromValueFunction = [](double v) {
+        static constexpr float kRates[6] = { 4000.f, 8000.f, 19000.f, 26040.f, 45000.f, 52080.f };
+        const float c = juce::jlimit(0.0f, 5.0f, static_cast<float>(v));
+        const int   s = juce::jlimit(0, 4, static_cast<int>(c));
+        const float hz = kRates[s] + (c - static_cast<float>(s)) * (kRates[s + 1] - kRates[s]);
+        return hz >= 1000.f ? juce::String(juce::roundToInt(hz / 1000.f)) + " kHz"
+                            : juce::String(juce::roundToInt(hz)) + " Hz";
     };
-    addAndMakeVisible(destroyFader);
+    destroyRateKnob.slider.updateText();
 
     setupKnob(grainMixKnob, "grainMix", "Mix");
-    setupKnob(grainCloudKnob, "grainCloud", "Cloud");
-    setupKnob(grainDriftKnob, "grainDrift", "Drift");
+    setupKnob(grainCloudKnob, "grainCloud", "Amount");
+    setupKnob(grainScatterKnob, "grainDrift", "Spread");
     setupKnob(grainSpaceKnob, "grainSpace", "Space");
+
+    // Morph knob — continuous pitch control (±12st, bipolar arc)
     setupKnob(grainMorphKnob, "grainMorph", "Pitch");
 
-    // Freeze toggle
-    {
-        auto setupFreezeToggle = [this](juce::ToggleButton& btn, std::unique_ptr<ButtonAttachment>& attach,
-                                         const juce::String& paramId) {
-            btn.setClickingTogglesState(true);
-            attach = std::make_unique<ButtonAttachment>(processorRef.apvts, paramId, btn);
-            addAndMakeVisible(btn);
-        };
-        setupFreezeToggle(grainFreezeToggle, grainFreezeAttach, "grainFreeze");
-    }
+    // Size knob (BPM-linked note divisions)
+    setupKnob(grainSizeSyncKnob, "grainSizeSync", "Size");
 
-    freezeLabel.setText("F R E E Z E", juce::dontSendNotification);
-    freezeLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::plain));
-    freezeLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-    freezeLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(freezeLabel);
+    // REV: reverse probability knob (0–100%)
+    setupKnob(grainRevKnob, "grainReverse", "Rev");
+
 
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
     setupKnob(chorusSpeedKnob, "chorusSpeed", "Speed");
@@ -1461,32 +1449,17 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             }
         };
     };
-    dimSection(destroyToggle, { &destroyInKnob, &cutoffKnob, &destroyOutKnob, &destroyMixKnob, &filterLfoKnob });
-    // Also dim the fader with the destroy section
+    dimSection(destroyToggle, { &destroyMixKnob, &destroyBitsKnob, &destroyRateKnob,
+                                &cutoffKnob, &filterLfoKnob, &destroyInKnob, &destroyOutKnob });
+    dimSection(granularToggle, { &grainMixKnob, &grainCloudKnob, &grainScatterKnob,
+                                  &grainSpaceKnob, &grainMorphKnob, &grainSizeSyncKnob,
+                                  &grainRevKnob });
     {
-        auto& toggle = destroyToggle;
-        auto* fader = &destroyFader;
-        auto origOnClick = toggle.onClick;
-        toggle.onClick = [origOnClick, &toggle, fader]() {
+        auto origOnClick = granularToggle.onClick;
+        granularToggle.onClick = [this, origOnClick]() {
             if (origOnClick) origOnClick();
-            const bool on = toggle.getToggleState();
-            fader->setEnabled(on);
-            fader->setAlpha(on ? 1.0f : 0.4f);
-        };
-    }
-    dimSection(granularToggle, { &grainMixKnob, &grainCloudKnob, &grainDriftKnob, &grainSpaceKnob, &grainMorphKnob });
-    // Also disable freeze toggle with the granular section
-    {
-        auto& toggle = granularToggle;
-        auto* freezeBtn = &grainFreezeToggle;
-        auto* freezeLbl = &freezeLabel;
-        auto origOnClick = toggle.onClick;
-        toggle.onClick = [origOnClick, &toggle, freezeBtn, freezeLbl]() {
-            if (origOnClick) origOnClick();
-            const bool on = toggle.getToggleState();
-            freezeBtn->setEnabled(on);
-            freezeBtn->setAlpha(on ? 1.0f : 0.4f);
-            freezeLbl->setAlpha(on ? 1.0f : 0.4f);
+            const bool on = granularToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
         };
     }
     dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
@@ -1585,6 +1558,15 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 99.0)));
         };
+    else if (paramId == "grainVoices")
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(static_cast<int>(std::round(v)));
+        };
+    else if (paramId == "grainInterval")
+        knob.slider.textFromValueFunction = [](double v) {
+            const int st = static_cast<int>(std::round(v));
+            return juce::String(st) + " st";
+        };
     else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "grainMix"
              || paramId == "grainScatter" || paramId == "stereoWidth"
@@ -1594,6 +1576,7 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
              || paramId == "tapeDrive" || paramId == "tapeWear" || paramId == "tapeGlue"
              || paramId == "tapeNoise" || paramId == "tapeMix"
              || paramId == "grainPosition" || paramId == "grainFeedback"
+             || paramId == "grainReverse"
              || paramId == "grainTexture")
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
@@ -1604,6 +1587,15 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             if (st > 0) return juce::String("+") + juce::String(st) + " st";
             if (st < 0) return juce::String(st) + " st";
             return juce::String("0 st");
+        };
+    else if (paramId == "grainSizeSync")
+        knob.slider.textFromValueFunction = [](double v) {
+            static const char* kNames[] = {
+                "Free", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+                "1/4.", "1/4T", "1/8.", "1/8T"
+            };
+            const int idx = juce::jlimit(0, 10, static_cast<int>(std::round(v)));
+            return juce::String(kNames[idx]);
         };
 
     // Force text refresh with the new formatter
@@ -1928,6 +1920,7 @@ void StardustEditor::updateDoubleClickDefaults()
     }
 }
 
+
 void StardustEditor::generateBackgroundTexture()
 {
     constexpr int texW = 128;
@@ -2020,14 +2013,15 @@ void StardustEditor::paint(juce::Graphics& g)
     // Grid dividers
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
     const float divX = static_cast<float>(leftX + cellW) + 0.5f;
-    g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(controlsBounds.getBottom() - 8), 1.0f);
+    // Vertical divider spans top half only — DESTROY+MULTIPLY form one unified bottom row
+    g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(leftTapeTop - 8), 1.0f);
     // Horizontal divider across full width (equal split)
     const float divY = static_cast<float>(leftTapeTop) - 0.5f;
     g.drawLine(cpf.getX() + 8, divY, cpf.getRight() - 8, divY, 1.0f);
 
     // Section labels
-    drawSectionLabel("D E S T R O Y",       leftX,  panelTop + topPad);
-    drawSectionLabel("T A P E",             leftX,  leftTapeTop + topPad);
+    drawSectionLabel("T A P E",             leftX,  panelTop + topPad);
+    drawSectionLabel("D E S T R O Y",       leftX,  leftTapeTop + topPad);
     drawSectionLabel("G R A N U L A R",     rightX, rightRow1Top + topPad);
     drawSectionLabel("M U L T I P L Y",     rightX, rightMultiplyTop + topPad);
 
@@ -2183,6 +2177,16 @@ void StardustEditor::timerCallback()
 {
     presetSelector.repaint();
     repaint(); // refresh signal flow display
+
+    // Feed active grain positions into the starfield for visualization
+    {
+        std::array<GranularEngine::GrainDisplayInfo, GranularEngine::kMaxGrains> grainInfo;
+        processorRef.getGranularEngine().getGrainDisplayInfo(grainInfo);
+        std::array<StarfieldBackground::GrainParticle, StarfieldBackground::kMaxGrainParticles> particles;
+        for (int i = 0; i < GranularEngine::kMaxGrains; ++i)
+            particles[i] = { grainInfo[i].normPos, grainInfo[i].phase, grainInfo[i].active };
+        starfield.setGrainData(particles, false);
+    }
 
     // Sync preset selection with processor (for DAW session restore)
     const int procIdx = processorRef.getCurrentProgram();
@@ -2373,43 +2377,16 @@ void StardustEditor::resized()
     const int toggleH = 14;
     const int toggleW = 26;
 
-    // Left column: DESTROY top, TAPE bottom (equal height)
+    // Left column: TAPE top, DESTROY bottom (equal height)
     const int leftTapeTop = botRowTop;
 
-    // --- LEFT TOP: DESTROY (above TAPE, equal height) ---
+    // --- LEFT TOP: TAPE (Drive / Wear / Glue / Noise + Mix + Output) ---
     {
-        const int destroyBot = topRowBot;
         const int hdrY = panelTop + topPad;
-        const int contentTop = hdrY + headerH + headerToKnob;
-        const int contentBot = destroyBot - sectionBottomPad;
-
-        // Knobs in horizontal row at the top
-        const int knobRowY = contentTop;
-        const int dKnobW = (cellW - cellPadX * 2) / 5;
-        const int dOffsetX = leftX + cellPadX;
-        layoutKnobInBounds(destroyMixKnob, { dOffsetX,              knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(cutoffKnob,     { dOffsetX + dKnobW,     knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(filterLfoKnob,  { dOffsetX + dKnobW * 2, knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(destroyInKnob,  { dOffsetX + dKnobW * 3, knobRowY, dKnobW, knobH });
-        layoutKnobInBounds(destroyOutKnob, { dOffsetX + dKnobW * 4, knobRowY, dKnobW, knobH });
-
-        // Horizontal fader fills space below knobs (full width)
-        const int faderX = leftX + cellPadX;
-        const int faderW = cellW - cellPadX * 2;
-        const int faderTop = knobRowY + knobH + 4;
-        const int faderH = contentBot - faderTop;
-        destroyFader.setBounds(faderX, faderTop, faderW, faderH);
-
-        destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- LEFT BOTTOM: TAPE (Drive / Wear / Glue / Noise + Mix + Output) ---
-    {
-        const int hdrY = leftTapeTop + topPad;
         const int row1Y = hdrY + headerH + headerToKnob;
         const int qw = (cellW - cellPadX * 2) / 5;
         const int qx = leftX + cellPadX;
-        layoutKnobInBounds(tapeDriveKnob, { qx,              row1Y, qw, knobH });
+        layoutKnobInBounds(tapeDriveKnob, { qx,            row1Y, qw, knobH });
         layoutKnobInBounds(tapeWearKnob,  { qx + qw,       row1Y, qw, knobH });
         layoutKnobInBounds(tapeGlueKnob,  { qx + qw * 2,   row1Y, qw, knobH });
         layoutKnobInBounds(tapeNoiseKnob, { qx + qw * 3,   row1Y, qw, knobH });
@@ -2421,50 +2398,73 @@ void StardustEditor::resized()
         const int btnsW = juce::jmax(96, cellW - cellPadX * 2 - outColW - gapBtns);
         const int row2X = leftX + cellPadX;
         const int btnH = 20;
-        tapeNoiseSpeedLabel.setBounds(row2X, row2Y, btnsW, 12);
+        // Center label+buttons group vertically within the row2 (knobH) space
+        const int btnGroupH = 14 + btnH;
+        const int btnVOffset = (knobH - btnGroupH) / 2;
+        tapeNoiseSpeedLabel.setBounds(row2X, row2Y + btnVOffset, btnsW, 12);
         {
             const int bw = btnsW / 3;
             for (int i = 0; i < 3; ++i)
-                tapeNoiseSpeedBtn[i].setBounds(row2X + i * bw, row2Y + 14, bw, btnH);
+                tapeNoiseSpeedBtn[i].setBounds(row2X + i * bw, row2Y + btnVOffset + 14, bw, btnH);
         }
         layoutKnobInBounds(tapeOutputKnob, { row2X + btnsW + gapBtns, row2Y, outColW, knobH });
 
         tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- RIGHT TOP: GRANULAR (2/3 — two rows of knobs) ---
+    // --- LEFT BOTTOM: DESTROY (Mix / Bits / Rate / Filter / LFO | row2: In / Out centered) ---
     {
-        const int hdrY = rightRow1Top + topPad;
-        const int contentBot = rightGranularBot - sectionBottomPad;
-        const int gKnobW = (cellW - cellPadX * 2) / 5;
-        const int gx = rightX + cellPadX;
-
+        const int hdrY = leftTapeTop + topPad;
         const int row1Y = hdrY + headerH + headerToKnob;
-        // 5 macro knobs centered vertically in the 2/3 space
-        const int knobMidY = (row1Y + contentBot - knobH) / 2;
-        layoutKnobInBounds(grainMixKnob,   { gx,              knobMidY, gKnobW, knobH });
-        layoutKnobInBounds(grainCloudKnob, { gx + gKnobW,    knobMidY, gKnobW, knobH });
-        layoutKnobInBounds(grainDriftKnob, { gx + gKnobW * 2, knobMidY, gKnobW, knobH });
-        layoutKnobInBounds(grainSpaceKnob, { gx + gKnobW * 3, knobMidY, gKnobW, knobH });
-        layoutKnobInBounds(grainMorphKnob, { gx + gKnobW * 4, knobMidY, gKnobW, knobH });
+        const int dAvailW = cellW - cellPadX * 2;
+        const int dOffsetX = leftX + cellPadX;
 
-        granularToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
+        // Row 1: Mix | Bits | Rate | Filter | LFO (5 knobs)
+        const int dKnobW = dAvailW / 5;
+        layoutKnobInBounds(destroyMixKnob,  { dOffsetX,              row1Y, dKnobW, knobH });
+        layoutKnobInBounds(destroyBitsKnob, { dOffsetX + dKnobW,     row1Y, dKnobW, knobH });
+        layoutKnobInBounds(destroyRateKnob, { dOffsetX + dKnobW * 2, row1Y, dKnobW, knobH });
+        layoutKnobInBounds(cutoffKnob,      { dOffsetX + dKnobW * 3, row1Y, dKnobW, knobH });
+        layoutKnobInBounds(filterLfoKnob,   { dOffsetX + dKnobW * 4, row1Y, dAvailW - dKnobW * 4, knobH });
 
-        // Freeze toggle + label below knobs, centered
-        const int freezeToggleW = 36;
-        const int freezeToggleH = 18;
-        const int freezeLabelW = 60;
-        const int freezeTotalW = freezeToggleW + 4 + freezeLabelW;
-        const int freezeY = knobMidY + knobH + sectionBottomPad;
-        const int freezeX = rightX + (cellW - freezeTotalW) / 2;
-        grainFreezeToggle.setBounds(freezeX, freezeY, freezeToggleW, freezeToggleH);
-        freezeLabel.setBounds(freezeX + freezeToggleW + 4, freezeY, freezeLabelW, freezeToggleH);
+        // Row 2: In | Out — centered horizontally
+        const int row2Y = row1Y + knobH + row2Gap;
+        const int ioTotalW = dKnobW * 2;
+        const int ioStartX = dOffsetX + (dAvailW - ioTotalW) / 2;
+        layoutKnobInBounds(destroyInKnob,  { ioStartX,            row2Y, dKnobW, knobH });
+        layoutKnobInBounds(destroyOutKnob, { ioStartX + dKnobW,   row2Y, dKnobW, knobH });
+
+        destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- RIGHT BOTTOM: MULTIPLY (1/3 — 4 knobs, centered) ---
+    // --- RIGHT TOP: GRANULAR ---
+    {
+        const int hdrY = rightRow1Top + topPad;
+        const int gx = rightX + cellPadX;
+        const int availW = cellW - cellPadX * 2;
+        const int row1Y = hdrY + headerH + headerToKnob;
+
+        // Row 1: Mix | Spread | Space | Size | Rev | Pitch (6 knobs)
+        const int kW6 = availW / 6;
+        layoutKnobInBounds(grainMixKnob,      { gx,         row1Y, kW6, knobH });
+        layoutKnobInBounds(grainScatterKnob,  { gx + kW6,   row1Y, kW6, knobH });
+        layoutKnobInBounds(grainSpaceKnob,    { gx + kW6*2, row1Y, kW6, knobH });
+        layoutKnobInBounds(grainSizeSyncKnob, { gx + kW6*3, row1Y, kW6, knobH });
+        layoutKnobInBounds(grainRevKnob,      { gx + kW6*4, row1Y, kW6, knobH });
+        layoutKnobInBounds(grainMorphKnob,    { gx + kW6*5, row1Y, availW - kW6*5, knobH });
+
+        // Row 2 (bottom): Amount — full width, centred
+        const int row2Y = row1Y + knobH + 6;
+        layoutKnobInBounds(grainCloudKnob, { gx, row2Y, availW, knobH });
+
+        granularToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
+    }
+
+    // --- RIGHT BOTTOM: MULTIPLY (4 knobs, centered) ---
     {
         const int hdrY = rightMultiplyTop + topPad;
-        const int knobY = hdrY + headerH + headerToKnob;
+        const int availBelowHdr = sectionH - topPad - headerH;
+        const int knobY = hdrY + headerH + (availBelowHdr - knobH) / 2;
         const int gx = cellGridX(rightX, 4);
         layoutKnobInBounds(chorusMixKnob,   { gx,              knobY, knobW, knobH });
         layoutKnobInBounds(chorusSpeedKnob, { gx + knobW,      knobY, knobW, knobH });

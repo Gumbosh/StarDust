@@ -44,6 +44,12 @@ public:
 
     void setExcludeRect(juce::Rectangle<int> rect) { excludeRect = rect; }
 
+    // Grain visualization — call from editor timer at 30Hz
+    struct GrainParticle { float normPos = 0.0f; float phase = 0.0f; bool active = false; };
+    static constexpr int kMaxGrainParticles = 32;
+    void setGrainData(const std::array<GrainParticle, kMaxGrainParticles>& particles, bool isFrozen);
+
+
 private:
     StarfieldParams readParams() const;
     void renderStarfield(const StarfieldParams& params, float time);
@@ -64,6 +70,8 @@ private:
     juce::Image cachedImage;
     juce::Rectangle<int> excludeRect;
     float timeCounter = 0.0f;
+    std::array<GrainParticle, kMaxGrainParticles> grainParticles {};
+    bool grainFrozen = false;
 
     static constexpr int kRenderWidth = 440;
     static constexpr int kRenderHeight = 200;

@@ -30,7 +30,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyFader", 1), "Destroy Fader",
-        juce::NormalisableRange<float>(0.0f, 3.0f, 0.01f), 2.0f));
+        juce::NormalisableRange<float>(0.0f, 5.0f, 0.01f), 2.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("destroyBits", 1), "Destroy Bits",
+        juce::NormalisableRange<float>(4.0f, 24.0f, 0.5f), 12.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("destroyNoise", 1), "Destroy Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.1f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("destroyJitter", 1), "Destroy Jitter",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("filterResonance", 1), "Filter Resonance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainMix", 1), "Grain Mix",
@@ -83,17 +99,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID("grainSync", 1), "Grain Sync",
         juce::StringArray{"Off", "1/4", "1/8", "1/16", "1/32"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("grainSizeSync", 1), "Grain Size Sync",
+        juce::StringArray{"Free", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+                          "1/4.", "1/4T", "1/8.", "1/8T"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("grainPitchSnap", 1), "Grain Pitch Snap", false));
 
-    // Split Drift into independent targets (Drift macro still drives all three as default)
+    // Grain scatter (legacy — kept for preset compatibility; scatter uses grainDrift directly)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainScatter", 1), "Grain Scatter",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), -1.0f)); // -1 = follow Drift macro
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainReverse", 1), "Grain Reverse",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), -1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainPosition", 1), "Grain Position",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), -1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainFeedback", 1), "Grain Feedback",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainVoices", 1), "Grain Voices",
+        juce::NormalisableRange<float>(1.0f, 4.0f, 1.0f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainInterval", 1), "Grain Interval",
+        juce::NormalisableRange<float>(1.0f, 24.0f, 0.5f), 7.0f));
 
     // Modulation LFOs (2 LFOs x 4 params = 8 params)
     for (int lfo = 1; lfo <= 2; ++lfo)
@@ -262,10 +293,14 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // Read parameters
-    const float destroyInVal   = *apvts.getRawParameterValue("destroyIn");
-    const float destroyOutVal  = *apvts.getRawParameterValue("destroyOut");
-    const float destroyMixVal  = *apvts.getRawParameterValue("destroyMix");
+    const float destroyInVal    = *apvts.getRawParameterValue("destroyIn");
+    const float destroyOutVal   = *apvts.getRawParameterValue("destroyOut");
+    const float destroyMixVal   = *apvts.getRawParameterValue("destroyMix");
     const float destroyFaderVal = *apvts.getRawParameterValue("destroyFader");
+    const float destroyBitsVal  = *apvts.getRawParameterValue("destroyBits");
+    const float destroyNoiseVal = *apvts.getRawParameterValue("destroyNoise");
+    const float destroyJitterVal = *apvts.getRawParameterValue("destroyJitter");
+    const float filterResVal    = *apvts.getRawParameterValue("filterResonance");
     const float grainMixVal    = *apvts.getRawParameterValue("grainMix");
     const float grainCloud     = *apvts.getRawParameterValue("grainCloud");
     const float grainDrift     = *apvts.getRawParameterValue("grainDrift");
@@ -304,25 +339,23 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float modMorph  = modMatrix.modulate(ModTarget::GrainMorph, grainMorph);
     const float modMix    = modMatrix.modulate(ModTarget::GrainMix, grainMixVal);
 
-    // Split Drift: use independent params if set (>= 0), otherwise derive from Drift macro
-    const float scatterRaw  = *apvts.getRawParameterValue("grainScatter");
+    // Modulate each parameter independently from its own APVTS value
     const float reverseRaw  = *apvts.getRawParameterValue("grainReverse");
     const float positionRaw = *apvts.getRawParameterValue("grainPosition");
-    const float modScatter  = modMatrix.modulate(ModTarget::GrainScatter,
-        scatterRaw >= 0.0f ? scatterRaw : grainDrift);
-    const float modReverse  = modMatrix.modulate(ModTarget::GrainReverse,
-        reverseRaw >= 0.0f ? reverseRaw : grainDrift * 0.25f);
-    const float modPosition = modMatrix.modulate(ModTarget::GrainPosition,
-        positionRaw >= 0.0f ? positionRaw : (1.0f - grainDrift * 0.8f));
+    const float feedbackRaw = *apvts.getRawParameterValue("grainFeedback");
+    const float modScatter  = modMatrix.modulate(ModTarget::GrainScatter, grainDrift);
+    const float modReverse  = modMatrix.modulate(ModTarget::GrainReverse, reverseRaw);
+    const float modPosition = modMatrix.modulate(ModTarget::GrainPosition, positionRaw);
 
     // Advance remaining LFO samples after reading midpoint values
     for (int s = halfBlock; s < numSamples; ++s)
         modMatrix.processSample();
 
-    // Derive internal granular values from modulated macros
-    const float grainDensityVal = 1.0f + std::pow(modCloud, 2.0f) * 15.0f;
-    const float grainSizeVal    = 80.0f - modCloud * 65.0f;
-    const float grainScatterVal = modScatter;
+    // Derive internal granular values from Amount macro (GRN Lite style)
+    // Amount (Cloud) drives density (0.5→50/sec) and size (500→0.5ms) simultaneously
+    const float grainDensityVal = 0.5f + modCloud * modCloud * 49.5f;
+    float grainSizeVal          = 500.0f - modCloud * 499.5f;
+    const float grainScatterVal = modScatter;  // Scatter knob directly controls position + pitch scatter
     const float stereoWidthVal  = 0.3f + modSpace * 0.7f;
     const float cutoffVal      = *apvts.getRawParameterValue("filterCutoff");
     const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
@@ -354,11 +387,10 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             for (int ch = 0; ch < osNumChannels; ++ch)
                 dryBuffer.copyFrom(ch, 0, osBuffer, ch, 0, osNumSamples);
 
-            // Single fader → sample rate (piecewise interpolation between RPM positions)
-            // Reversed: 0=78RPM(bottom), 1=x2, 2=45RPM, 3=33RPM(top)
-            static constexpr float kRpmRates[4] = { 45000.0f, 52080.0f, 26040.0f, 19000.0f };
-            const float clampedFader = juce::jlimit(0.0f, 3.0f, destroyFaderVal);
-            const int seg = juce::jlimit(0, 2, static_cast<int>(clampedFader));
+            // Single fader → sample rate: left=4kHz (crush), right=52kHz (clean)
+            static constexpr float kRpmRates[6] = { 4000.0f, 8000.0f, 19000.0f, 26040.0f, 45000.0f, 52080.0f };
+            const float clampedFader = juce::jlimit(0.0f, 5.0f, destroyFaderVal);
+            const int seg = juce::jlimit(0, 4, static_cast<int>(clampedFader));
             const float frac = clampedFader - static_cast<float>(seg);
             const float effectiveRate = kRpmRates[seg] + frac * (kRpmRates[seg + 1] - kRpmRates[seg]);
 
@@ -366,15 +398,16 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             destroyDrive.setInputDrive(destroyInVal);
             destroyDrive.processInput(osBuffer);
 
-            // 12-bit reduction + sample-and-hold decimation
-            bitCrusher.setBitDepth(12.0f);
+            // Bit depth + sample-rate reduction (variable bits, jitter-capable)
+            bitCrusher.setBitDepth(destroyBitsVal);
             bitCrusher.setSampleRate(effectiveRate);
+            bitCrusher.setJitter(destroyJitterVal);
             bitCrusher.process(osBuffer);
 
             // Low-pass filter (6th-order Butterworth, SP-950 style)
             const float filterLfoDepth = *apvts.getRawParameterValue("filterLfo");
             butterworthFilter.setCutoff(cutoffVal);
-            butterworthFilter.setResonance(0.15f);
+            butterworthFilter.setResonance(filterResVal);
             butterworthFilter.setLFO(1.5f, filterLfoDepth);
             butterworthFilter.process(osBuffer);
 
@@ -398,9 +431,10 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
         oversampling->processSamplesDown(block);
 
-        // SP-1200 noise floor (~-60dB) — injected at native rate (fix 2.3)
+        // Noise floor injection — level controlled by destroyNoise knob (0=silent, 0.1=-60dB, 1.0=-40dB)
+        if (destroyNoiseVal > 0.0f)
         {
-            constexpr float noiseLevel = 0.001f;
+            const float noiseLevel = destroyNoiseVal * 0.01f;
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 auto* data = buffer.getWritePointer(ch);
@@ -414,7 +448,9 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (granularOn)
     {
         // Use modulated values (mod matrix applied above)
-        const float pitchSemitones = (modMorph - 0.5f) * 24.0f;
+        float pitchSemitones = (modMorph - 0.5f) * 24.0f;
+        if (*apvts.getRawParameterValue("grainPitchSnap") >= 0.5f)
+            pitchSemitones = std::round(pitchSemitones);
         granularEngine.setBasePitch(pitchSemitones);
         granularEngine.setCloud(modCloud);
         granularEngine.setPosition(modPosition);
@@ -441,11 +477,35 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             granularEngine.setTempoSync(syncMode, bpm, ppq);
         }
 
-        // Space → feedback + texture + reverb wet
-        granularEngine.setFeedback(modSpace * 0.5f);
+        // BPM-synced grain size: override Amount-derived size with note division
+        {
+            const int sizeSyncMode = static_cast<int>(*apvts.getRawParameterValue("grainSizeSync"));
+            if (sizeSyncMode > 0)
+            {
+                double bpm = 120.0;
+                if (auto* ph = getPlayHead())
+                    if (auto pos = ph->getPosition())
+                        bpm = pos->getBpm().orFallback(120.0);
+                // Divisions in beats (indices 0–10, backward-compatible: 0–6 unchanged)
+                // Free, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/4., 1/4T, 1/8., 1/8T
+                static constexpr float kSizeDivBeats[] = {
+                    0.0f, 4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f,
+                    1.5f, 2.0f/3.0f, 0.75f, 1.0f/3.0f
+                };
+                const float divisionMs = (kSizeDivBeats[sizeSyncMode] / (static_cast<float>(bpm) / 60.0f)) * 1000.0f;
+                grainSizeVal = juce::jlimit(0.5f, 500.0f, divisionMs);
+            }
+        }
+
+        // Space → texture + reverb wet (feedback now has its own knob)
+        granularEngine.setFeedback(feedbackRaw);
         granularEngine.setTexture(modSpace);
         granularEngine.setSpace(modSpace);
-        granularEngine.setDrift(modScatter); // scatter now drives the drift param
+        granularEngine.setDrift(modScatter);
+        granularEngine.setReverse(modReverse);
+        granularEngine.setVoices(static_cast<int>(std::round(
+            *apvts.getRawParameterValue("grainVoices"))));
+        granularEngine.setVoiceInterval(*apvts.getRawParameterValue("grainInterval"));
 
         granularEngine.setParameters(
             grainSizeVal, grainDensityVal, grainScatterVal,

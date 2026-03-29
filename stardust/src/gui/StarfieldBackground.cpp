@@ -28,6 +28,12 @@ void StarfieldBackground::paint(juce::Graphics& g)
 
 void StarfieldBackground::resized() {}
 
+void StarfieldBackground::setGrainData(const std::array<GrainParticle, kMaxGrainParticles>& particles, bool isFrozen)
+{
+    grainParticles = particles;
+    grainFrozen = isFrozen;
+}
+
 void StarfieldBackground::timerCallback()
 {
     const float dt = 1.0f / 30.0f;
@@ -454,11 +460,59 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
             }
         }
     }
-    // Apply GRAIN as uniform star opacity
+    // Static stars fade to background ambience — grain particles are the primary visual
     for (size_t i = 0; i < pixelData.size(); ++i)
     {
         const float starOnly = pixelData[i] - galaxyOnly[i];
-        pixelData[i] = galaxyOnly[i] + starOnly * starIntensity;
+        pixelData[i] = galaxyOnly[i] + starOnly * (starIntensity * 0.25f);
+    }
+  } // end static stars
+
+  // ---- Grain particles: rendered as floating pixels (same star primitive) ----
+  // Each grain slot has a stable angular position. New grains (normPos≈1) sit near
+  // centre; they drift outward as they age and fade with the Hann envelope.
+  // Amount (grainCloud) → brightness. Spread (grainDrift) → radial spread.
+  if (params.granularEnabled)
+  {
+    // Match the star layer's effective brightness: starIntensity * 0.25 * layerBrightMul
+    const float grainBrightScale = starIntensity * 0.25f * (0.5f + params.grainCloud * 0.5f);
+    const float spreadScale = 0.20f + scatter * 0.80f;   // scatter == grainDrift
+    const float maxR        = std::min(fw * 0.46f, fh * 0.46f);
+
+    for (int gi = 0; gi < kMaxGrainParticles; ++gi)
+    {
+        const auto& gp = grainParticles[gi];
+        if (!gp.active) continue;
+
+        const float hann   = std::sin(gp.phase * juce::MathConstants<float>::pi);
+        const float bright = juce::jlimit(0.0f, 1.0f, hann * grainBrightScale);
+        if (bright < 0.005f) continue;
+
+        // Stable angular slot; distance from centre grows as grain ages
+        const float angle   = hash(static_cast<float>(gi), 1.7f)
+                              * juce::MathConstants<float>::twoPi;
+        const float ageFrac = juce::jlimit(0.0f, 1.0f, 1.0f - gp.normPos);
+        const float r       = ageFrac * maxR * spreadScale;
+
+        const int sx = juce::jlimit(0, kRenderWidth  - 1, static_cast<int>(cx + std::cos(angle) * r));
+        const int sy = juce::jlimit(0, kRenderHeight - 1, static_cast<int>(cy + std::sin(angle) * r));
+
+        // Centre pixel
+        auto& centre = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
+        centre = std::min(1.0f, centre + bright);
+
+        // Soft cardinal ring — same as the Hanning star shape
+        const float ringStr = bright * 0.4f;
+        static constexpr int kCard[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        for (const auto& c : kCard)
+        {
+            const int qx = sx + c[0], qy = sy + c[1];
+            if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
+            {
+                auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
+                p = std::min(1.0f, p + ringStr);
+            }
+        }
     }
   } // end GRANULAR
 

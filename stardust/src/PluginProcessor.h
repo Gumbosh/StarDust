@@ -85,6 +85,8 @@ public:
     static std::set<juce::String> loadFavorites();
     static void saveFavorites(const std::set<juce::String>& favs);
 
+    GranularEngine& getGranularEngine() { return granularEngine; }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void initFactoryPresets();

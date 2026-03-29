@@ -55,6 +55,15 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
         const float preAaCutoff = targetRate * 0.5f / static_cast<float>(hostSampleRate);
         const float preAaAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * preAaCutoff);
 
+        // Clock jitter: perturb ratio once per sample (shared clock — same offset for all channels)
+        float jitteredRatio = ratio;
+        if (jitterAmount > 0.0f)
+        {
+            jitterState = jitterState * 1664525u + 1013904223u;
+            const float noise = static_cast<float>(static_cast<int32_t>(jitterState)) * (1.0f / 2147483648.0f);
+            jitteredRatio = ratio * (1.0f + noise * jitterAmount * 0.4f);
+        }
+
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto* data = buffer.getWritePointer(ch);
@@ -68,7 +77,7 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
             sample = preAaState[ch];
 
             // Sample rate reduction (sample-and-hold) — BEFORE quantization
-            holdCounter[ch] += ratio;
+            holdCounter[ch] += jitteredRatio;
             if (holdCounter[ch] >= 1.0f)
             {
                 holdCounter[ch] -= 1.0f;
