@@ -116,7 +116,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     const juce::StringArray sourceNames {"Off", "LFO 1", "LFO 2", "Env Follower"};
     const juce::StringArray targetNames {"Off", "Cloud", "Scatter", "Reverse", "Position",
                                          "Space", "Morph", "Mix",
-                                         "Tape Wow", "Tape Flutter", "Tape Drive", "Tape Bias", "Tape Mix"};
+                                         "Tape Drive", "Tape Wear", "Tape Mix"};
     for (int slot = 1; slot <= 4; ++slot)
     {
         const auto prefix = juce::String("modSlot") + juce::String(slot);
@@ -132,38 +132,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     }
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("tapeWow", 1), "Tape Wow",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("tapeFlutter", 1), "Tape Flutter",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("tapeHiss", 1), "Tape Hiss",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("tapeBias", 1), "Tape Bias",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("tapeDrive", 1), "Tape Drive",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.17f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeWear", 1), "Tape Wear",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.14f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeGlue", 1), "Tape Glue",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.48f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeNoise", 1), "Tape Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.07f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("tapeSpeed", 1), "Tape Speed",
-        juce::StringArray{"7.5 ips", "15 ips", "30 ips"}, 0));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("tapeFormulation", 1), "Tape Type",
-        juce::StringArray{"Ampex 456", "Quantegy GP9", "SM900"}, 0));
+        juce::ParameterID("tapeNoiseSpeed", 1), "Tape Noise Speed",
+        juce::StringArray{"7.5 ips", "15 ips", "30 ips"}, 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("tapeMix", 1), "Tape Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeOutput", 1), "Tape Output",
+        juce::NormalisableRange<float>(-24.0f, 12.0f, 0.1f, 1.71f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("tapeEnabled", 1), "Tape Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("destroyEnabled", 1), "Destroy Enabled", true));
+        juce::ParameterID("destroyEnabled", 1), "Destroy Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("granularEnabled", 1), "Granular Enabled", true));
+        juce::ParameterID("granularEnabled", 1), "Granular Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("multiplyEnabled", 1), "Multiply Enabled", true));
+        juce::ParameterID("multiplyEnabled", 1), "Multiply Enabled", false));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("inputGain", 1), "Input Gain",
@@ -180,10 +177,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("msWidth", 1), "M/S Width",
         juce::NormalisableRange<float>(0.0f, 2.0f, 0.01f), 1.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("tapeStandard", 1), "Tape Standard",
-        juce::StringArray{"NAB", "IEC"}, 0));
 
     return { params.begin(), params.end() };
 }
@@ -484,19 +477,37 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     if (tapeOn)
     {
-        tapeEngine.setWow(modMatrix.modulate(ModTarget::TapeWow, *apvts.getRawParameterValue("tapeWow")));
-        tapeEngine.setFlutter(modMatrix.modulate(ModTarget::TapeFlutter, *apvts.getRawParameterValue("tapeFlutter")));
-        tapeEngine.setHiss(*apvts.getRawParameterValue("tapeHiss"));
-        tapeEngine.setBias(modMatrix.modulate(ModTarget::TapeBias, *apvts.getRawParameterValue("tapeBias")));
-        tapeEngine.setDrive(modMatrix.modulate(ModTarget::TapeDrive, *apvts.getRawParameterValue("tapeDrive")));
-        tapeEngine.setMix(modMatrix.modulate(ModTarget::TapeMix, *apvts.getRawParameterValue("tapeMix")));
-        tapeEngine.setFormulation(static_cast<int>(*apvts.getRawParameterValue("tapeFormulation")));
+        // Single “house” recipe — user trims with Drive / Wear / Glue / Noise / Mix / Output
+        static constexpr float kWearDepth = 0.48f;
+        const float driveN = modMatrix.modulate(ModTarget::TapeDrive, *apvts.getRawParameterValue("tapeDrive"));
+        const float wear   = modMatrix.modulate(ModTarget::TapeWear, *apvts.getRawParameterValue("tapeWear"));
+        const float mix    = modMatrix.modulate(ModTarget::TapeMix, *apvts.getRawParameterValue("tapeMix"));
+        const float glue   = *apvts.getRawParameterValue("tapeGlue");
+        const float noise  = *apvts.getRawParameterValue("tapeNoise");
+        const float wobble = kWearDepth * wear;
+        // Dynamic ratio: heavy flutter at low wear (erratic VHS character),
+        // shifting toward wow dominance at high wear (smooth tape degradation).
+        // At full wear the split is identical to the previous 30/70 ratio.
+        const float flutterRatio = 0.50f - 0.20f * wear;  // 0.50 at wear=0, 0.30 at wear=1
+        tapeEngine.setFlutter(wobble * flutterRatio);
+        tapeEngine.setWow(wobble * (1.0f - flutterRatio));
+        tapeEngine.setHiss(juce::jlimit(0.0f, 1.0f, noise));
+        tapeEngine.setBias(juce::jlimit(0.0f, 1.0f, glue));
+        tapeEngine.setDrive(juce::jlimit(0.0f, 1.0f, driveN));
+        tapeEngine.setMix(mix);
+        tapeEngine.setTapeOutputDb(*apvts.getRawParameterValue("tapeOutput"));
+        tapeEngine.setWearTone(juce::jlimit(0.0f, 1.0f, wear));
         {
-            static constexpr float kSpeedValues[] = { 7.5f, 15.0f, 30.0f };
-            const int speedIdx = static_cast<int>(*apvts.getRawParameterValue("tapeSpeed"));
-            tapeEngine.setSpeed(kSpeedValues[std::clamp(speedIdx, 0, 2)]);
+            static constexpr float kNoiseIps[] = { 7.5f, 15.0f, 30.0f };
+            int noiseIx = 1;
+            if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeNoiseSpeed")))
+                noiseIx = juce::jlimit(0, 2, pc->getIndex());
+            tapeEngine.setHissSpeedIps(kNoiseIps[noiseIx]);
         }
-        tapeEngine.setStandard(static_cast<int>(*apvts.getRawParameterValue("tapeStandard")));
+        tapeEngine.setSpeed(15.0f);
+        tapeEngine.setFormulation(0);
+        tapeEngine.setStandard(0);
+
         tapeEngine.process(buffer);
     }
 
@@ -943,9 +954,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.17f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.48f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -957,9 +966,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -969,9 +976,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -981,9 +986,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -993,9 +996,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1005,9 +1006,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1017,9 +1016,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1029,9 +1026,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1041,9 +1036,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1053,9 +1046,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1065,9 +1056,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1077,9 +1066,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1089,9 +1076,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1103,9 +1088,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.2f}, {"grainDrift", 0.1f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1115,9 +1098,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.75f}, {"grainCloud", 0.8f}, {"grainDrift", 0.15f}, {"grainSpace", 0.7f}, {"grainMorph", 0.62f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1127,9 +1108,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 1.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.05f}, {"grainSpace", 0.9f}, {"grainMorph", 0.5f},
             {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
         }},
@@ -1139,9 +1118,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.9f}, {"grainDrift", 0.8f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
@@ -1151,9 +1128,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.75f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1163,9 +1138,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.25f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1175,9 +1148,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.5f}, {"grainDrift", 0.4f}, {"grainSpace", 0.65f}, {"grainMorph", 0.52f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
@@ -1187,9 +1158,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.85f}, {"grainCloud", 1.0f}, {"grainDrift", 0.6f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1199,9 +1168,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.65f}, {"grainCloud", 0.05f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.55f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1211,9 +1178,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.35f}, {"grainDrift", 0.9f}, {"grainSpace", 0.45f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1223,9 +1188,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.7f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 1.0f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
         }},
@@ -1235,9 +1198,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.4f}, {"grainCloud", 0.15f}, {"grainDrift", 0.25f}, {"grainSpace", 0.35f}, {"grainMorph", 0.48f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1249,9 +1210,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.15f}, {"tapeFlutter", 0.1f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.4f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1261,9 +1220,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.05f}, {"tapeFlutter", 0.03f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.55f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.55f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1273,9 +1230,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.6f}, {"tapeFlutter", 0.4f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.27f}, {"tapeWear", 0.36f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.18f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1285,9 +1240,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.3f}, {"tapeFlutter", 0.25f}, {"tapeHiss", 0.35f},
-            {"tapeBias", 0.4f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.32f}, {"tapeWear", 0.43f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.25f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1297,9 +1250,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.02f}, {"tapeFlutter", 0.02f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.7f}, {"tapeDrive", 0.85f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.23f}, {"tapeWear", 0.32f}, {"tapeGlue", 0.7f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1309,9 +1260,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.65f}, {"tapeSpeed", 2.0f}, {"tapeMix", 0.5f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.1f}, {"tapeWear", 0.16f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.5f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1321,9 +1270,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.01f}, {"tapeFlutter", 0.01f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.7f}, {"tapeSpeed", 2.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1333,9 +1280,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.12f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.15f},
-            {"tapeBias", 0.45f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1345,9 +1290,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.01f}, {"tapeFlutter", 0.01f}, {"tapeHiss", 0.02f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.45f}, {"tapeSpeed", 2.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.03f}, {"tapeWear", 0.06f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1357,9 +1300,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.03f}, {"tapeFlutter", 0.02f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.07f}, {"tapeWear", 0.1f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1369,9 +1310,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.08f}, {"tapeFlutter", 0.05f}, {"tapeHiss", 0.7f},
-            {"tapeBias", 0.35f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.2f}, {"tapeWear", 0.26f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.11f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1381,9 +1320,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.05f}, {"tapeFlutter", 0.03f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.8f}, {"tapeDrive", 1.0f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.8f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 3.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1395,9 +1332,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.5f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1407,9 +1342,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.6f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
@@ -1419,9 +1352,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 4.0f}, {"chorusMix", 0.4f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1431,9 +1362,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.7f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
         }},
@@ -1443,9 +1372,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f},
             {"multiplyPanOuter", 0.5f}, {"multiplyPanInner", 0.4f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1455,9 +1382,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 5.0f}, {"chorusMix", 0.3f},
             {"multiplyPanOuter", 0.7f}, {"multiplyPanInner", 0.7f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1467,9 +1392,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.45f},
             {"multiplyPanOuter", 0.2f}, {"multiplyPanInner", 0.1f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.8f}
         }},
@@ -1479,9 +1402,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.15f}, {"chorusMix", 0.8f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 1.0f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
         }},
@@ -1493,9 +1414,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.2f}, {"tapeFlutter", 0.15f}, {"tapeHiss", 0.3f},
-            {"tapeBias", 0.45f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.23f}, {"tapeWear", 0.31f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1505,9 +1424,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1517,9 +1434,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.35f}, {"tapeFlutter", 0.2f}, {"tapeHiss", 0.2f},
-            {"tapeBias", 0.4f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.28f}, {"tapeWear", 0.38f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.2f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1529,9 +1444,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.06f}, {"tapeHiss", 0.12f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1541,9 +1454,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.5f}, {"tapeFlutter", 0.4f}, {"tapeHiss", 0.4f},
-            {"tapeBias", 0.3f}, {"tapeDrive", 0.7f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.46f}, {"tapeWear", 0.63f}, {"tapeGlue", 0.3f}, {"tapeNoise", 0.49f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1553,9 +1464,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.08f}, {"tapeFlutter", 0.05f}, {"tapeHiss", 0.08f},
-            {"tapeBias", 0.6f}, {"tapeDrive", 0.65f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.16f}, {"tapeWear", 0.22f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1565,9 +1474,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.15f}, {"tapeFlutter", 0.1f}, {"tapeHiss", 0.15f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1577,9 +1484,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.25f}, {"tapeFlutter", 0.15f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.65f}, {"tapeDrive", 0.8f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.65f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1589,9 +1494,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.03f}, {"tapeFlutter", 0.02f}, {"tapeHiss", 0.04f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.6f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.07f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.6f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1601,9 +1504,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.4f}, {"tapeFlutter", 0.3f}, {"tapeHiss", 0.5f},
-            {"tapeBias", 0.35f}, {"tapeDrive", 0.45f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.37f}, {"tapeWear", 0.5f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.33f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.7f}
         }},
@@ -1615,9 +1516,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.6f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.5f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
@@ -1627,9 +1526,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.75f}, {"grainCloud", 0.7f}, {"grainDrift", 0.3f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.6f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.7f}
         }},
@@ -1639,9 +1536,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 1.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.05f}, {"grainSpace", 0.85f}, {"grainMorph", 0.5f},
             {"grainFreeze", 1.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.55f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
         }},
@@ -1651,9 +1546,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.85f}, {"grainDrift", 0.7f}, {"grainSpace", 0.35f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.2f}, {"chorusMix", 0.4f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1663,9 +1556,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.75f}, {"grainMorph", 0.55f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.2f}, {"chorusMix", 0.7f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
         }},
@@ -1675,9 +1566,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.65f}, {"grainCloud", 0.6f}, {"grainDrift", 0.25f}, {"grainSpace", 0.5f}, {"grainMorph", 0.72f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 2.5f}, {"chorusMix", 0.45f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
@@ -1687,9 +1576,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.85f}, {"grainCloud", 0.95f}, {"grainDrift", 0.5f}, {"grainSpace", 0.8f}, {"grainMorph", 0.45f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.65f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
         }},
@@ -1699,9 +1586,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.3f}, {"grainDrift", 0.1f}, {"grainSpace", 0.6f}, {"grainMorph", 0.0f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.5f},
             {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1713,9 +1598,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.08f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1725,9 +1608,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.35f}, {"grainDrift", 0.35f}, {"grainSpace", 0.5f}, {"grainMorph", 0.48f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.06f}, {"tapeFlutter", 0.04f}, {"tapeHiss", 0.06f},
-            {"tapeBias", 0.55f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.55f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
@@ -1737,9 +1618,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 1.0f}, {"grainCloud", 0.25f}, {"grainDrift", 0.05f}, {"grainSpace", 0.8f}, {"grainMorph", 0.5f},
             {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.15f}, {"tapeFlutter", 0.1f}, {"tapeHiss", 0.12f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.16f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1749,9 +1628,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.65f}, {"grainDrift", 0.15f}, {"grainSpace", 0.65f}, {"grainMorph", 0.65f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.2f}, {"tapeFlutter", 0.12f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1761,9 +1638,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.8f}, {"grainDrift", 0.75f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.08f}, {"tapeFlutter", 0.06f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1773,9 +1648,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.45f}, {"grainCloud", 0.3f}, {"grainDrift", 0.15f}, {"grainSpace", 0.7f}, {"grainMorph", 0.52f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.12f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.15f},
-            {"tapeBias", 0.45f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1785,9 +1658,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.55f}, {"grainDrift", 0.2f}, {"grainSpace", 0.55f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.03f}, {"tapeFlutter", 0.02f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.65f}, {"tapeDrive", 0.8f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.2f}, {"tapeWear", 0.28f}, {"tapeGlue", 0.65f}, {"tapeNoise", 0.11f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1797,9 +1668,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.9f}, {"grainCloud", 0.2f}, {"grainDrift", 0.1f}, {"grainSpace", 0.85f}, {"grainMorph", 0.35f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.4f}, {"tapeFlutter", 0.25f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.23f}, {"tapeWear", 0.3f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1811,9 +1680,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.65f}, {"grainCloud", 0.5f}, {"grainDrift", 0.3f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1823,9 +1690,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.7f}, {"grainDrift", 0.4f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1835,9 +1700,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.9f}, {"grainDrift", 0.85f}, {"grainSpace", 0.2f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1847,9 +1710,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.65f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
@@ -1859,9 +1720,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 1.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.05f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f},
             {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1871,9 +1730,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.55f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1883,9 +1740,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.75f}, {"grainCloud", 0.6f}, {"grainDrift", 0.5f}, {"grainSpace", 0.35f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1895,9 +1750,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.45f}, {"grainDrift", 0.3f}, {"grainSpace", 0.4f}, {"grainMorph", 1.0f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1909,9 +1762,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.2f}, {"grainCloud", 0.3f}, {"grainDrift", 0.1f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.2f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.02f}, {"tapeFlutter", 0.02f}, {"tapeHiss", 0.03f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.5f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.07f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.5f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.1f}
         }},
@@ -1921,9 +1772,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.5f}, {"grainDrift", 0.25f}, {"grainSpace", 0.6f}, {"grainMorph", 0.55f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.4f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.08f}, {"tapeFlutter", 0.05f}, {"tapeHiss", 0.08f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.8f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
         }},
@@ -1933,9 +1782,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.75f}, {"grainDrift", 0.6f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"tapeWow", 0.15f}, {"tapeFlutter", 0.1f}, {"tapeHiss", 0.15f},
-            {"tapeBias", 0.45f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
         }},
@@ -1945,9 +1792,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.8f}, {"grainCloud", 0.35f}, {"grainDrift", 0.1f}, {"grainSpace", 0.9f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.5f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.06f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.09f}, {"tapeWear", 0.1f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
         }},
@@ -1957,9 +1802,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 1.0f}, {"grainCloud", 1.0f}, {"grainDrift", 1.0f}, {"grainSpace", 0.2f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 4.5f}, {"chorusMix", 0.8f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 1.0f},
-            {"tapeWow", 0.7f}, {"tapeFlutter", 0.5f}, {"tapeHiss", 0.5f},
-            {"tapeBias", 0.2f}, {"tapeDrive", 1.0f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.54f}, {"tapeWear", 0.75f}, {"tapeGlue", 0.2f}, {"tapeNoise", 0.67f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 6.0f}, {"outputGain", -6.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
         }},
@@ -1969,9 +1812,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.45f}, {"grainDrift", 0.2f}, {"grainSpace", 0.7f}, {"grainMorph", 0.58f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.45f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"tapeWow", 0.05f}, {"tapeFlutter", 0.03f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.7f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.06f}, {"tapeWear", 0.09f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.01f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.7f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
@@ -1981,9 +1822,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.45f}, {"grainCloud", 0.55f}, {"grainDrift", 0.35f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.3f},
             {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.2f}, {"tapeFlutter", 0.12f}, {"tapeHiss", 0.2f},
-            {"tapeBias", 0.4f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.21f}, {"tapeWear", 0.28f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.12f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -1993,9 +1832,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.3f}, {"grainSpace", 0.75f}, {"grainMorph", 0.7f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.55f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-            {"tapeWow", 0.06f}, {"tapeFlutter", 0.04f}, {"tapeHiss", 0.06f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.75f},
-            {"tapeFormulation", 1.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.09f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.75f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
         }},
@@ -2005,9 +1842,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.35f}, {"grainCloud", 0.3f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.25f},
             {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.7f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.12f},
-            {"tapeBias", 0.45f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 0.8f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.11f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
         }},
@@ -2017,9 +1852,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.9f}, {"grainCloud", 0.8f}, {"grainDrift", 0.7f}, {"grainSpace", 0.9f}, {"grainMorph", 0.3f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.2f}, {"chorusMix", 0.7f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-            {"tapeWow", 0.3f}, {"tapeFlutter", 0.2f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.6f}, {"tapeDrive", 0.75f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.34f}, {"tapeWear", 0.46f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.29f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
         }},
@@ -2029,9 +1862,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.6f}, {"grainDrift", 0.5f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.35f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-            {"tapeWow", 0.2f}, {"tapeFlutter", 0.15f}, {"tapeHiss", 0.2f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
         }},
@@ -2041,9 +1872,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.15f}, {"grainCloud", 0.2f}, {"grainDrift", 0.05f}, {"grainSpace", 0.25f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.9f}, {"chorusMix", 0.15f},
             {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.01f}, {"tapeFlutter", 0.01f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 2.0f}, {"tapeMix", 0.4f},
-            {"tapeFormulation", 2.0f}, {"tapeStandard", 1.0f},
+                        {"tapeDrive", 0.08f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.4f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.05f}
         }},
@@ -2055,9 +1884,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
             {"modLfo1Rate", 0.3f}, {"modLfo1Depth", 0.7f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
@@ -2069,9 +1896,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.65f}, {"grainCloud", 0.5f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f},
             {"modLfo1Rate", 0.08f}, {"modLfo1Depth", 0.6f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
@@ -2085,9 +1910,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
             {"modLfo1Rate", 3.0f}, {"modLfo1Depth", 0.8f}, {"modLfo1Wave", 2.0f}, {"modLfo1Sync", 1.0f},
@@ -2099,14 +1922,12 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.15f}, {"tapeWear", 0.19f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.06f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
             {"modLfo1Rate", 0.15f}, {"modLfo1Depth", 0.5f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
             {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 8.0f}, {"modSlot1Amt", 0.4f},
-            {"modSlot2Src", 1.0f}, {"modSlot2Tgt", 9.0f}, {"modSlot2Amt", 0.3f}
+            {"modSlot2Src", 1.0f}, {"modSlot2Tgt", 8.0f}, {"modSlot2Amt", 0.3f}
         }},
         { "Morphing Clouds", {
             {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
@@ -2114,9 +1935,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.75f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f},
             {"modLfo1Rate", 0.05f}, {"modLfo1Depth", 0.8f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
@@ -2130,9 +1949,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.7f}, {"grainCloud", 0.7f}, {"grainDrift", 0.5f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.0f}, {"tapeFlutter", 0.0f}, {"tapeHiss", 0.0f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
             {"modLfo1Rate", 2.0f}, {"modLfo1Depth", 0.7f}, {"modLfo1Wave", 3.0f}, {"modLfo1Sync", 0.0f},
@@ -2145,13 +1962,11 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-            {"tapeWow", 0.05f}, {"tapeFlutter", 0.03f}, {"tapeHiss", 0.05f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.5f}, {"tapeSpeed", 1.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.06f}, {"tapeWear", 0.05f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.01f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modSlot1Src", 3.0f}, {"modSlot1Tgt", 10.0f}, {"modSlot1Amt", 0.5f},
-            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 11.0f}, {"modSlot2Amt", -0.3f}
+            {"modSlot1Src", 3.0f}, {"modSlot1Tgt", 8.0f}, {"modSlot1Amt", 0.5f},
+            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 9.0f}, {"modSlot2Amt", -0.3f}
         }},
         { "Dual LFO Cosmos", {
             {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.6f},
@@ -2159,9 +1974,7 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.25f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.4f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-            {"tapeWow", 0.08f}, {"tapeFlutter", 0.05f}, {"tapeHiss", 0.08f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.55f}, {"tapeSpeed", 1.0f}, {"tapeMix", 0.8f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f},
             {"modLfo1Rate", 0.1f}, {"modLfo1Depth", 0.6f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
@@ -2169,7 +1982,7 @@ void StardustProcessor::initFactoryPresets()
             {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 5.0f}, {"modSlot1Amt", 0.4f},
             {"modSlot2Src", 2.0f}, {"modSlot2Tgt", 6.0f}, {"modSlot2Amt", 0.3f},
             {"modSlot3Src", 1.0f}, {"modSlot3Tgt", 8.0f}, {"modSlot3Amt", 0.25f},
-            {"modSlot4Src", 2.0f}, {"modSlot4Tgt", 12.0f}, {"modSlot4Amt", 0.3f}
+            {"modSlot4Src", 2.0f}, {"modSlot4Tgt", 10.0f}, {"modSlot4Amt", 0.3f}
         }},
         { "Living Machine", {
             {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 0.7f},
@@ -2177,15 +1990,13 @@ void StardustProcessor::initFactoryPresets()
             {"grainMix", 0.5f}, {"grainCloud", 0.45f}, {"grainDrift", 0.3f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
             {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.35f},
             {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-            {"tapeWow", 0.1f}, {"tapeFlutter", 0.08f}, {"tapeHiss", 0.1f},
-            {"tapeBias", 0.5f}, {"tapeDrive", 0.6f}, {"tapeSpeed", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeFormulation", 0.0f}, {"tapeStandard", 0.0f},
+                        {"tapeDrive", 0.16f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
             {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
             {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f},
             {"modLfo1Rate", 0.2f}, {"modLfo1Depth", 0.5f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
             {"modLfo2Rate", 1.5f}, {"modLfo2Depth", 0.3f}, {"modLfo2Wave", 3.0f}, {"modLfo2Sync", 0.0f},
             {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 7.0f}, {"modSlot1Amt", 0.35f},
-            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 10.0f}, {"modSlot2Amt", 0.4f},
+            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 8.0f}, {"modSlot2Amt", 0.4f},
             {"modSlot3Src", 2.0f}, {"modSlot3Tgt", 2.0f}, {"modSlot3Amt", 0.3f}
         }}
     };

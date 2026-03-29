@@ -40,6 +40,14 @@ void StarfieldBackground::timerCallback()
 
 StarfieldParams StarfieldBackground::readParams() const
 {
+    static constexpr float kWearDepth = 0.48f;
+    const float wear = *apvts.getRawParameterValue("tapeWear");
+    const float noise = *apvts.getRawParameterValue("tapeNoise");
+    const float wobble = kWearDepth * wear;
+    const float tapeWowVal = wobble * 0.70f;
+    const float tapeFlutterVal = wobble * 0.30f;
+    const float tapeHissVal = juce::jlimit(0.0f, 1.0f, noise);
+
     return StarfieldParams {
         *apvts.getRawParameterValue("destroyFader"),
         *apvts.getRawParameterValue("grainMix"),
@@ -56,9 +64,9 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("multiplyPanOuter"),
         *apvts.getRawParameterValue("multiplyPanInner"),
         *apvts.getRawParameterValue("filterLfo"),
-        *apvts.getRawParameterValue("tapeWow"),
-        *apvts.getRawParameterValue("tapeFlutter"),
-        *apvts.getRawParameterValue("tapeHiss"),
+        tapeWowVal,
+        tapeFlutterVal,
+        tapeHissVal,
         *apvts.getRawParameterValue("inputGain"),
         *apvts.getRawParameterValue("outputGain"),
         *apvts.getRawParameterValue("masterMix"),

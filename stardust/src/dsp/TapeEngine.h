@@ -16,7 +16,7 @@
 // - Head-gap loss: 2-pole Butterworth LP, speed-scaled cutoff
 // - Bandwidth: 2-pole (12dB/oct) Butterworth LP, per-channel, level-dependent
 // - Bias control: modulates hysteresis curve shape (K/a parameters)
-// - Drive: input gain staging into tape saturation (-12dB to +12dB)
+// - Drive: input gain staging into tape saturation (0..+12 dB from normalized drive)
 // - Speed selection: 7.5/15/30 ips (scales bump, gap, emphasis, wow/flutter, hiss)
 class TapeEngine
 {
@@ -44,6 +44,9 @@ public:
     void setBias(float amount);
     void setDrive(float amount);
     void setMix(float amount);
+    void setTapeOutputDb(float db);
+    void setWearTone(float amount);
+    void setHissSpeedIps(float ips);
     void setSpeed(float speedIps);
     void setFormulation(int index);
     void setStandard(int index);  // 0=NAB, 1=IEC
@@ -107,8 +110,12 @@ private:
     juce::SmoothedValue<float> biasSmoothed { 0.5f };
     juce::SmoothedValue<float> driveGainSmoothed { 1.0f };
     juce::SmoothedValue<float> mixSmoothed { 1.0f };
+    juce::SmoothedValue<float> tapeOutGainSmoothed { 1.0f };
+    juce::SmoothedValue<float> wearToneSmoothed { 0.0f };
     float currentWow = 0.0f, currentFlutter = 0.0f, currentHiss = 0.0f;
     float currentBias = 0.5f, currentDrive = 0.5f, currentMix = 1.0f;
+    float currentTapeOutDb = 0.0f;
+    float currentWearTone = 0.0f;
 
     // Tape speed (7.5, 15.0, or 30.0 ips) — atomic for thread safety
     std::atomic<float> currentSpeed { 7.5f };
@@ -121,8 +128,8 @@ private:
     // Speed-dependent scaling (recomputed when speed changes)
     // Base values are for 7.5 ips reference speed
     static constexpr float kRefSpeed = 7.5f;
-    static constexpr float kBaseWowDepth = 6.0f;    // reduced from 30 (closer to real tape at 7.5 ips)
-    static constexpr float kBaseFlutterDepth = 2.5f; // reduced from 12 (closer to real tape)
+    static constexpr float kBaseWowDepth = 70.0f;   // ~5 cents at full wear, 15 ips (audible tape wobble)
+    static constexpr float kBaseFlutterDepth = 10.0f; // ~5 cents flutter at full wear (clearly characterful)
     static constexpr float kBaseBumpFreq = 90.0f;    // 90Hz for 7.5 ips (was 50Hz — wrong for this speed)
     static constexpr float kBaseNotchFreq = 180.0f;  // 2x bump freq
     static constexpr float kBaseGapLossFreq = 16000.0f;
@@ -137,7 +144,6 @@ private:
     static constexpr float kBaseDynLpRange = 4000.0f; // narrowed from 8kHz (more accurate tape HF compression)
     float wowDepth = kBaseWowDepth;
     float flutterDepth = kBaseFlutterDepth;
-    float hissGainScale = 1.0f;
     float dynLpMax = kBaseDynLpMax;
     float dynLpRange = kBaseDynLpRange;
 
@@ -146,6 +152,9 @@ private:
     float cachedFlutterSqrt = 0.0f;
     float cachedDriveGain = 1.0f;
     float cachedDriveMakeup = 1.0f;
+    float cachedBiasNorm = 1.05f;  // = 3.0f * hystA — normalises J-A small-signal gain to ~1
+    float hissSpeedIpsStored = 15.0f;
+    float cachedHissSpeedScale = 1.0f;
 
     static constexpr int kDelayBufferSize = 8192;
     static_assert((kDelayBufferSize & (kDelayBufferSize - 1)) == 0, "must be power of 2");
@@ -201,6 +210,13 @@ private:
     BiquadState dynLpBqState[kMaxChannels];
     float dynLpEnvState[kMaxChannels] = {};
     float envAlpha = 0.0f;
+
+    BiquadCoeffs wearToneLpCoeffs {};
+    BiquadState wearToneLpState[kMaxChannels] {};
+    // Second pole pair — same coefficients, cascaded to form 4-pole (24 dB/oct) Butterworth
+    BiquadState wearToneLp2State[kMaxChannels] {};
+    float glueCohesionEnv[kMaxChannels] = {};
+    float glueAttackAlpha = 0.0f, glueReleaseAlpha = 0.0f;
 
     float dcBlockX1[kMaxChannels] = {};
     float dcBlockY1[kMaxChannels] = {};

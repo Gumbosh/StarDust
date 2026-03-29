@@ -395,14 +395,25 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
         return;
     }
 
-    // Tape speed radio buttons — dark bg, subtle border lift when active
-    if (button.getComponentID() == "tapeSpeedBtn")
+    // Noise-speed segmented radio buttons
+    if (button.getComponentID() == "tapeNoiseSpeedBtn")
     {
-        const bool active = button.getToggleState();
-        g.setColour(juce::Colour(0xFF141414));
-        g.fillRoundedRectangle(bounds.reduced(0.5f), 3.0f);
-        g.setColour(active ? kFgGhost.withAlpha(0.7f) : kFgGhost.withAlpha(0.25f));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 3.0f, 1.0f);
+        const float cornerR = 3.0f;
+        const bool isOn = button.getToggleState();
+        if (isOn)
+        {
+            g.setColour(kAccent.withAlpha(0.18f));
+            g.fillRoundedRectangle(bounds.reduced(1.0f), cornerR);
+            g.setColour(kAccent.withAlpha(0.55f));
+            g.drawRoundedRectangle(bounds.reduced(1.0f), cornerR, 1.0f);
+        }
+        else
+        {
+            g.setColour(kFgGhost.withAlpha(shouldDrawButtonAsHighlighted ? 0.18f : 0.08f));
+            g.fillRoundedRectangle(bounds.reduced(1.0f), cornerR);
+            g.setColour(kFgGhost.withAlpha(0.30f));
+            g.drawRoundedRectangle(bounds.reduced(1.0f), cornerR, 1.0f);
+        }
         return;
     }
 
@@ -491,6 +502,13 @@ void StardustLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& bu
         g.fillEllipse(cx - spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
         g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
         g.fillEllipse(cx + spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
+    }
+    else if (button.getComponentID() == "tapeNoiseSpeedBtn")
+    {
+        const bool isOn = button.getToggleState();
+        g.setColour(isOn ? kAccent : (shouldDrawButtonAsHighlighted ? kFg : kFgDim));
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        g.drawText(button.getButtonText(), bounds, juce::Justification::centred);
     }
     else if (button.getButtonText() == "<" || button.getButtonText() == ">")
     {
@@ -1188,43 +1206,48 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
     setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
 
-    setupKnob(tapeWowKnob, "tapeWow", "Wow");
-    setupKnob(tapeFlutterKnob, "tapeFlutter", "Flutter");
-    setupKnob(tapeHissKnob, "tapeHiss", "Hiss");
     setupKnob(tapeDriveKnob, "tapeDrive", "Drive");
-    setupKnob(tapeToneKnob, "tapeBias", "Tone");
+    setupKnob(tapeWearKnob, "tapeWear", "Wear");
+    setupKnob(tapeGlueKnob, "tapeGlue", "Glue");
+    setupKnob(tapeNoiseKnob, "tapeNoise", "Noise");
     setupKnob(tapeMixKnob, "tapeMix", "Mix");
+    setupKnob(tapeOutputKnob, "tapeOutput", "Output");
 
-    // Tape speed radio buttons (only one active at a time)
+    tapeNoiseSpeedLabel.setText("Noise IPS", juce::dontSendNotification);
+    tapeNoiseSpeedLabel.setJustificationType(juce::Justification::centredLeft);
+    tapeNoiseSpeedLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+    tapeNoiseSpeedLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+    addAndMakeVisible(tapeNoiseSpeedLabel);
+
     {
-        static constexpr const char* speedLabels[] = { "7.5", "15", "30" };
-        auto* speedParam = processorRef.apvts.getParameter("tapeSpeed");
+        static const char* kLabels[] = { "7.5", "15", "30" };
+        auto* noiseSpeedParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("tapeNoiseSpeed"));
+        auto updateNoiseButtons = [this, noiseSpeedParam]() {
+            int sel = noiseSpeedParam ? noiseSpeedParam->getIndex() : 1;
+            for (int i = 0; i < 3; ++i)
+                tapeNoiseSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
         for (int i = 0; i < 3; ++i)
         {
-            auto& btn = tapeSpeedBtns[i];
-            btn.setButtonText(speedLabels[i]);
-            btn.setClickingTogglesState(false);
-            btn.setComponentID("tapeSpeedBtn");
-            btn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF141414));
-            btn.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF141414));
-            btn.setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFgDim);
-            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-            btn.onClick = [this, i, speedParam]() {
-                speedParam->setValueNotifyingHost(static_cast<float>(i) / 2.0f);
+            tapeNoiseSpeedBtn[i].setButtonText(kLabels[i]);
+            tapeNoiseSpeedBtn[i].setClickingTogglesState(false);
+            tapeNoiseSpeedBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            tapeNoiseSpeedBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            tapeNoiseSpeedBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            tapeNoiseSpeedBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            tapeNoiseSpeedBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            tapeNoiseSpeedBtn[i].onClick = [this, i, updateNoiseButtons, noiseSpeedParam]() {
+                if (noiseSpeedParam)
+                    noiseSpeedParam->setValueNotifyingHost(
+                        noiseSpeedParam->convertTo0to1(static_cast<float>(i)));
+                updateNoiseButtons();
             };
-            addAndMakeVisible(btn);
+            addAndMakeVisible(tapeNoiseSpeedBtn[i]);
         }
+        updateNoiseButtons();
+        processorRef.apvts.addParameterListener("tapeNoiseSpeed", this);
     }
-
-    // Tape type dropdown
-    tapeTypeCombo.addItemList({"456", "GP9", "SM900"}, 1);
-    tapeTypeCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF141414));
-    tapeTypeCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
-    tapeTypeCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
-    tapeTypeCombo.setColour(juce::ComboBox::arrowColourId, StardustLookAndFeel::kFgDim);
-    tapeTypeAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        processorRef.apvts, "tapeFormulation", tapeTypeCombo);
-    addAndMakeVisible(tapeTypeCombo);
 
     // Right side knobs: Input, Output, Dry/Wet
     setupKnob(inputGainKnob, "inputGain", "Input");
@@ -1467,25 +1490,17 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         };
     }
     dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
-    dimSection(tapeToggle, { &tapeWowKnob, &tapeFlutterKnob, &tapeHissKnob,
-                             &tapeDriveKnob, &tapeToneKnob, &tapeMixKnob });
-    // Also dim tape speed buttons and type dropdown
+    dimSection(tapeToggle, { &tapeDriveKnob, &tapeWearKnob, &tapeGlueKnob, &tapeNoiseKnob, &tapeMixKnob, &tapeOutputKnob });
     {
         auto& toggle = tapeToggle;
-        auto* speedBtns = tapeSpeedBtns;
-        auto* typeCombo = &tapeTypeCombo;
+        auto* noiseLbl = &tapeNoiseSpeedLabel;
         auto origOnClick = toggle.onClick;
-        toggle.onClick = [origOnClick, &toggle, speedBtns, typeCombo]() {
+        toggle.onClick = [origOnClick, &toggle, noiseLbl, this]() {
             if (origOnClick) origOnClick();
             const bool on = toggle.getToggleState();
             const float alpha = on ? 1.0f : 0.4f;
-            for (int i = 0; i < 3; ++i)
-            {
-                speedBtns[i].setEnabled(on);
-                speedBtns[i].setAlpha(alpha);
-            }
-            typeCombo->setEnabled(on);
-            typeCombo->setAlpha(alpha);
+            noiseLbl->setAlpha(alpha);
+            for (auto& b : tapeNoiseSpeedBtn) { b.setEnabled(on); b.setAlpha(alpha); }
         };
     }
 
@@ -1548,7 +1563,8 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return juce::String(static_cast<int>(std::round(v)));
         };
     else if (paramId == "outputGain" || paramId == "inputGain"
-             || paramId == "destroyIn" || paramId == "destroyOut")
+             || paramId == "destroyIn" || paramId == "destroyOut"
+             || paramId == "tapeOutput")
         knob.slider.textFromValueFunction = [](double v) {
             if (v > 0.05) return juce::String("+") + juce::String(v, 1) + " dB";
             if (v < -0.05) return juce::String(v, 1) + " dB";
@@ -1575,7 +1591,8 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
              || paramId == "chorusMix"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
              || paramId == "masterMix"
-             || paramId == "tapeWow" || paramId == "tapeFlutter" || paramId == "tapeHiss"
+             || paramId == "tapeDrive" || paramId == "tapeWear" || paramId == "tapeGlue"
+             || paramId == "tapeNoise" || paramId == "tapeMix"
              || paramId == "grainPosition" || paramId == "grainFeedback"
              || paramId == "grainTexture")
         knob.slider.textFromValueFunction = [](double v) {
@@ -2144,8 +2161,16 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     }
 }
 
-void StardustEditor::parameterChanged(const juce::String& /*parameterID*/, float /*newValue*/)
+void StardustEditor::parameterChanged(const juce::String& parameterID, float newValue)
 {
+    if (parameterID == "tapeNoiseSpeed")
+    {
+        const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 3; ++i)
+                tapeNoiseSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
     // Dirty state is now computed by comparing current values to loaded preset in timerCallback
 }
 
@@ -2158,19 +2183,6 @@ void StardustEditor::timerCallback()
 {
     presetSelector.repaint();
     repaint(); // refresh signal flow display
-
-    // Sync tape speed radio buttons with parameter
-    {
-        const int speedIdx = static_cast<int>(*processorRef.apvts.getRawParameterValue("tapeSpeed"));
-        for (int i = 0; i < 3; ++i)
-        {
-            const bool active = (i == speedIdx);
-            tapeSpeedBtns[i].setToggleState(active, juce::dontSendNotification);
-            // Force text color based on active state (TextButton uses textColourOffId when not toggled)
-            tapeSpeedBtns[i].setColour(juce::TextButton::textColourOffId,
-                active ? juce::Colours::white : StardustLookAndFeel::kFgDim);
-        }
-    }
 
     // Sync preset selection with processor (for DAW session restore)
     const int procIdx = processorRef.getCurrentProgram();
@@ -2362,7 +2374,6 @@ void StardustEditor::resized()
     const int toggleW = 26;
 
     // Left column: DESTROY top, TAPE bottom (equal height)
-    const int tapeRow2H = 28;  // height for second row (dropdowns + mix knob)
     const int leftTapeTop = botRowTop;
 
     // --- LEFT TOP: DESTROY (above TAPE, equal height) ---
@@ -2392,36 +2403,31 @@ void StardustEditor::resized()
         destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }
 
-    // --- LEFT BOTTOM: TAPE (2 rows: Drive/Wow/Flutter/Hiss + Tone/Mix/Speed/Type) ---
+    // --- LEFT BOTTOM: TAPE (Drive / Wear / Glue / Noise + Mix + Output) ---
     {
         const int hdrY = leftTapeTop + topPad;
         const int row1Y = hdrY + headerH + headerToKnob;
+        const int qw = (cellW - cellPadX * 2) / 5;
+        const int qx = leftX + cellPadX;
+        layoutKnobInBounds(tapeDriveKnob, { qx,              row1Y, qw, knobH });
+        layoutKnobInBounds(tapeWearKnob,  { qx + qw,       row1Y, qw, knobH });
+        layoutKnobInBounds(tapeGlueKnob,  { qx + qw * 2,   row1Y, qw, knobH });
+        layoutKnobInBounds(tapeNoiseKnob, { qx + qw * 3,   row1Y, qw, knobH });
+        layoutKnobInBounds(tapeMixKnob,   { qx + qw * 4,   row1Y, qw, knobH });
 
-        // Row 1: Drive, Wow, Flutter, Hiss (4 full-size knobs)
-        const int tKnobW = (cellW - cellPadX * 2) / 4;
-        const int tOffsetX = leftX + cellPadX;
-        layoutKnobInBounds(tapeDriveKnob,    { tOffsetX,              row1Y, tKnobW, knobH });
-        layoutKnobInBounds(tapeWowKnob,      { tOffsetX + tKnobW,     row1Y, tKnobW, knobH });
-        layoutKnobInBounds(tapeFlutterKnob,  { tOffsetX + tKnobW * 2, row1Y, tKnobW, knobH });
-        layoutKnobInBounds(tapeHissKnob,     { tOffsetX + tKnobW * 3, row1Y, tKnobW, knobH });
-
-        // Row 2: Tone + Mix (full-size knobs) + Speed/Type (dropdowns centered vertically)
         const int row2Y = row1Y + knobH + row2Gap;
-        layoutKnobInBounds(tapeToneKnob, { tOffsetX,              row2Y, tKnobW, knobH });
-        layoutKnobInBounds(tapeMixKnob,  { tOffsetX + tKnobW,    row2Y, tKnobW, knobH });
-        // Speed radio buttons (3 across) + Type dropdown below
-        const int btnAreaX = tOffsetX + tKnobW * 2 + 2;
-        const int btnAreaW = tKnobW * 2 - 4;
-        const int btnH = 22;
-        const int btnGap = 6;
-        const int btnW = (btnAreaW - btnGap * 2) / 3;
-        const int comboH = 22;
-        const int totalH = btnH + 6 + comboH;
-        const int startY = row2Y + (knobH - totalH) / 2;
-
-        for (int b = 0; b < 3; ++b)
-            tapeSpeedBtns[b].setBounds(btnAreaX + b * (btnW + btnGap), startY, btnW, btnH);
-        tapeTypeCombo.setBounds(btnAreaX, startY + btnH + 6, btnAreaW, comboH);
+        const int gapBtns = 8;
+        const int outColW = juce::jmax(qw, 56);
+        const int btnsW = juce::jmax(96, cellW - cellPadX * 2 - outColW - gapBtns);
+        const int row2X = leftX + cellPadX;
+        const int btnH = 20;
+        tapeNoiseSpeedLabel.setBounds(row2X, row2Y, btnsW, 12);
+        {
+            const int bw = btnsW / 3;
+            for (int i = 0; i < 3; ++i)
+                tapeNoiseSpeedBtn[i].setBounds(row2X + i * bw, row2Y + 14, bw, btnH);
+        }
+        layoutKnobInBounds(tapeOutputKnob, { row2X + btnsW + gapBtns, row2Y, outColW, knobH });
 
         tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
     }

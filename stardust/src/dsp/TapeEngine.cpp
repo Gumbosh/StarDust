@@ -1,13 +1,14 @@
 #include "TapeEngine.h"
 
-// Soft saturation thresholds (real tape onset ~-4dBFS, gradual knee)
-static constexpr float kSatOnset = 0.6f;
-static constexpr float kSatTransition = 0.4f;
+// Soft saturation thresholds — lowered onset and wider knee for VHS-like gradual bloom
+static constexpr float kSatOnset = 0.45f;
+static constexpr float kSatTransition = 0.55f;
 
-// Hiss parameters
-static constexpr float kHissGain = 0.012f;
+// Hiss parameters — gain increased for authentic tape noise floor at default 7% setting;
+// reduction max raised so loud signals mask noise more convincingly (psychoacoustic masking)
+static constexpr float kHissGain = 0.020f;
 static constexpr float kHissReductionScale = 1.2f;
-static constexpr float kHissReductionMax = 0.3f;
+static constexpr float kHissReductionMax = 0.45f;
 static constexpr float kHissPeakFreq = 4500.0f;  // oxide character peak
 static constexpr float kHissPeakQ = 0.6f;
 
@@ -29,9 +30,16 @@ static constexpr float kBiasKMax = 0.7f;    // under-biased: harder saturation (
 static constexpr float kBiasAMax = 0.55f;   // over-biased: wider hysteresis loop (was 0.45)
 static constexpr float kBiasAMin = 0.18f;   // under-biased: narrower loop (was 0.25)
 
-// Drive control range (maps 0..1 to -12..+12 dB)
-static constexpr float kDriveMinDb = -12.0f;
-static constexpr float kDriveMaxDb = 12.0f;
+// Drive control range (maps 0..1 via smoothstep to 0..+18 dB — knob=0 is unity, no attenuation)
+static constexpr float kDriveMinDb = 0.0f;
+static constexpr float kDriveMaxDb = 18.0f;
+
+// Chain makeup: HF pre/de-emphasis through a nonlinear J-A is not level-neutral; a
+// modest lift keeps “all knobs at 0, mix 100%” in the same ballpark as dry.
+static constexpr float kBaseChainMakeup = 1.28f;
+static constexpr float kDriveMakeupExp = 0.5f; // sqrt(driveGain): 1x at Drive=0, ~2x at +18dB
+static constexpr float kMaxDriveLinearGain = 7.9432823f; // 10^(18/20)
+static constexpr float kUnityLiftAtMinDrive = 3.9810717f; // +12 dB when cachedDriveGain == 1
 
 // Periodic update intervals
 static constexpr int kCachedUpdateInterval = 16;
@@ -231,9 +239,6 @@ void TapeEngine::recomputeSpeedCoeffs()
     wow2Osc.setFreq(kBasePinchHz * speedFactor, sr);
     wow3Osc.setFreq(kBaseReelHz / speedFactor, sr);  // reel wow decreases at higher speed
 
-    // Hiss: better SNR at higher speeds
-    hissGainScale = 1.0f / std::sqrt(speedFactor);
-
     // Dynamic LP: wider bandwidth at higher speeds
     dynLpMax = std::min(kBaseDynLpMax * speedFactor, sr * 0.45f);
     dynLpRange = kBaseDynLpRange * std::min(speedFactor, dynLpMax / kBaseDynLpMax);
@@ -293,6 +298,7 @@ void TapeEngine::recomputeSpeedCoeffs()
         nabLfDeState[ch] = {};
         gapLossState[ch] = {};
         dynLpBqState[ch] = {};
+        wearToneLpState[ch] = {};
     }
 }
 
@@ -314,6 +320,8 @@ void TapeEngine::resetChannelState(int ch)
     hissFilterState[ch] = {};
     dynLpBqState[ch] = {};
     gapLossState[ch] = {};
+    wearToneLpState[ch] = {};
+    glueCohesionEnv[ch] = 0.0f;
     prevH[ch] = 0.0f;
     dcBlockX1[ch] = 0.0f;
     dcBlockY1[ch] = 0.0f;
@@ -341,6 +349,8 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     biasSmoothed.reset(sampleRate, 0.05);
     driveGainSmoothed.reset(sampleRate, 0.02);
     mixSmoothed.reset(sampleRate, 0.02);
+    tapeOutGainSmoothed.reset(sampleRate, 0.02);
+    wearToneSmoothed.reset(sampleRate, 0.045);
 
     for (int ch = 0; ch < kMaxChannels; ++ch) resetChannelState(ch);
     writePos = 0;
@@ -378,6 +388,8 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     envAlpha = 1.0f - std::exp(-kTwoPi * 100.0f / sr);
     compAttackAlpha = 1.0f - std::exp(-kTwoPi * 200.0f / sr);   // ~0.8ms attack
     compReleaseAlpha = 1.0f - std::exp(-kTwoPi * 3.0f / sr);    // ~53ms release
+    glueAttackAlpha = 1.0f - std::exp(-kTwoPi * 2.5f / sr);     // ~1ms
+    glueReleaseAlpha = 1.0f - std::exp(-kTwoPi * 2.2f / sr);   // ~72ms slow release
     dcBlockCoeff = std::exp(-kTwoPi * 20.0f / sr);
 
     { // Hiss character peak at 4.5kHz (closer to open-reel oxide spectrum)
@@ -390,6 +402,10 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
 
     // Compute all speed-dependent coefficients
     recomputeSpeedCoeffs();
+    wearToneLpCoeffs = makeButterworthLP(juce::jmin(22000.0f, static_cast<float>(sampleRate) * 0.45f),
+                                         static_cast<float>(sampleRate));
+    hissSpeedIpsStored = -1.0f;
+    setHissSpeedIps(15.0f);
 }
 
 void TapeEngine::resetState()
@@ -408,12 +424,40 @@ void TapeEngine::setDrive(float a)
     if (currentDrive != a)
     {
         currentDrive = a;
-        const float db = kDriveMinDb + a * (kDriveMaxDb - kDriveMinDb);
+        // Smoothstep curve: sweet spot at 30-50% knob, aggressive bloom above 70%
+        const float shaped = a * a * (3.0f - 2.0f * a);
+        const float db = shaped * kDriveMaxDb;  // kDriveMinDb == 0
         driveGainSmoothed.setTargetValue(std::pow(10.0f, db / 20.0f));
     }
 }
 
 void TapeEngine::setMix(float a) { if (currentMix != a) { currentMix = a; mixSmoothed.setTargetValue(a); } }
+
+void TapeEngine::setWearTone(float a)
+{
+    a = juce::jlimit(0.0f, 1.0f, a);
+    if (currentWearTone != a) { currentWearTone = a; wearToneSmoothed.setTargetValue(a); }
+}
+
+void TapeEngine::setHissSpeedIps(float ips)
+{
+    ips = juce::jlimit(7.5f, 30.0f, ips);
+    if (hissSpeedIpsStored == ips)
+        return;
+    hissSpeedIpsStored = ips;
+    // 0.75-power scaling: 9 dB range across full speed span (4.5 dB per speed octave).
+    // More realistic than sqrt (6 dB) — 7.5 ips is clearly noisier than 30 ips.
+    cachedHissSpeedScale = std::pow(kRefSpeed / ips, 0.75f);
+}
+
+void TapeEngine::setTapeOutputDb(float db)
+{
+    if (currentTapeOutDb != db)
+    {
+        currentTapeOutDb = db;
+        tapeOutGainSmoothed.setTargetValue(std::pow(10.0f, db / 20.0f));
+    }
+}
 
 void TapeEngine::setFormulation(int index)
 {
@@ -555,7 +599,7 @@ float TapeEngine::processSoftSat(float input, int ch)
 void TapeEngine::processHissBlock(int ch, float hissAmt, float& wet)
 {
     const float hissRed = 1.0f - std::min(1.0f, dynLpEnvState[ch] * kHissReductionScale) * kHissReductionMax;
-    const float white = fastNoise(hissPrngState[ch]) * hissAmt * kHissGain * hissGainScale * hissRed;
+    const float white = fastNoise(hissPrngState[ch]) * hissAmt * kHissGain * cachedHissSpeedScale * hissRed;
     pinkB0[ch] = 0.99886f * pinkB0[ch] + white * 0.0555179f;
     pinkB1[ch] = 0.99332f * pinkB1[ch] + white * 0.0750759f;
     pinkB2[ch] = 0.96900f * pinkB2[ch] + white * 0.1538520f;
@@ -596,6 +640,11 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
 
     const auto numChannels = buffer.getNumChannels();
     const auto numSamples = buffer.getNumSamples();
+
+    // Early exit: skip all processing when mix is effectively zero (saves full DSP chain)
+    if (mixSmoothed.getCurrentValue() < 0.001f && mixSmoothed.getTargetValue() < 0.001f)
+        return;
+
     const float sr = static_cast<float>(sampleRate);
     const int maxSafe = juce::jmin(numSamples, kDelayBufferSize / 2);
     jassert(numSamples <= kDelayBufferSize / 2); // warn if host exceeds expected block size
@@ -607,6 +656,8 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
         const float hiss = hissSmoothed.getNextValue();
         const float bias = biasSmoothed.getNextValue();
         const float mix = mixSmoothed.getNextValue();
+        const float tapeOutG = tapeOutGainSmoothed.getNextValue();
+        const float wearToneAmt = wearToneSmoothed.getNextValue();
 
         // Drive gain: smoothed per-sample in linear domain (no zipper, no per-sample pow)
         cachedDriveGain = driveGainSmoothed.getNextValue();
@@ -621,6 +672,22 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             const float biasOffset = bias - 0.5f;
             hystK = std::max(0.05f, hystBaseK + biasOffset * (kBiasKMax - kBiasKMin));
             hystA = std::max(0.05f, hystBaseA - biasOffset * (kBiasAMax - kBiasAMin));
+            // Bias normalisation: ideal anhysteretic small-signal slope ~ Ms/(3*hystA).
+            // Under-bias (low hystK) pushes the real RK4 J-A gain well below that;
+            // sqrt(kCentre/k) restores approximate level so Glue stays “character first”.
+            {
+                const float kCentre = juce::jmax(0.05f, hystBaseK);
+                const float kUnderBiasBoost = std::sqrt(kCentre / juce::jmax(0.05f, hystK));
+                cachedBiasNorm = 3.0f * hystA * juce::jlimit(1.0f, 1.52f, kUnderBiasBoost);
+            }
+            {
+                // Mixed linear+quadratic curve: immediately audible darkening at low wear values.
+                // At 20% knob: t=0.097 (new) vs 0.040 (old) — 2.4x more tone filtering.
+                // Max fc: 9.0 kHz (worn but not muffled, vs old 6.3 kHz).
+                const float t = 0.35f * wearToneAmt + 0.65f * wearToneAmt * wearToneAmt;
+                const float fc = 21500.0f - t * 12500.0f;
+                wearToneLpCoeffs = makeButterworthLP(juce::jmax(3600.0f, fc), sr);
+            }
         }
 
         for (int ch = 0; ch < numChannels && ch < kMaxChannels; ++ch)
@@ -636,11 +703,24 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             wet = processBiquad(wet, nabLfPreCoeffs, nabLfPreState[ch]);
             wet = processBiquad(wet, preEmpCoeffs, preEmpState[ch]);
 
-            // Drive into tape (scale signal, saturate harder, partial makeup)
-            wet *= cachedDriveGain;
-            wet = processHysteresisBlock(ch, wet);
-            wet = processSoftSat(wet, ch);
-            wet /= cachedDriveMakeup;
+            // Drive into tape: scale input, run through J-A hysteresis + soft saturation.
+            // Partial makeup (sqrt(driveGain)) is applied here to restore the drive
+            // amplitude inside the chain; the remaining compensation is applied after
+            // the full chain (cachedBiasNorm * kBaseChainMakeup * driveGain^0.5).
+            {
+                // Asymmetric DC bias: biases the J-A operating point to produce 2nd-harmonic
+                // (even harmonic) character — the source of VHS-like warmth vs harsh odd harmonics.
+                // Scales from 0 at Drive=0 (cachedDriveGain==1) to ~0.022 at Drive=max.
+                // Residual DC after compensation is removed by the DC blocker below.
+                const float driveSpanAsym = juce::jmax(1.0e-6f, kMaxDriveLinearGain - 1.0f);
+                const float asymOffset = 0.022f * (cachedDriveGain - 1.0f) / driveSpanAsym;
+                wet += asymOffset;
+                wet *= cachedDriveGain;
+                wet = processHysteresisBlock(ch, wet);
+                wet = processSoftSat(wet, ch);
+                wet /= cachedDriveMakeup;
+                wet -= asymOffset / cachedDriveMakeup;
+            }
 
             // NAB de-emphasis: HF inverse + LF inverse
             wet = processBiquad(wet, deEmpCoeffs, deEmpState[ch]);
@@ -672,11 +752,41 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 wet = processBiquad(wet, dynLpCoeffs[ch], dynLpBqState[ch]);
             }
 
-            // Pink noise hiss (speed-scaled gain)
+            // Wear tone: extra HF loss on wet (worn oxide / stretched tape) beyond wobble.
+            // Two cascaded 2-pole Butterworths = 4-pole (24 dB/oct) — sharper rolloff above
+            // the degradation frequency, more realistic than a single 12 dB/oct filter.
+            if (wearToneAmt > 0.004f)
+            {
+                wet = processBiquad(wet, wearToneLpCoeffs, wearToneLpState[ch]);
+                wet = processBiquad(wet, wearToneLpCoeffs, wearToneLp2State[ch]);
+            }
+
+            // Makeup: bias normalisation + chain offset + sqrt(drive) + unity lift at low drive.
+            {
+                const float driveSpan = juce::jmax(1.0e-6f, kMaxDriveLinearGain - 1.0f);
+                const float t = juce::jlimit(0.0f, 1.0f, (cachedDriveGain - 1.0f) / driveSpan);
+                const float lowDriveUnityLift = 1.0f + (kUnityLiftAtMinDrive - 1.0f) * (1.0f - t);
+                wet *= cachedBiasNorm * kBaseChainMakeup * std::max(1.0f, std::pow(cachedDriveGain, kDriveMakeupExp)) * lowDriveUnityLift;
+            }
+
+            // Glue cohesion: gentle program-dependent leveling when Glue (bias) knob past ~0.28
+            {
+                const float glueCohesion = juce::jmax(0.0f, bias - 0.28f) * 1.55f;
+                if (glueCohesion > 0.002f)
+                {
+                    const float ax = (std::abs(wet) > glueCohesionEnv[ch]) ? glueAttackAlpha : glueReleaseAlpha;
+                    glueCohesionEnv[ch] += ax * (std::abs(wet) - glueCohesionEnv[ch]);
+                    const float gr = glueCohesion * glueCohesionEnv[ch] * 0.8f;
+                    wet *= 1.0f / (1.0f + gr);
+                }
+            }
+
+            // Pink noise hiss added AFTER makeup (hiss is a floor noise,
+            // not subject to chain-loss compensation)
             if (hiss > 0.001f)
                 processHissBlock(ch, hiss, wet);
 
-            data[i] = dry + mix * (wet - dry);
+            data[i] = dry + mix * (wet * tapeOutG - dry);
         }
 
         writePos = (writePos + 1) & (kDelayBufferSize - 1);

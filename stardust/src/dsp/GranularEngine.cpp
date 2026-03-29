@@ -254,8 +254,11 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
     // This ensures actual grain overlap matches the normalization model
     const float meanIntervalSamples = static_cast<float>(grainSizeSamples) / std::max(0.1f, effectiveDensity);
     const float rate = 1.0f / std::max(1.0f, meanIntervalSamples);
+    // Clamped Poisson: cap at 3x mean interval to prevent long silences
     const float U = std::max(0.001f, fastNoise(schedulerNoiseState) * 0.5f + 0.5f);
-    nextGrainInterval = std::max(1, static_cast<int>(-std::log(U) / rate));
+    const int poissonInterval = static_cast<int>(-std::log(U) / rate);
+    const int maxInterval = static_cast<int>(meanIntervalSamples * 3.0f);
+    nextGrainInterval = std::max(1, std::min(poissonInterval, maxInterval));
 
     // Single grain per trigger — steal oldest grain if pool is full
     Grain* target = nullptr;
@@ -298,8 +301,11 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
             startPos = static_cast<float>(findNearestZeroCrossing(static_cast<int>(startPos), searchRange));
         }
 
-        if (!frozen && isBufferSilent(startPos, grainSizeSamples))
-            return; // skip spawning on silent buffer region
+        // Only skip if the buffer region is truly silent AND we're reading near the write head
+        // (avoids blocking grains when position knob explores older buffer content)
+        const int distFromWrite = (writePos - static_cast<int>(startPos) + kInputBufferSize) & kInputBufferMask;
+        if (!frozen && distFromWrite < grainSizeSamples * 4 && isBufferSilent(startPos, grainSizeSamples))
+            return;
 
         g.currentPosition = startPos;
 
@@ -665,8 +671,8 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             rebuildActiveList();
         }
 
-        // Input envelope following (bypass during freeze)
-        const float envFollow = frozen ? 1.0f : (0.3f + 0.7f * inputFollower.getEnvelope());
+        // Input envelope following — high floor so grains are always audible
+        const float envFollow = frozen ? 1.0f : (0.7f + 0.3f * inputFollower.getEnvelope());
 
         // Process active grains (using packed index array — skips inactive slots)
         float grainOutputL = 0.0f, grainOutputR = 0.0f;

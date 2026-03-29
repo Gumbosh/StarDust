@@ -8,7 +8,7 @@ enum class ModTarget : int
 {
     GrainCloud = 0, GrainScatter, GrainReverse, GrainPosition,
     GrainSpace, GrainMorph, GrainMix,
-    TapeWow, TapeFlutter, TapeDrive, TapeBias, TapeMix,
+    TapeDrive, TapeWear, TapeMix,
     kNumTargets
 };
 
