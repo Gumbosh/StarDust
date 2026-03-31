@@ -41,6 +41,8 @@ target_sources(Stardust PRIVATE
     src/dsp/InputEnvelopeFollower.h
     src/dsp/TapeEngine.cpp
     src/dsp/TapeEngine.h
+    src/dsp/Saturation.cpp
+    src/dsp/Saturation.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp

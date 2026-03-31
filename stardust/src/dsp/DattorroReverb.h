@@ -17,6 +17,8 @@ public:
     void setDecay(float decay);       // 0.0–0.99
     void setDamping(float damping);   // 0.0–1.0 (1=no damping, 0=heavy)
     void setDiffusion(float amount);  // 0.0–1.0
+    void setSize(float s);            // 0–1: small room → large hall (scales LFO rates + decay)
+    void setPreDelay(float ms);       // 0–100ms
     void processSample(float inL, float inR, float& outL, float& outR);
     void reset();
 
@@ -98,6 +100,7 @@ private:
 
     double sr = 44100.0;
     float decayVal = 0.5f;
+    float sizeVal = 0.5f;
     float dampingAlpha = 0.5f;
     float inputDiffusion1 = 0.75f;
     float inputDiffusion2 = 0.625f;
@@ -147,4 +150,11 @@ private:
     float poolTankDelB2[kPoolSize] = {};
     float poolSideDiffA[kPoolSize] = {};
     float poolSideDiffB[kPoolSize] = {};
+
+    // Early reflections: 8 Schroeder-style taps from the pre-delayed mono mid
+    static constexpr int kERBufferSize = 8192; // covers largest tap at up to 192kHz
+    float erBuffer[kERBufferSize] = {};
+    int erWritePos = 0;
+    int erTaps[8] = {};
+    float erLevel = 0.25f; // updated by setDiffusion()
 };

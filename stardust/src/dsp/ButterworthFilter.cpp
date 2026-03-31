@@ -43,44 +43,116 @@ void ButterworthFilter::setLFO(float rate, float depth)
     if (currentLfoDepth != depth) { currentLfoDepth = depth; lfoDepthSmoothed.setTargetValue(depth); }
 }
 
+void ButterworthFilter::setFilterType(int type)
+{
+    if (filterType != type)
+    {
+        filterType = type;
+        needsRecalc = true;
+        for (int ch = 0; ch < kMaxChannels; ++ch)
+            for (int s = 0; s < kNumSections; ++s)
+                sections[ch][s].reset();
+    }
+}
+
 void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonanceVal)
 {
     // Map 0-1 to frequency: 200 Hz to 20000 Hz (logarithmic curve)
-    // 200 * 100^n gives perceptually even spacing across the knob range
     const float freq = 200.0f * std::exp2f(cutoffVal * 6.643856f); // log2(100) = 6.643856
 
-    // Clamp frequency to Nyquist - margin
     const float nyquist = static_cast<float>(sampleRate) * 0.5f;
     const float clampedFreq = std::min(freq, nyquist * 0.95f);
 
     // Bilinear transform pre-warp
-    const float wc = 2.0f * static_cast<float>(sampleRate)
-        * std::tan(juce::MathConstants<float>::pi * clampedFreq
-                   / static_cast<float>(sampleRate));
+    const float K = std::tan(juce::MathConstants<float>::pi * clampedFreq
+                             / static_cast<float>(sampleRate));
+    const float K2 = K * K;
 
-    for (int s = 0; s < kNumSections; ++s)
+    if (filterType == 0) // LP: 3 cascaded biquad sections
     {
-        float Q = kButterworthQ[s];
-        if (s == kNumSections - 1)
-            Q = 0.707f + resonanceVal * 8.0f;
+        for (int s = 0; s < kNumSections; ++s)
+        {
+            float Q = kButterworthQ[s];
+            if (s == kNumSections - 1)
+                Q = 0.707f + resonanceVal * 8.0f;
 
-        const float K = wc / (2.0f * static_cast<float>(sampleRate));
-        const float K2 = K * K;
+            const float norm = 1.0f / (1.0f + K / Q + K2);
+            const float b0 = K2 * norm;
+            const float b1 = 2.0f * b0;
+            const float b2 = b0;
+            const float a1 = 2.0f * (K2 - 1.0f) * norm;
+            const float a2 = (1.0f - K / Q + K2) * norm;
+
+            for (int ch = 0; ch < kMaxChannels; ++ch)
+            {
+                sections[ch][s].b0 = b0; sections[ch][s].b1 = b1; sections[ch][s].b2 = b2;
+                sections[ch][s].a1 = a1; sections[ch][s].a2 = a2;
+            }
+        }
+    }
+    else if (filterType == 1) // HP: 3 cascaded biquad sections
+    {
+        for (int s = 0; s < kNumSections; ++s)
+        {
+            float Q = kButterworthQ[s];
+            if (s == kNumSections - 1)
+                Q = 0.707f + resonanceVal * 8.0f;
+
+            const float norm = 1.0f / (1.0f + K / Q + K2);
+            const float b0 = norm;
+            const float b1 = -2.0f * norm;
+            const float b2 = norm;
+            const float a1 = 2.0f * (K2 - 1.0f) * norm;
+            const float a2 = (1.0f - K / Q + K2) * norm;
+
+            for (int ch = 0; ch < kMaxChannels; ++ch)
+            {
+                sections[ch][s].b0 = b0; sections[ch][s].b1 = b1; sections[ch][s].b2 = b2;
+                sections[ch][s].a1 = a1; sections[ch][s].a2 = a2;
+            }
+        }
+    }
+    else if (filterType == 2) // BP: 2nd-order only (section 0), pass-through for 1 & 2
+    {
+        const float Q = 0.5f + resonanceVal * 6.0f;
         const float norm = 1.0f / (1.0f + K / Q + K2);
-
-        const float b0 = K2 * norm;
-        const float b1 = 2.0f * b0;
-        const float b2 = b0;
+        const float b0 = (K / Q) * norm;
+        const float b1 = 0.0f;
+        const float b2 = -b0;
         const float a1 = 2.0f * (K2 - 1.0f) * norm;
         const float a2 = (1.0f - K / Q + K2) * norm;
 
         for (int ch = 0; ch < kMaxChannels; ++ch)
         {
-            sections[ch][s].b0 = b0;
-            sections[ch][s].b1 = b1;
-            sections[ch][s].b2 = b2;
-            sections[ch][s].a1 = a1;
-            sections[ch][s].a2 = a2;
+            sections[ch][0].b0 = b0; sections[ch][0].b1 = b1; sections[ch][0].b2 = b2;
+            sections[ch][0].a1 = a1; sections[ch][0].a2 = a2;
+            // Sections 1 and 2: passthrough
+            for (int s = 1; s < kNumSections; ++s)
+            {
+                sections[ch][s].b0 = 1.0f; sections[ch][s].b1 = 0.0f; sections[ch][s].b2 = 0.0f;
+                sections[ch][s].a1 = 0.0f; sections[ch][s].a2 = 0.0f;
+            }
+        }
+    }
+    else // Notch: 2nd-order only (section 0), pass-through for 1 & 2
+    {
+        const float Q = 0.5f + resonanceVal * 6.0f;
+        const float norm = 1.0f / (1.0f + K / Q + K2);
+        const float b0 = (1.0f + K2) * norm;
+        const float b1 = 2.0f * (K2 - 1.0f) * norm;
+        const float b2 = b0;
+        const float a1 = b1;
+        const float a2 = (1.0f - K / Q + K2) * norm;
+
+        for (int ch = 0; ch < kMaxChannels; ++ch)
+        {
+            sections[ch][0].b0 = b0; sections[ch][0].b1 = b1; sections[ch][0].b2 = b2;
+            sections[ch][0].a1 = a1; sections[ch][0].a2 = a2;
+            for (int s = 1; s < kNumSections; ++s)
+            {
+                sections[ch][s].b0 = 1.0f; sections[ch][s].b1 = 0.0f; sections[ch][s].b2 = 0.0f;
+                sections[ch][s].a1 = 0.0f; sections[ch][s].a2 = 0.0f;
+            }
         }
     }
 }
@@ -91,8 +163,8 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
     const float cutoffVal = cutoffSmoothed.getCurrentValue();
     const float lfoDepth = lfoDepthSmoothed.getCurrentValue();
 
-    // Bypass when cutoff is near max and no LFO
-    if (cutoffVal >= 0.985f && lfoDepth < 0.001f)
+    // Bypass when LP cutoff is near max and no LFO (LP only — HP/BP/Notch always active)
+    if (filterType == 0 && cutoffVal >= 0.985f && lfoDepth < 0.001f)
     {
         cutoffSmoothed.skip(buffer.getNumSamples());
         resonanceSmoothed.skip(buffer.getNumSamples());

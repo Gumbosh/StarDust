@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include <set>
 
 // ============================================================================
 // StardustLookAndFeel — Orbital Galaxy Style
@@ -269,6 +270,40 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
 
     if (style != juce::Slider::LinearHorizontal)
         return;
+
+    // Sidebar mix strip — compact left-fill bar with small dot thumb
+    if (slider.getComponentID() == "sidebarMix")
+    {
+        const float fx = static_cast<float>(x);
+        const float fy = static_cast<float>(y);
+        const float fw = static_cast<float>(width);
+        const float fh = static_cast<float>(height);
+        const float trackY2 = fy + fh * 0.5f;
+        const float trackLeft2  = fx + 5.0f;
+        const float trackRight2 = fx + fw - 5.0f;
+        const float trackW2 = trackRight2 - trackLeft2;
+
+        const bool active = slider.isMouseOver(true) || slider.isMouseButtonDown();
+
+        // Background track
+        g.setColour(kFgGhost.withAlpha(0.22f));
+        g.fillRoundedRectangle(trackLeft2, trackY2 - 1.5f, trackW2, 3.0f, 1.5f);
+
+        // Value fill — from left
+        const float fillW = sliderPos - trackLeft2;
+        if (fillW > 0.0f)
+        {
+            g.setColour(kAccent.withAlpha(active ? 0.75f : 0.55f));
+            g.fillRoundedRectangle(trackLeft2, trackY2 - 1.5f, fillW, 3.0f, 1.5f);
+        }
+
+        // Thumb dot
+        const float dotR = active ? 4.5f : 3.5f;
+        g.setColour(active ? kAccent : kAccent.withAlpha(0.80f));
+        g.fillEllipse(sliderPos - dotR, trackY2 - dotR, dotR * 2.0f, dotR * 2.0f);
+
+        return;
+    }
 
     const float trackY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
     const float trackLeft = static_cast<float>(x) + 6.0f;
@@ -1147,7 +1182,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
       starfield(p.apvts, p.outputLevelLeft, p.outputLevelRight)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(860, 780);
+    setSize(860, 720);
 
     addAndMakeVisible(starfield);
     starfield.setExcludeRect({});
@@ -1157,10 +1192,9 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     setupKnob(destroyMixKnob, "destroyMix", "Mix");
     setupKnob(destroyBitsKnob, "destroyBits", "Bits");
-    setupKnob(cutoffKnob, "filterCutoff", "Filter");
-    setupKnob(filterLfoKnob, "filterLfo", "LFO");
-    setupKnob(destroyInKnob, "destroyIn", "In");
-    setupKnob(destroyOutKnob, "destroyOut", "Out");
+    setupKnob(hazeColorKnob, "hazeColor", "Color");
+    setupKnob(destroyInKnob, "destroyIn", "Drive");
+    setupKnob(destroyOutKnob, "destroyOut", "Output");
 
     // Rate knob — rotary attached to destroyFader param, shows kHz value
     setupKnob(destroyRateKnob, "destroyFader", "Rate");
@@ -1172,12 +1206,65 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         return hz >= 1000.f ? juce::String(juce::roundToInt(hz / 1000.f)) + " kHz"
                             : juce::String(juce::roundToInt(hz)) + " Hz";
     };
+    destroyRateKnob.slider.valueFromTextFunction = [](const juce::String& t) {
+        static constexpr float kRates[6] = { 4000.f, 8000.f, 19000.f, 26040.f, 45000.f, 52080.f };
+        float hz = t.getFloatValue();
+        if (t.containsIgnoreCase("k"))
+            hz *= 1000.0f;
+        hz = juce::jlimit(kRates[0], kRates[5], hz);
+        for (int i = 0; i < 5; ++i)
+        {
+            if (hz <= kRates[i + 1])
+            {
+                const float span = kRates[i + 1] - kRates[i];
+                return span > 0.f ? static_cast<double>(i) + (hz - kRates[i]) / span
+                                  : static_cast<double>(i);
+            }
+        }
+        return 5.0;
+    };
     destroyRateKnob.slider.updateText();
+
+    // Haze type buttons: Pink / White / Vinyl
+    {
+        static const char* kHazeLabels[] = { "Pink", "White", "Vinyl" };
+        auto* hazeTypeParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("hazeType"));
+        auto updateHazeButtons = [this, hazeTypeParam]() {
+            int sel = hazeTypeParam ? hazeTypeParam->getIndex() : 0;
+            for (int i = 0; i < 3; ++i)
+                hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 3; ++i)
+        {
+            hazeTypeBtn[i].setButtonText(kHazeLabels[i]);
+            hazeTypeBtn[i].setClickingTogglesState(false);
+            hazeTypeBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            hazeTypeBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            hazeTypeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            hazeTypeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            hazeTypeBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            hazeTypeBtn[i].onClick = [this, i, updateHazeButtons, hazeTypeParam]() {
+                if (hazeTypeParam)
+                    hazeTypeParam->setValueNotifyingHost(hazeTypeParam->convertTo0to1(static_cast<float>(i)));
+                updateHazeButtons();
+            };
+            addAndMakeVisible(hazeTypeBtn[i]);
+        }
+        updateHazeButtons();
+        processorRef.apvts.addParameterListener("hazeType", this);
+        hazeTypeLabel.setText("Type", juce::dontSendNotification);
+        hazeTypeLabel.setJustificationType(juce::Justification::centredLeft);
+        hazeTypeLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        hazeTypeLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(hazeTypeLabel);
+    }
 
     setupKnob(grainMixKnob, "grainMix", "Mix");
     setupKnob(grainCloudKnob, "grainCloud", "Amount");
     setupKnob(grainScatterKnob, "grainDrift", "Spread");
     setupKnob(grainSpaceKnob, "grainSpace", "Space");
+    setupKnob(grainReverbSizeKnob, "grainReverbSize", "R.Size");
 
     // Morph knob — continuous pitch control (±12st, bipolar arc)
     setupKnob(grainMorphKnob, "grainMorph", "Pitch");
@@ -1188,18 +1275,204 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     // REV: reverse probability knob (0–100%)
     setupKnob(grainRevKnob, "grainReverse", "Rev");
 
+    setupKnob(grainFeedbackKnob, "grainFeedback", "Feedback");
+
+    // Grain shape buttons: Hann / Gauss / Tri / Trap
+    {
+        static const char* kShapeLabels[] = { "Hann", "Gauss", "Tri", "Trap" };
+        auto* shapeParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("grainShape"));
+        auto updateShapeButtons = [this, shapeParam]() {
+            int sel = shapeParam ? shapeParam->getIndex() : 0;
+            for (int i = 0; i < 4; ++i)
+                grainShapeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 4; ++i)
+        {
+            grainShapeBtn[i].setButtonText(kShapeLabels[i]);
+            grainShapeBtn[i].setClickingTogglesState(false);
+            grainShapeBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            grainShapeBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            grainShapeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            grainShapeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            grainShapeBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            grainShapeBtn[i].onClick = [this, i, updateShapeButtons, shapeParam]() {
+                if (shapeParam)
+                    shapeParam->setValueNotifyingHost(
+                        shapeParam->convertTo0to1(static_cast<float>(i)));
+                updateShapeButtons();
+            };
+            addAndMakeVisible(grainShapeBtn[i]);
+        }
+        updateShapeButtons();
+        processorRef.apvts.addParameterListener("grainShape", this);
+
+        grainShapeLabel.setText("Shape", juce::dontSendNotification);
+        grainShapeLabel.setJustificationType(juce::Justification::centredLeft);
+        grainShapeLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        grainShapeLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(grainShapeLabel);
+    }
+
+    // Pitch quantization buttons: Off / Chr / Maj / Min / Pent
+    {
+        static const char* kQuantLabels[] = { "Off", "Chr", "Maj", "Min", "Pnt" };
+        auto* quantParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("grainPitchQuant"));
+        auto updateQuantButtons = [this, quantParam]() {
+            int sel = quantParam ? quantParam->getIndex() : 0;
+            for (int i = 0; i < 5; ++i)
+                grainQuantBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 5; ++i)
+        {
+            grainQuantBtn[i].setButtonText(kQuantLabels[i]);
+            grainQuantBtn[i].setClickingTogglesState(false);
+            grainQuantBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            grainQuantBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            grainQuantBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            grainQuantBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            grainQuantBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            grainQuantBtn[i].onClick = [this, i, updateQuantButtons, quantParam]() {
+                if (quantParam)
+                    quantParam->setValueNotifyingHost(
+                        quantParam->convertTo0to1(static_cast<float>(i)));
+                updateQuantButtons();
+            };
+            addAndMakeVisible(grainQuantBtn[i]);
+        }
+        updateQuantButtons();
+        processorRef.apvts.addParameterListener("grainPitchQuant", this);
+
+        grainQuantLabel.setText("Quant", juce::dontSendNotification);
+        grainQuantLabel.setJustificationType(juce::Justification::centredLeft);
+        grainQuantLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        grainQuantLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(grainQuantLabel);
+    }
 
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
     setupKnob(chorusSpeedKnob, "chorusSpeed", "Speed");
     setupKnob(panOuterKnob, "multiplyPanOuter", "1+2");
     setupKnob(panInnerKnob, "multiplyPanInner", "3+4");
+    setupKnob(multiplyDepthKnob, "multiplyDepth", "Depth");
+    multiplyDepthKnob.slider.textFromValueFunction = [](double v) {
+        const float ms = 0.01f + static_cast<float>(v) * 1.49f;
+        return juce::String(ms, 2) + " ms";
+    };
+    multiplyDepthKnob.slider.valueFromTextFunction = [](const juce::String& t) {
+        const float ms = t.getFloatValue();
+        return static_cast<double>(juce::jlimit(0.0f, 1.0f, (ms - 0.01f) / 1.49f));
+    };
+    multiplyDepthKnob.slider.updateText();
+    setupKnob(multiplyToneKnob, "multiplyTone", "Tone");
+    setupKnob(multiplyFeedbackKnob, "multiplyFeedback", "Feedback");
+    multiplyFeedbackKnob.slider.textFromValueFunction = [](double v) {
+        return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
+    };
+    multiplyFeedbackKnob.slider.updateText();
+    setupKnob(multiplyShimmerKnob, "multiplyShimmer", "Shimmer");
+
+    {
+        static const char* kLfoLabels[] = { "Sine", "Tri", "Rnd" };
+        auto* lfoParam = processorRef.apvts.getParameter("multiplyLfoShape");
+        const int initLfo = lfoParam
+            ? juce::jlimit(0, 2, static_cast<int>(dynamic_cast<juce::AudioParameterChoice*>(lfoParam)->getIndex()))
+            : 0;
+        auto updateLfoButtons = [this]() {
+            if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(processorRef.apvts.getParameter("multiplyLfoShape")))
+                for (int i = 0; i < 3; ++i)
+                    multiplyLfoBtn[i].setToggleState(pc->getIndex() == i, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 3; ++i)
+        {
+            multiplyLfoBtn[i].setToggleState(i == initLfo, juce::dontSendNotification);
+            multiplyLfoBtn[i].setButtonText(kLfoLabels[i]);
+            multiplyLfoBtn[i].setClickingTogglesState(false);
+            multiplyLfoBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            multiplyLfoBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            multiplyLfoBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            multiplyLfoBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            multiplyLfoBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            multiplyLfoBtn[i].onClick = [this, i, updateLfoButtons, lfoParam]() {
+                if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(lfoParam))
+                    pc->setValueNotifyingHost(pc->convertTo0to1(static_cast<float>(i)));
+                updateLfoButtons();
+            };
+            addAndMakeVisible(multiplyLfoBtn[i]);
+        }
+        processorRef.apvts.addParameterListener("multiplyLfoShape", this);
+        multiplyLfoLabel.setText("LFO", juce::dontSendNotification);
+        multiplyLfoLabel.setJustificationType(juce::Justification::centredLeft);
+        multiplyLfoLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        multiplyLfoLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(multiplyLfoLabel);
+    }
+
+    // Vintage mode buttons: Custom / Juno-60 / Dim-D / Tri-Cho / Flanger
+    {
+        static const char* kVintageLabels[] = { "Custom", "Juno", "Dim-D", "Tri", "Flngr" };
+        auto* vintageParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("multiplyVintage"));
+        auto updateVintageButtons = [this, vintageParam]() {
+            int sel = vintageParam ? vintageParam->getIndex() : 0;
+            for (int i = 0; i < 5; ++i)
+                multiplyVintageBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 5; ++i)
+        {
+            multiplyVintageBtn[i].setButtonText(kVintageLabels[i]);
+            multiplyVintageBtn[i].setClickingTogglesState(false);
+            multiplyVintageBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            multiplyVintageBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            multiplyVintageBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            multiplyVintageBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            multiplyVintageBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            multiplyVintageBtn[i].onClick = [this, i, updateVintageButtons, vintageParam]() {
+                if (vintageParam)
+                    vintageParam->setValueNotifyingHost(
+                        vintageParam->convertTo0to1(static_cast<float>(i)));
+                updateVintageButtons();
+            };
+            addAndMakeVisible(multiplyVintageBtn[i]);
+        }
+        updateVintageButtons();
+        processorRef.apvts.addParameterListener("multiplyVintage", this);
+        multiplyVintageLabel.setText("Mode", juce::dontSendNotification);
+        multiplyVintageLabel.setJustificationType(juce::Justification::centredLeft);
+        multiplyVintageLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        multiplyVintageLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(multiplyVintageLabel);
+    }
+
+    multiplyTempoSyncAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, "multiplyTempoSync", multiplyTempoSyncBtn);
+    multiplyTempoSyncBtn.setButtonText("Sync");
+    multiplyTempoSyncBtn.setColour(juce::ToggleButton::textColourId, StardustLookAndFeel::kFgDim);
+    multiplyTempoSyncBtn.setColour(juce::ToggleButton::tickColourId, StardustLookAndFeel::kAccent);
+    multiplyTempoSyncBtn.setColour(juce::ToggleButton::tickDisabledColourId, StardustLookAndFeel::kFgGhost);
+    addAndMakeVisible(multiplyTempoSyncBtn);
 
     setupKnob(tapeDriveKnob, "tapeDrive", "Drive");
     setupKnob(tapeWearKnob, "tapeWear", "Wear");
+    setupKnob(tapeWowKnob, "tapeWow", "Wow");
+    setupKnob(tapeFlutterKnob, "tapeFlutter", "Flutter");
     setupKnob(tapeGlueKnob, "tapeGlue", "Glue");
     setupKnob(tapeNoiseKnob, "tapeNoise", "Noise");
     setupKnob(tapeMixKnob, "tapeMix", "Mix");
     setupKnob(tapeOutputKnob, "tapeOutput", "Output");
+    setupKnob(multiplyDriftKnob, "multiplyDrift", "Drift");
+
+    setupKnob(distortionDriveKnob, "distortionDrive", "Drive");
+    setupKnob(distortionToneKnob, "distortionTone", "Tone");
+    setupKnob(distortionBiasKnob, "distortionBias", "Bias");
+    setupKnob(distortionAsymKnob, "distortionAsym", "Asym");
+    setupKnob(reverbMixKnob,       "reverbMix",       "Mix");
+    setupKnob(reverbSizeKnob,      "reverbSize",      "Size");
+    setupKnob(reverbDecayKnob,     "reverbDecay",     "Decay");
+    setupKnob(reverbDampKnob,      "reverbDamp",      "Damp");
+    setupKnob(reverbPreDelayKnob,  "reverbPreDelay",  "Pre-Dly");
+    setupKnob(reverbDiffusionKnob, "reverbDiffusion", "Diffuse");
+    setupKnob(reverbWidthKnob,     "reverbWidth",     "Width");
 
     tapeNoiseSpeedLabel.setText("Noise IPS", juce::dontSendNotification);
     tapeNoiseSpeedLabel.setJustificationType(juce::Justification::centredLeft);
@@ -1237,10 +1510,136 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         processorRef.apvts.addParameterListener("tapeNoiseSpeed", this);
     }
 
+    // Tape formulation buttons: 456 / GP9 / SM900 / LH / SM468
+    {
+        static const char* kFormLabels[] = { "456", "GP9", "SM900", "LH", "SM468" };
+        auto* formParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("tapeFormulation"));
+        auto updateFormButtons = [this, formParam]() {
+            int sel = formParam ? formParam->getIndex() : 0;
+            for (int i = 0; i < 5; ++i)
+                tapeFormulationBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 5; ++i)
+        {
+            tapeFormulationBtn[i].setButtonText(kFormLabels[i]);
+            tapeFormulationBtn[i].setClickingTogglesState(false);
+            tapeFormulationBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            tapeFormulationBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            tapeFormulationBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            tapeFormulationBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            tapeFormulationBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            tapeFormulationBtn[i].onClick = [this, i, updateFormButtons, formParam]() {
+                if (formParam)
+                    formParam->setValueNotifyingHost(formParam->convertTo0to1(static_cast<float>(i)));
+                updateFormButtons();
+            };
+            addAndMakeVisible(tapeFormulationBtn[i]);
+        }
+        updateFormButtons();
+        processorRef.apvts.addParameterListener("tapeFormulation", this);
+        tapeFormulationLabel.setText("Tape", juce::dontSendNotification);
+        tapeFormulationLabel.setJustificationType(juce::Justification::centredLeft);
+        tapeFormulationLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        tapeFormulationLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(tapeFormulationLabel);
+    }
+
+    // Tape EQ standard buttons: NAB / IEC
+    {
+        static const char* kEQLabels[] = { "NAB", "IEC" };
+        auto* eqParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("tapeEQStandard"));
+        auto updateEQButtons = [this, eqParam]() {
+            int sel = eqParam ? eqParam->getIndex() : 0;
+            for (int i = 0; i < 2; ++i)
+                tapeEQStandardBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 2; ++i)
+        {
+            tapeEQStandardBtn[i].setButtonText(kEQLabels[i]);
+            tapeEQStandardBtn[i].setClickingTogglesState(false);
+            tapeEQStandardBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            tapeEQStandardBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            tapeEQStandardBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            tapeEQStandardBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            tapeEQStandardBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            tapeEQStandardBtn[i].onClick = [this, i, updateEQButtons, eqParam]() {
+                if (eqParam)
+                    eqParam->setValueNotifyingHost(eqParam->convertTo0to1(static_cast<float>(i)));
+                updateEQButtons();
+            };
+            addAndMakeVisible(tapeEQStandardBtn[i]);
+        }
+        updateEQButtons();
+        processorRef.apvts.addParameterListener("tapeEQStandard", this);
+        tapeEQStandardLabel.setText("EQ Std", juce::dontSendNotification);
+        tapeEQStandardLabel.setJustificationType(juce::Justification::centredLeft);
+        tapeEQStandardLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        tapeEQStandardLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(tapeEQStandardLabel);
+    }
+
+    // Distortion mode buttons: Soft / Tube / Hard / Trans / Satin / Vari-Mu
+    {
+        static const char* kModeLabels[] = { "Soft", "Tube", "Hard", "Trans", "Satin", "V-Mu" };
+        auto* modeParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("distortionMode"));
+        auto updateModeButtons = [this, modeParam]() {
+            int sel = modeParam ? modeParam->getIndex() : 0;
+            for (int i = 0; i < 6; ++i)
+                distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 6; ++i)
+        {
+            distortionModeBtn[i].setButtonText(kModeLabels[i]);
+            distortionModeBtn[i].setClickingTogglesState(false);
+            distortionModeBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            distortionModeBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            distortionModeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            distortionModeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            distortionModeBtn[i].setComponentID("tapeNoiseSpeedBtn"); // reuses same look-and-feel style
+            distortionModeBtn[i].onClick = [this, i, updateModeButtons, modeParam]() {
+                if (modeParam)
+                    modeParam->setValueNotifyingHost(
+                        modeParam->convertTo0to1(static_cast<float>(i)));
+                updateModeButtons();
+            };
+            addAndMakeVisible(distortionModeBtn[i]);
+        }
+        updateModeButtons();
+        processorRef.apvts.addParameterListener("distortionMode", this);
+
+        distortionModeLabel.setText("Mode", juce::dontSendNotification);
+        distortionModeLabel.setJustificationType(juce::Justification::centredLeft);
+        distortionModeLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        distortionModeLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(distortionModeLabel);
+    }
+
     // Right side knobs: Input, Output, Dry/Wet
     setupKnob(inputGainKnob, "inputGain", "Input");
     setupKnob(outputGainKnob, "outputGain", "Output");
     setupKnob(masterMixKnob, "masterMix", "Dry/Wet");
+
+    // Sidebar mix strip sliders (LinearHorizontal, positioned below name pill in each row)
+    auto setupMixStrip = [&](juce::Slider& s, std::unique_ptr<SliderAttachment>& a, const juce::String& paramId)
+    {
+        s.setSliderStyle(juce::Slider::LinearHorizontal);
+        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        s.setComponentID("sidebarMix");
+        s.textFromValueFunction = [](double v) {
+            return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
+        };
+        s.setPopupDisplayEnabled(true, true, this, 400);
+        a = std::make_unique<SliderAttachment>(processorRef.apvts, paramId, s);
+        addAndMakeVisible(s);
+    };
+    setupMixStrip(destroyMixStrip,  destroyMixStripAttach,  "destroyMix");
+    setupMixStrip(grainMixStrip,    grainMixStripAttach,    "grainMix");
+    setupMixStrip(multiplyMixStrip, multiplyMixStripAttach, "chorusMix");
+    setupMixStrip(tapeMixStrip,     tapeMixStripAttach,     "tapeMix");
+    setupMixStrip(hazeMixStrip,     hazeMixStripAttach,     "hazeMix");
 
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
@@ -1263,6 +1662,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         presetSelector.setName("");
         updateDoubleClickDefaults();
         updateFavoriteButton();
+        resized();
     };
     addAndMakeVisible(prevPresetBtn);
 
@@ -1277,6 +1677,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         presetSelector.setName("");
         updateDoubleClickDefaults();
         updateFavoriteButton();
+        resized();
     };
     addAndMakeVisible(nextPresetBtn);
 
@@ -1375,6 +1776,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                     refreshPresetList();
                     presetSelector.setSelectedId(1, juce::dontSendNotification);
                     processorRef.loadPreset(0);
+                    resized();
                 }
                 else if (result == 4)
                 {
@@ -1382,6 +1784,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
                     processorRef.loadPreset(0);
                     refreshPresetList();
                     presetSelector.setSelectedId(1, juce::dontSendNotification);
+                    resized();
                 }
             });
     };
@@ -1435,6 +1838,9 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(granularToggle, granularToggleAttach, "granularEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
     setupToggle(tapeToggle, tapeToggleAttach, "tapeEnabled");
+    setupToggle(distortionToggle, distortionToggleAttach, "distortionEnabled");
+    setupToggle(reverbToggle, reverbToggleAttach, "reverbEnabled");
+    setupToggle(hazeToggle, hazeToggleAttach, "hazeEnabled");
 
     // Disable and dim knobs when their section toggle is off
     auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobs) {
@@ -1450,10 +1856,23 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         };
     };
     dimSection(destroyToggle, { &destroyMixKnob, &destroyBitsKnob, &destroyRateKnob,
-                                &cutoffKnob, &filterLfoKnob, &destroyInKnob, &destroyOutKnob });
+                                &destroyInKnob, &destroyOutKnob });
     dimSection(granularToggle, { &grainMixKnob, &grainCloudKnob, &grainScatterKnob,
-                                  &grainSpaceKnob, &grainMorphKnob, &grainSizeSyncKnob,
-                                  &grainRevKnob });
+                                  &grainSpaceKnob, &grainReverbSizeKnob, &grainMorphKnob, &grainFeedbackKnob });
+    {
+        auto origOnClick = granularToggle.onClick;
+        auto oldOrigOnClick = origOnClick; // already captured by prior lambda
+        origOnClick = [this, oldOrigOnClick]() {
+            if (oldOrigOnClick) oldOrigOnClick();
+            const bool on = granularToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            grainShapeLabel.setAlpha(alpha);
+            for (auto& b : grainShapeBtn) b.setAlpha(alpha);
+            grainQuantLabel.setAlpha(alpha);
+            for (auto& b : grainQuantBtn) b.setAlpha(alpha);
+        };
+        granularToggle.onClick = origOnClick;
+    }
     {
         auto origOnClick = granularToggle.onClick;
         granularToggle.onClick = [this, origOnClick]() {
@@ -1462,8 +1881,32 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             const float alpha = on ? 1.0f : 0.4f;
         };
     }
-    dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &panOuterKnob, &panInnerKnob });
-    dimSection(tapeToggle, { &tapeDriveKnob, &tapeWearKnob, &tapeGlueKnob, &tapeNoiseKnob, &tapeMixKnob, &tapeOutputKnob });
+    dimSection(multiplyToggle, { &chorusMixKnob, &chorusSpeedKnob, &multiplyDepthKnob, &multiplyToneKnob, &multiplyFeedbackKnob, &multiplyShimmerKnob, &panOuterKnob, &panInnerKnob, &multiplyDriftKnob });
+    dimSection(tapeToggle, { &tapeDriveKnob, &tapeWearKnob, &tapeGlueKnob, &tapeNoiseKnob, &tapeMixKnob, &tapeOutputKnob, &tapeWowKnob, &tapeFlutterKnob });
+    {
+        auto origOnClick = multiplyToggle.onClick;
+        multiplyToggle.onClick = [this, origOnClick]() {
+            if (origOnClick) origOnClick();
+            const bool on = multiplyToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            multiplyLfoLabel.setAlpha(alpha);
+            for (auto& b : multiplyLfoBtn) b.setAlpha(alpha);
+            multiplyVintageLabel.setAlpha(alpha);
+            for (auto& b : multiplyVintageBtn) b.setAlpha(alpha);
+            multiplyTempoSyncBtn.setAlpha(alpha);
+        };
+    }
+    dimSection(distortionToggle, { &distortionDriveKnob, &distortionToneKnob, &distortionBiasKnob, &distortionAsymKnob });
+    {
+        auto origOnClick = distortionToggle.onClick;
+        distortionToggle.onClick = [this, origOnClick]() {
+            if (origOnClick) origOnClick();
+            const bool on = distortionToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            distortionModeLabel.setAlpha(alpha);
+            for (auto& b : distortionModeBtn) b.setAlpha(alpha);
+        };
+    }
     {
         auto& toggle = tapeToggle;
         auto* noiseLbl = &tapeNoiseSpeedLabel;
@@ -1474,6 +1917,10 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             const float alpha = on ? 1.0f : 0.4f;
             noiseLbl->setAlpha(alpha);
             for (auto& b : tapeNoiseSpeedBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+            tapeFormulationLabel.setAlpha(alpha);
+            for (auto& b : tapeFormulationBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+            tapeEQStandardLabel.setAlpha(alpha);
+            for (auto& b : tapeEQStandardBtn) { b.setEnabled(on); b.setAlpha(alpha); }
         };
     }
 
@@ -1482,6 +1929,23 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     granularToggle.onClick();
     multiplyToggle.onClick();
     tapeToggle.onClick();
+    distortionToggle.onClick();
+
+    dimSection(reverbToggle, { &reverbMixKnob, &reverbSizeKnob, &reverbDecayKnob, &reverbDampKnob, &reverbPreDelayKnob, &reverbDiffusionKnob, &reverbWidthKnob });
+    reverbToggle.onClick();
+
+    dimSection(hazeToggle, { &hazeColorKnob });
+    {
+        auto origOnClick = hazeToggle.onClick;
+        hazeToggle.onClick = [this, origOnClick]() {
+            if (origOnClick) origOnClick();
+            const bool on = hazeToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            hazeTypeLabel.setAlpha(alpha);
+            for (auto& b : hazeTypeBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+        };
+    }
+    hazeToggle.onClick();
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
@@ -1496,6 +1960,9 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     // Clear dirty flag — construction/attachment triggers parameterChanged spuriously
     processorRef.presetDirty.store(false);
+
+    // Initialise chain slot state from APVTS
+    syncChainSlots();
 }
 
 StardustEditor::~StardustEditor()
@@ -1508,14 +1975,35 @@ StardustEditor::~StardustEditor()
     setLookAndFeel(nullptr);
 }
 
+// ============================================================================
+// LabeledKnob
+// ============================================================================
+
+StardustEditor::LabeledKnob::LabeledKnob()
+{
+    addAndMakeVisible(slider);
+    addAndMakeVisible(label);
+}
+
+void StardustEditor::LabeledKnob::resized()
+{
+    auto b = getLocalBounds();
+    label.setBounds(b.removeFromTop(14));
+    slider.setBounds(b);
+
+}
+
+// ============================================================================
+
 void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
                                const juce::String& labelText)
 {
     knob.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    knob.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, true, 70, 16);
-    knob.slider.setColour(juce::Slider::textBoxTextColourId, StardustLookAndFeel::kFg);
-    knob.slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    knob.slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    // isReadOnly=false → double-click on value opens inline text editor
+    knob.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 18);
+    knob.slider.setColour(juce::Slider::textBoxTextColourId,       StardustLookAndFeel::kFg);
+    knob.slider.setColour(juce::Slider::textBoxOutlineColourId,    StardustLookAndFeel::kFgGhost.withAlpha(0.22f));
+    knob.slider.setColour(juce::Slider::textBoxBackgroundColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
 
     knob.slider.setName(paramId);
     knob.attachment = std::make_unique<SliderAttachment>(processorRef.apvts, paramId, knob.slider);
@@ -1528,45 +2016,76 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
 
     // Set value formatting AFTER attachment (attachment overwrites textFromValueFunction)
     if (paramId == "grainSize")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v))) + " ms";
         };
-    else if (paramId == "grainDensity")
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return static_cast<double>(t.getIntValue());
+        };
+    }
+    else if (paramId == "grainDensity" || paramId == "grainVoices")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v)));
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return static_cast<double>(t.getIntValue());
+        };
+    }
     else if (paramId == "outputGain" || paramId == "inputGain"
              || paramId == "destroyIn" || paramId == "destroyOut"
              || paramId == "tapeOutput")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             if (v > 0.05) return juce::String("+") + juce::String(v, 1) + " dB";
             if (v < -0.05) return juce::String(v, 1) + " dB";
             return juce::String("0.0 dB");
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue(); // "+3.5 dB" → 3.5 via getDoubleValue stops at space
+        };
+    }
     else if (paramId == "grainPitch")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             const int st = static_cast<int>(std::round(v));
             if (st > 0) return juce::String("+") + juce::String(st) + " st";
             if (st < 0) return juce::String(st) + " st";
             return juce::String("0 st");
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return static_cast<double>(t.getIntValue());
+        };
+    }
     else if (paramId == "chorusSpeed")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(v, 1) + " Hz";
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue();
+        };
+    }
     else if (paramId == "filterCutoff")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 99.0)));
         };
-    else if (paramId == "grainVoices")
-        knob.slider.textFromValueFunction = [](double v) {
-            return juce::String(static_cast<int>(std::round(v)));
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue() / 99.0;
         };
+    }
     else if (paramId == "grainInterval")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             const int st = static_cast<int>(std::round(v));
             return juce::String(st) + " st";
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return static_cast<double>(t.getIntValue());
+        };
+    }
     else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "grainMix"
              || paramId == "grainScatter" || paramId == "stereoWidth"
@@ -1578,17 +2097,28 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
              || paramId == "grainPosition" || paramId == "grainFeedback"
              || paramId == "grainReverse"
              || paramId == "grainTexture")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue() / 100.0; // "50%" → 0.5
+        };
+    }
     else if (paramId == "grainMorph")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             const int st = static_cast<int>(std::round((v - 0.5) * 24.0));
             if (st > 0) return juce::String("+") + juce::String(st) + " st";
             if (st < 0) return juce::String(st) + " st";
             return juce::String("0 st");
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue() / 24.0 + 0.5;
+        };
+    }
     else if (paramId == "grainSizeSync")
+    {
         knob.slider.textFromValueFunction = [](double v) {
             static const char* kNames[] = {
                 "Free", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
@@ -1597,18 +2127,50 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             const int idx = juce::jlimit(0, 10, static_cast<int>(std::round(v)));
             return juce::String(kNames[idx]);
         };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            static const char* kNames[] = {
+                "Free", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
+                "1/4.", "1/4T", "1/8.", "1/8T"
+            };
+            const juce::String trimmed = t.trim();
+            for (int i = 0; i < 11; ++i)
+                if (trimmed.equalsIgnoreCase(kNames[i]))
+                    return static_cast<double>(i);
+            return juce::jlimit(0.0, 10.0, t.getDoubleValue());
+        };
+    }
+
+    else if (paramId == "destroyBits")
+    {
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(static_cast<int>(std::round(v))) + " bit";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return static_cast<double>(t.getIntValue());
+        };
+    }
+    else if (paramId == "grainCloud" || paramId == "grainDrift" || paramId == "grainSpace")
+    {
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue() / 100.0;
+        };
+    }
 
     // Force text refresh with the new formatter
     knob.slider.updateText();
     paramToKnob[paramId] = &knob;
-    addAndMakeVisible(knob.slider);
 
-    // Set monospace font on the value text box
+    // Set font + edit behaviour on the slider's internal text-box Label
     for (int i = 0; i < knob.slider.getNumChildComponents(); ++i)
     {
-        if (auto* label = dynamic_cast<juce::Label*>(knob.slider.getChildComponent(i)))
+        if (auto* lbl = dynamic_cast<juce::Label*>(knob.slider.getChildComponent(i)))
         {
-            label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+            lbl->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
+            // double-click opens editor; focus-loss accepts (don't discard)
+            lbl->setEditable(false, true, false);
             break;
         }
     }
@@ -1617,24 +2179,14 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     knob.label.setJustificationType(juce::Justification::centred);
     knob.label.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
     knob.label.setColour(juce::Label::textColourId, StardustLookAndFeel::kFg);
-    addAndMakeVisible(knob.label);
 
-    // Set value text box font to match "Tune: X st" style (13px bold monospace)
-    for (int i = 0; i < knob.slider.getNumChildComponents(); ++i)
-    {
-        if (auto* label = dynamic_cast<juce::Label*>(knob.slider.getChildComponent(i)))
-        {
-            label->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
-            break;
-        }
-    }
+    // Register with editor — LabeledKnob is now a Component that owns slider+label
+    addAndMakeVisible(knob);
 }
 
 void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds)
 {
-    const auto labelHeight = 14;
-    knob.label.setBounds(bounds.removeFromTop(labelHeight));
-    knob.slider.setBounds(bounds);
+    knob.setBounds(bounds);
 }
 
 void StardustEditor::showPresetDropdown()
@@ -1693,6 +2245,7 @@ void StardustEditor::showPresetDropdown()
             presetSelector.setName("");
             updateDoubleClickDefaults();
             updateFavoriteButton();
+            resized();
         }
     });
 }
@@ -1742,6 +2295,7 @@ void StardustEditor::showPresetLibrary()
             presetSelector.setSelectedId(idx + 1, juce::dontSendNotification);
             updateDoubleClickDefaults();
             updateFavoriteButton();
+            resized();
             hidePresetLibrary();
         };
 
@@ -1779,6 +2333,7 @@ void StardustEditor::showPresetLibrary()
             refreshPresetList();
             presetSelector.setSelectedId(1, juce::dontSendNotification);
             processorRef.loadPreset(0);
+            resized();
         };
 
         presetLibraryPanel->onToggleFavorite = [this](const juce::String& name, bool fav) {
@@ -1883,6 +2438,7 @@ void StardustEditor::resetToFactory()
     refreshPresetList();
     updateDoubleClickDefaults();
     updateFavoriteButton();
+    resized();
 }
 
 void StardustEditor::updateFavoriteButton()
@@ -1918,8 +2474,374 @@ void StardustEditor::updateDoubleClickDefaults()
         if (it != paramToKnob.end())
             it->second->slider.setDoubleClickReturnValue(true, presetVal);
     }
+
+    // Re-sync chain order after preset load
+    syncChainSlots();
 }
 
+
+// ============================================================================
+// FX chain strip helpers
+// ============================================================================
+
+juce::Rectangle<int> StardustEditor::stripRowBounds(int row) const
+{
+    const int sH = controlsBounds.getHeight() / 4;
+    return { controlsBounds.getX(), controlsBounds.getY() + row * sH,
+             controlsBounds.getWidth(), sH };
+}
+
+juce::Rectangle<int> StardustEditor::sectionKnobBounds(int row) const
+{
+    // Center knob area: left sidebar (name pill) + right drag column
+    static constexpr int kLeftW  = 118; // badge + name pill
+    static constexpr int kDragW  =  30; // right drag handle column
+    const int sH = controlsBounds.getHeight() / 4;
+    return { controlsBounds.getX() + kLeftW,
+             controlsBounds.getY() + row * sH,
+             controlsBounds.getWidth() - kLeftW - kDragW,
+             sH };
+}
+
+juce::ToggleButton& StardustEditor::toggleForSection(int fxId)
+{
+    switch (fxId)
+    {
+        case 1: return destroyToggle;
+        case 2: return granularToggle;
+        case 3: return multiplyToggle;
+        case 4: return tapeToggle;
+        case 5: return distortionToggle;
+        case 6: return reverbToggle;
+        case 7: return hazeToggle;
+        default: return destroyToggle;
+    }
+}
+
+int StardustEditor::firstNonEmptyRow() const
+{
+    for (int r = 0; r < 4; ++r)
+        if (chainSlots[r] != 0) return r;
+    return 0;
+}
+
+void StardustEditor::syncChainSlots()
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        const juce::String id = "chainSlot" + juce::String(i);
+        chainSlots[i] = static_cast<int>(*processorRef.apvts.getRawParameterValue(id));
+    }
+
+    // Deduplicate: clear any later duplicate of the same effect type so the
+    // UI only shows each effect once (matching the single-instance DSP design)
+    std::set<int> seen;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (chainSlots[i] == 0) continue;
+        if (!seen.insert(chainSlots[i]).second)
+            chainSlots[i] = 0; // duplicate → treat as empty
+    }
+
+    // Keep activeSection valid for cosmetic highlighting
+    if (activeSection >= 4 || chainSlots[activeSection] == 0)
+        activeSection = firstNonEmptyRow();
+}
+
+void StardustEditor::commitChainSlots()
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        const juce::String id = "chainSlot" + juce::String(i);
+        if (auto* p = dynamic_cast<juce::AudioParameterInt*>(processorRef.apvts.getParameter(id)))
+            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(chainSlots[i])));
+    }
+}
+
+void StardustEditor::showAddEffectMenu(int row)
+{
+    // Which effect types are already present in other slots?
+    std::set<int> usedFx;
+    for (int i = 0; i < 4; ++i)
+        if (i != row && chainSlots[i] != 0)
+            usedFx.insert(chainSlots[i]);
+
+    // Submenus with arrow — matches preset selector style
+    // Items are disabled if that effect type is already in the chain
+    juce::PopupMenu degradeMenu, colorMenu, spaceMenu;
+    degradeMenu.addItem(1, "CRUSH",     !usedFx.count(1));
+    degradeMenu.addItem(7, "HAZE",      !usedFx.count(7));
+    colorMenu.addItem(4,  "TAPE",       !usedFx.count(4));
+    colorMenu.addItem(5,  "SATURATE",   !usedFx.count(5));
+    spaceMenu.addItem(2,  "GRANULAR",   !usedFx.count(2));
+    spaceMenu.addItem(3,  "CHORUS",     !usedFx.count(3));
+    spaceMenu.addItem(6,  "REVERB",     !usedFx.count(6));
+
+    juce::PopupMenu menu;
+    menu.addSubMenu("Degrade", degradeMenu);
+    menu.addSubMenu("Color",   colorMenu);
+    menu.addSubMenu("Space",   spaceMenu);
+
+    menu.setLookAndFeel(&lookAndFeel);
+    degradeMenu.setLookAndFeel(&lookAndFeel);
+    colorMenu.setLookAndFeel(&lookAndFeel);
+    spaceMenu.setLookAndFeel(&lookAndFeel);
+    // Anchor to centre of full 92px section
+    const int sH = controlsBounds.getHeight() / 4;
+    const auto rb = stripRowBounds(row);
+    const int cx = getScreenX() + rb.getCentreX();
+    const int cy = getScreenY() + rb.getY() + sH / 2;
+    const auto targetScreen = juce::Rectangle<int>(cx - 1, cy, 2, 1);
+    menu.showMenuAsync(juce::PopupMenu::Options()
+                           .withTargetComponent(this)
+                           .withTargetScreenArea(targetScreen)
+                           .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards),
+        [this, row](int result) {
+            if (result > 0)
+            {
+                chainSlots[row] = result;
+                activeSection = row;
+                commitChainSlots();
+                // Ensure the toggle is ON when an effect is added to the chain
+                toggleForSection(result).setToggleState(true, juce::sendNotification);
+                resized();
+                repaint();
+            }
+        });
+}
+
+// ============================================================================
+// Layout helpers — one per section, called from resized()
+// ============================================================================
+
+void StardustEditor::layoutCrushSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 5;
+
+    // Bits | Rate | Drive | Jitter | Output
+    layoutKnobInBounds(destroyBitsKnob, { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyRateKnob, { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyInKnob,   { ox + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyOutKnob,  { ox + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyMixKnob,  { ox + kw * 4, ky, kw, kKnobH });
+}
+
+void StardustEditor::layoutHazeSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 5;
+
+    // Color | [Type buttons]
+    layoutKnobInBounds(hazeColorKnob, { ox + kw * 0, ky, kw, kKnobH });
+
+    hazeTypeLabel.setVisible(true);
+    hazeTypeLabel.setBounds(ox + kw * 1, ky, kw * 2, 12);
+    const int bh = (kKnobH - 12) / 3;
+    for (int i = 0; i < 3; ++i)
+    {
+        hazeTypeBtn[i].setVisible(true);
+        hazeTypeBtn[i].setBounds(ox + kw * 1, ky + 12 + i * bh, kw * 2, bh);
+    }
+}
+
+void StardustEditor::layoutGranularSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 8;
+
+    // Cloud | Scatter | Space | R.Size | Feedback | Morph | [Shape] | [Quant]
+    layoutKnobInBounds(grainCloudKnob,      { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(grainScatterKnob,    { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(grainSpaceKnob,      { ox + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(grainReverbSizeKnob, { ox + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(grainFeedbackKnob,   { ox + kw * 4, ky, kw, kKnobH });
+    layoutKnobInBounds(grainMorphKnob,      { ox + kw * 5, ky, kw, kKnobH });
+
+    // Shape buttons stacked in col 6 (label + 4 buttons)
+    grainShapeLabel.setVisible(true);
+    grainShapeLabel.setBounds(ox + kw * 6, ky, kw, 12);
+    const int bh4 = (kKnobH - 12) / 4;
+    for (int i = 0; i < 4; ++i)
+    {
+        grainShapeBtn[i].setVisible(true);
+        grainShapeBtn[i].setBounds(ox + kw * 6, ky + 12 + i * bh4, kw, bh4);
+    }
+
+    // Quant buttons stacked in col 7 (label + 5 buttons)
+    grainQuantLabel.setVisible(true);
+    grainQuantLabel.setBounds(ox + kw * 7, ky, kw, 12);
+    const int bh5 = (kKnobH - 12) / 5;
+    for (int i = 0; i < 5; ++i)
+    {
+        grainQuantBtn[i].setVisible(true);
+        grainQuantBtn[i].setBounds(ox + kw * 7, ky + 12 + i * bh5, kw, bh5);
+    }
+
+    // Hidden knobs (APVTS attached, accessible via mod matrix / presets)
+    grainSizeSyncKnob.setBounds(0, 0, 0, 0);
+    grainRevKnob.setBounds(0, 0, 0, 0);
+}
+
+void StardustEditor::layoutMultiplySection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 9;
+    // Speed | Depth | Tone | Drift | Shimmer | PanOut | PanIn | [Feedback+LFO] | [Vintage]
+    const int startX = ox;
+
+    layoutKnobInBounds(chorusSpeedKnob,      { startX,          ky, kw, kKnobH });
+    layoutKnobInBounds(multiplyDepthKnob,    { startX + kw,     ky, kw, kKnobH });
+    layoutKnobInBounds(multiplyToneKnob,     { startX + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(multiplyDriftKnob,    { startX + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(multiplyShimmerKnob,  { startX + kw * 4, ky, kw, kKnobH });
+    layoutKnobInBounds(panOuterKnob,         { startX + kw * 5, ky, kw, kKnobH });
+    layoutKnobInBounds(panInnerKnob,         { startX + kw * 6, ky, kw, kKnobH });
+
+    // Col 7: Feedback knob (upper 40px) + LFO buttons (lower 28px)
+    const int col7X = startX + kw * 7;
+    const int fbH = 40;
+    layoutKnobInBounds(multiplyFeedbackKnob, { col7X, ky, kw, fbH });
+    const int lfoY = ky + fbH;
+    const int lfoH = kKnobH - fbH;
+    multiplyLfoLabel.setVisible(true);
+    multiplyLfoLabel.setBounds(col7X, lfoY, kw, 10);
+    const int bh = (lfoH - 10) / 3;
+    for (int i = 0; i < 3; ++i)
+    {
+        multiplyLfoBtn[i].setVisible(true);
+        multiplyLfoBtn[i].setBounds(col7X, lfoY + 10 + i * bh, kw, bh);
+    }
+
+    // Col 8: Vintage mode buttons (5 options: Custom/Juno/Dim-D/Tri/Flanger)
+    const int col8X = startX + kw * 8;
+    multiplyVintageLabel.setVisible(true);
+    multiplyVintageLabel.setBounds(col8X, ky, availW - kw * 8, 12);
+    const int vbh = (kKnobH - 12) / 5;
+    for (int i = 0; i < 5; ++i)
+    {
+        multiplyVintageBtn[i].setVisible(true);
+        multiplyVintageBtn[i].setBounds(col8X, ky + 12 + i * vbh, availW - kw * 8, vbh);
+    }
+
+    // Tempo sync toggle below Speed knob label area (small)
+    multiplyTempoSyncBtn.setVisible(true);
+    multiplyTempoSyncBtn.setBounds(startX, ky + kKnobH - 14, kw, 14);
+}
+
+void StardustEditor::layoutTapeSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 9; // Drive | Wow | Flutter | Glue | Noise | Output | IPS | EQ Std | Form
+
+    layoutKnobInBounds(tapeDriveKnob,   { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(tapeWowKnob,     { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(tapeFlutterKnob, { ox + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(tapeGlueKnob,    { ox + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(tapeNoiseKnob,   { ox + kw * 4, ky, kw, kKnobH });
+    layoutKnobInBounds(tapeOutputKnob,  { ox + kw * 5, ky, kw, kKnobH });
+
+    // IPS speed buttons in col 6
+    tapeNoiseSpeedLabel.setVisible(true);
+    tapeNoiseSpeedLabel.setBounds(ox + kw * 6, ky, kw, 12);
+    const int bh = (kKnobH - 12) / 3;
+    for (int i = 0; i < 3; ++i)
+    {
+        tapeNoiseSpeedBtn[i].setVisible(true);
+        tapeNoiseSpeedBtn[i].setBounds(ox + kw * 6, ky + 12 + i * bh, kw, bh);
+    }
+
+    // EQ standard buttons in col 7 (NAB / IEC)
+    tapeEQStandardLabel.setVisible(true);
+    tapeEQStandardLabel.setBounds(ox + kw * 7, ky, kw, 12);
+    const int eqbh = (kKnobH - 12) / 2;
+    for (int i = 0; i < 2; ++i)
+    {
+        tapeEQStandardBtn[i].setVisible(true);
+        tapeEQStandardBtn[i].setBounds(ox + kw * 7, ky + 12 + i * eqbh, kw, eqbh);
+    }
+
+    // Tape formulation buttons in col 8 (456/GP9/SM900/LH/SM468)
+    const int col8W = availW - kw * 8;
+    tapeFormulationLabel.setVisible(true);
+    tapeFormulationLabel.setBounds(ox + kw * 8, ky, col8W, 12);
+    const int fbh = (kKnobH - 12) / 5;
+    for (int i = 0; i < 5; ++i)
+    {
+        tapeFormulationBtn[i].setVisible(true);
+        tapeFormulationBtn[i].setBounds(ox + kw * 8, ky + 12 + i * fbh, col8W, fbh);
+    }
+
+    // tapeWearKnob is hidden in this layout (accessible via mod matrix / presets)
+    tapeWearKnob.setBounds(0, 0, 0, 0);
+}
+
+void StardustEditor::layoutDistortionSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 6;
+    // Drive | Tone | Bias | Asym | [Mode buttons] — 5 of 6 slots
+    const int startX = ox + (availW - kw * 5) / 2;
+
+    layoutKnobInBounds(distortionDriveKnob, { startX,          ky, kw, kKnobH });
+    layoutKnobInBounds(distortionToneKnob,  { startX + kw,     ky, kw, kKnobH });
+    layoutKnobInBounds(distortionBiasKnob,  { startX + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(distortionAsymKnob,  { startX + kw * 3, ky, kw, kKnobH });
+
+    // Mode buttons stacked in last column (Soft/Tube/Hard/Trans/Satin/V-Mu — 6 equal buttons)
+    distortionModeLabel.setVisible(true);
+    distortionModeLabel.setBounds(startX + kw * 4, ky, kw, 12);
+    const int bh = (kKnobH - 12) / 6;
+    for (int i = 0; i < 6; ++i)
+    {
+        distortionModeBtn[i].setVisible(true);
+        distortionModeBtn[i].setBounds(startX + kw * 4, ky + 12 + i * bh, kw, bh);
+    }
+}
+
+void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 7;
+    // Mix | Size | Decay | Damp | Pre-Dly | Diffuse | Width
+    const int startX = ox + (availW - kw * 7) / 2;
+
+    layoutKnobInBounds(reverbMixKnob,       { startX,          ky, kw, kKnobH });
+    layoutKnobInBounds(reverbSizeKnob,      { startX + kw,     ky, kw, kKnobH });
+    layoutKnobInBounds(reverbDecayKnob,     { startX + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbDampKnob,      { startX + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw * 4, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbDiffusionKnob, { startX + kw * 5, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 6, ky, kw, kKnobH });
+}
 
 void StardustEditor::generateBackgroundTexture()
 {
@@ -1981,49 +2903,102 @@ void StardustEditor::paint(juce::Graphics& g)
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.65f));
     g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
-    // Grid layout constants (must match resized())
-    const int headerH = 14;
-    const int headerToKnob = 16;
-    const int knobH = 68;
-    const int topPad = 16;
-    const int sectionBottomPad = 16;
-    const int cellPadX = 16;
-    const int dividerGap = 1;
-    const int panelW = controlsBounds.getWidth();
-    const int cellW = (panelW - dividerGap) / 2;
-    const int leftX = controlsBounds.getX();
-    const int rightX = leftX + cellW + dividerGap;
-    const int rightSectionH = topPad + headerH + headerToKnob + knobH + sectionBottomPad;
+    // ---- Chain strip rows ----
+    static const juce::String kFxNames[8] = { "", "C R U S H", "G R A N U L A R", "C H O R U S", "T A P E", "S A T U R A T E", "R E V E R B", "H A Z E" };
+    const auto monoFont10 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold);
+    const auto monoFont12 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold);
 
-    const int panelTop = controlsBounds.getY();
-    const int rightRow1Top = panelTop;
+    static constexpr int kLeftW  = 118; // left sidebar: badge + name pill
+    static constexpr int kDragW  =  30; // right drag column
+    static constexpr int kPillX  =  18; // pill x offset from row left (after badge)
+    static constexpr int kPillW  =  92; // name pill width
+    static constexpr int kPillH  =  28; // name pill height
 
-    const int labelOffset = 32;
-    const auto drawSectionLabel = [&](const char* name, int cellX, int hdrY) {
-        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold));
-        g.setColour(StardustLookAndFeel::kAccent);
-        g.drawText(name, cellX + cellPadX + labelOffset, hdrY, 200, headerH, juce::Justification::centredLeft);
-    };
+    // Compact effect names for the pill
+    static const juce::String kPillNames[8] = { "", "CRUSH", "GRANULAR", "CHORUS", "TAPE", "SATURATE", "REVERB", "HAZE" };
 
-    // Equal 2x2 grid: each section is half the panel height
-    const int halfH = (controlsBounds.getHeight() - 1) / 2;  // -1 for divider
-    const int leftTapeTop = panelTop + halfH + 1;
-    const int rightMultiplyTop = leftTapeTop;
+    for (int row = 0; row < 4; ++row)
+    {
+        const auto rb = stripRowBounds(row); // full 92px row
+        const int fx = chainSlots[row];
+        const bool isActive = (row == activeSection && fx != 0);
+        const bool isEmpty  = (fx == 0);
+        const bool isHovered = (row == hoverRow);
 
-    // Grid dividers
-    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.2f));
-    const float divX = static_cast<float>(leftX + cellW) + 0.5f;
-    // Vertical divider spans top half only — DESTROY+MULTIPLY form one unified bottom row
-    g.drawLine(divX, static_cast<float>(panelTop + 8), divX, static_cast<float>(leftTapeTop - 8), 1.0f);
-    // Horizontal divider across full width (equal split)
-    const float divY = static_cast<float>(leftTapeTop) - 0.5f;
-    g.drawLine(cpf.getX() + 8, divY, cpf.getRight() - 8, divY, 1.0f);
+        // Section background
+        g.setColour(isActive ? StardustLookAndFeel::kAccent.withAlpha(0.07f)
+                             : StardustLookAndFeel::kFgGhost.withAlpha(0.03f));
+        g.fillRect(rb);
 
-    // Section labels
-    drawSectionLabel("T A P E",             leftX,  panelTop + topPad);
-    drawSectionLabel("D E S T R O Y",       leftX,  leftTapeTop + topPad);
-    drawSectionLabel("G R A N U L A R",     rightX, rightRow1Top + topPad);
-    drawSectionLabel("M U L T I P L Y",     rightX, rightMultiplyTop + topPad);
+        if (isEmpty)
+        {
+            if (isHovered)
+            {
+                g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.04f));
+                g.fillRect(rb);
+            }
+            g.setFont(monoFont12);
+            g.setColour(isHovered ? StardustLookAndFeel::kAccent
+                                  : StardustLookAndFeel::kFg.withAlpha(0.75f));
+            g.drawText("+ ADD EFFECT", rb.reduced(40, 0), juce::Justification::centred);
+        }
+        else
+        {
+            // ---- Left sidebar: name pill ----
+            const bool effectOn = toggleForSection(fx).getToggleState();
+
+            // Name pill — bordered rectangle, lights up when enabled
+            const int pillY = rb.getCentreY() - kPillH / 2;
+            const auto pillRect = juce::Rectangle<float>(
+                static_cast<float>(rb.getX() + kPillX), static_cast<float>(pillY),
+                static_cast<float>(kPillW),              static_cast<float>(kPillH));
+
+            g.setColour(effectOn ? StardustLookAndFeel::kAccent.withAlpha(0.10f)
+                                 : StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
+            g.fillRoundedRectangle(pillRect, 3.0f);
+
+            g.setColour(effectOn ? StardustLookAndFeel::kAccent.withAlpha(0.75f)
+                                 : StardustLookAndFeel::kFgGhost.withAlpha(0.45f));
+            g.drawRoundedRectangle(pillRect, 3.0f, 1.0f);
+
+            g.setFont(monoFont10);
+            g.setColour(effectOn ? StardustLookAndFeel::kAccent : StardustLookAndFeel::kFgDim);
+            g.drawText(kPillNames[fx], static_cast<int>(pillRect.getX()),
+                       static_cast<int>(pillRect.getY()),
+                       static_cast<int>(pillRect.getWidth()),
+                       static_cast<int>(pillRect.getHeight()),
+                       juce::Justification::centred);
+
+            // Left divider between sidebar and knobs
+            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
+            g.drawVerticalLine(rb.getX() + kLeftW, static_cast<float>(rb.getY() + 8),
+                               static_cast<float>(rb.getBottom() - 8));
+
+            // ---- Right drag column ----
+            // Subtle background tint
+            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.05f));
+            g.fillRect(rb.getRight() - kDragW, rb.getY(), kDragW, rb.getHeight());
+
+            // Right divider
+            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
+            g.drawVerticalLine(rb.getRight() - kDragW, static_cast<float>(rb.getY() + 8),
+                               static_cast<float>(rb.getBottom() - 8));
+
+            // ≡ drag handle centered in right column
+            g.setColour(StardustLookAndFeel::kFg.withAlpha(0.65f));
+            const int dragColCx = rb.getRight() - kDragW / 2;
+            for (int i = 0; i < 3; ++i)
+                g.fillRect(dragColCx - 5, rb.getCentreY() - 4 + i * 4, 10, 1);
+        }
+
+        // Section separator at bottom of row (skip last row)
+        if (row < 3)
+        {
+            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
+            g.drawHorizontalLine(rb.getBottom() - 1, static_cast<float>(rb.getX() + 4),
+                                 static_cast<float>(rb.getRight() - 4));
+        }
+    }
 
     // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
     const auto gvf = galaxyBounds.toFloat();
@@ -2153,6 +3128,71 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
 
         // Preset bar background + border is drawn in paint() so icons render on top
     }
+
+    // Drag ghost for FX chain reorder
+    if (dragSourceRow >= 0)
+    {
+        static const juce::String kGhostNames[8] = { "", "CRUSH", "GRANULAR", "CHORUS", "TAPE", "SATURATE", "REVERB", "HAZE" };
+        static constexpr int kGhostLeftW = 118;
+        static constexpr int kGhostDragW =  30;
+        static constexpr int kGhostPillX =  18;
+        static constexpr int kGhostPillW =  92;
+        static constexpr int kGhostPillH =  28;
+
+        const int fx = chainSlots[dragSourceRow];
+        auto rb = stripRowBounds(dragSourceRow).withY(dragPos.y - stripRowBounds(0).getHeight() / 2);
+
+        // Ghost background
+        g.setColour(StardustLookAndFeel::kBg.withAlpha(0.88f));
+        g.fillRect(rb);
+
+        // Name pill
+        const int pillY = rb.getCentreY() - kGhostPillH / 2;
+        const auto pillRect = juce::Rectangle<float>(
+            static_cast<float>(rb.getX() + kGhostPillX), static_cast<float>(pillY),
+            static_cast<float>(kGhostPillW),              static_cast<float>(kGhostPillH));
+
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.15f));
+        g.fillRoundedRectangle(pillRect, 3.0f);
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.85f));
+        g.drawRoundedRectangle(pillRect, 3.0f, 1.0f);
+
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+        g.setColour(StardustLookAndFeel::kAccent);
+        g.drawText(kGhostNames[fx],
+                   static_cast<int>(pillRect.getX()), static_cast<int>(pillRect.getY()),
+                   static_cast<int>(pillRect.getWidth()), static_cast<int>(pillRect.getHeight()),
+                   juce::Justification::centred);
+
+        // Left divider
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
+        g.drawVerticalLine(rb.getX() + kGhostLeftW, static_cast<float>(rb.getY() + 8),
+                           static_cast<float>(rb.getBottom() - 8));
+
+        // Right drag column
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.08f));
+        g.fillRect(rb.getRight() - kGhostDragW, rb.getY(), kGhostDragW, rb.getHeight());
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
+        g.drawVerticalLine(rb.getRight() - kGhostDragW, static_cast<float>(rb.getY() + 8),
+                           static_cast<float>(rb.getBottom() - 8));
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.8f));
+        const int dragCx = rb.getRight() - kGhostDragW / 2;
+        for (int i = 0; i < 3; ++i)
+            g.fillRect(dragCx - 5, rb.getCentreY() - 4 + i * 4, 10, 1);
+
+        // Outer border
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.35f));
+        g.drawRect(rb.toFloat(), 1.0f);
+
+        // Drop target line
+        if (dragHoverRow >= 0)
+        {
+            const int lineY = stripRowBounds(dragHoverRow).getY();
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.7f));
+            g.drawHorizontalLine(lineY, static_cast<float>(controlsBounds.getX() + 4),
+                                 static_cast<float>(controlsBounds.getRight() - 4));
+        }
+    }
 }
 
 void StardustEditor::parameterChanged(const juce::String& parameterID, float newValue)
@@ -2165,16 +3205,110 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
                 tapeNoiseSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
+    else if (parameterID == "distortionMode")
+    {
+        const int sel = juce::jlimit(0, 5, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 6; ++i)
+                distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+            // Asym is only meaningful in Tube mode (1)
+            distortionAsymKnob.setAlpha(sel == 1 ? 1.0f : 0.35f);
+        });
+    }
+    else if (parameterID == "grainShape")
+    {
+        const int sel = juce::jlimit(0, 3, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 4; ++i)
+                grainShapeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "grainPitchQuant")
+    {
+        const int sel = juce::jlimit(0, 4, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 5; ++i)
+                grainQuantBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "multiplyLfoShape")
+    {
+        const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 3; ++i)
+                multiplyLfoBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "hazeType")
+    {
+        const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
+        juce::MessageManager::callAsync([this, sel]() {
+            for (int i = 0; i < 3; ++i)
+                hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
     // Dirty state is now computed by comparing current values to loaded preset in timerCallback
 }
 
-void StardustEditor::mouseMove(const juce::MouseEvent& /*e*/)
+void StardustEditor::mouseMove(const juce::MouseEvent& e)
 {
     presetSelector.repaint();
+
+    int newHoverRow = -1;
+    bool newHoverOnX = false;
+    const auto pos = e.getPosition();
+    for (int row = 0; row < 4; ++row)
+    {
+        auto rb = stripRowBounds(row);
+        if (rb.contains(pos))
+        {
+            newHoverRow = row;
+            newHoverOnX = false; // no X button
+            break;
+        }
+    }
+    if (newHoverRow != hoverRow || newHoverOnX != hoverOnX)
+    {
+        hoverRow  = newHoverRow;
+        hoverOnX  = newHoverOnX;
+        repaint();
+    }
+}
+
+void StardustEditor::mouseExit(const juce::MouseEvent& /*e*/)
+{
+    if (hoverRow != -1)
+    {
+        hoverRow  = -1;
+        hoverOnX  = false;
+        repaint();
+    }
 }
 
 void StardustEditor::timerCallback()
 {
+    // Update strip hover state using current mouse position (works across child components)
+    {
+        const auto mp = getMouseXYRelative();
+        int newHoverRow = -1;
+        bool newHoverOnX = false;
+        if (isMouseOver(true))
+        {
+            for (int row = 0; row < 4; ++row)
+            {
+                auto rb = stripRowBounds(row);
+                if (rb.contains(mp))
+                {
+                    newHoverRow = row;
+                    newHoverOnX = false; // no X button
+                    break;
+                }
+            }
+        }
+        hoverRow = newHoverRow;
+        hoverOnX = newHoverOnX;
+    }
+
     presetSelector.repaint();
     repaint(); // refresh signal flow display
 
@@ -2256,24 +3390,112 @@ void StardustEditor::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    if (e.mods.isPopupMenu())
-    {
-        juce::PopupMenu menu;
-        menu.addSectionHeader("UI Scale");
-        menu.addItem(1, "100%", true, currentScale < 1.1f);
-        menu.addItem(2, "125%", true, currentScale >= 1.1f && currentScale < 1.4f);
-        menu.addItem(3, "150%", true, currentScale >= 1.4f);
 
-        menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
-            if (result == 0) return;
-            const float scale = (result == 1) ? 1.0f : (result == 2) ? 1.25f : 1.5f;
-            currentScale = scale;
-            setScaleFactor(scale);
-        });
+    // Chain strip row hit-testing
+    const auto pos = e.getPosition();
+    static constexpr int kDragW  =  30; // right drag column
+    static constexpr int kPillX  =  18;
+    static constexpr int kPillW  =  92;
+    static constexpr int kPillH  =  28;
+    for (int row = 0; row < 4; ++row)
+    {
+        auto rb = stripRowBounds(row); // full 92px row
+        if (!rb.contains(pos)) continue;
+
+        const int fx = chainSlots[row];
+        if (fx == 0)
+        {
+            showAddEffectMenu(row);
+            return;
+        }
+
+        // Right-click anywhere on row → context menu
+        if (e.mods.isPopupMenu())
+        {
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&lookAndFeel);
+            menu.addItem(1, "Remove Effect");
+            const auto target = juce::Rectangle<int>(pos.x + getScreenX(), pos.y + getScreenY(), 1, 1);
+            menu.showMenuAsync(juce::PopupMenu::Options()
+                                   .withTargetComponent(this)
+                                   .withTargetScreenArea(target),
+                [this, row](int result) {
+                    if (result == 1)
+                    {
+                        chainSlots[row] = 0;
+                        commitChainSlots();
+                        resized();
+                        repaint();
+                    }
+                });
+            return;
+        }
+
+        // Right drag column → start drag
+        if (pos.x >= rb.getRight() - kDragW)
+        {
+            dragSourceRow = row;
+            dragPos = pos;
+            return;
+        }
+
+        // Name pill zone → toggle effect on/off
+        const int pillY = rb.getCentreY() - kPillH / 2;
+        const juce::Rectangle<int> pillZone(rb.getX() + kPillX, pillY, kPillW, kPillH);
+        if (pillZone.contains(pos))
+        {
+            auto& tog = toggleForSection(fx);
+            tog.setToggleState(!tog.getToggleState(), juce::sendNotification);
+            repaint();
+            return;
+        }
+
+        // Empty space in the row → show remove menu (same as right-click)
+        {
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&lookAndFeel);
+            menu.addItem(1, "Remove Effect");
+            const auto target = juce::Rectangle<int>(pos.x + getScreenX(), pos.y + getScreenY(), 1, 1);
+            menu.showMenuAsync(juce::PopupMenu::Options()
+                                   .withTargetComponent(this)
+                                   .withTargetScreenArea(target),
+                [this, row](int result) {
+                    if (result == 1)
+                    {
+                        chainSlots[row] = 0;
+                        commitChainSlots();
+                        resized();
+                        repaint();
+                    }
+                });
+        }
         return;
     }
 
     AudioProcessorEditor::mouseDown(e);
+}
+
+void StardustEditor::mouseDrag(const juce::MouseEvent& e)
+{
+    if (dragSourceRow < 0) return;
+    dragPos = e.getPosition();
+    const int sH = controlsBounds.getHeight() / 4;
+    const int rawRow = juce::jlimit(0, 3, (dragPos.y - controlsBounds.getY()) / sH);
+    dragHoverRow = (rawRow != dragSourceRow) ? rawRow : -1;
+    repaint();
+}
+
+void StardustEditor::mouseUp(const juce::MouseEvent& e)
+{
+    if (dragSourceRow >= 0 && dragHoverRow >= 0)
+    {
+        std::swap(chainSlots[dragSourceRow], chainSlots[dragHoverRow]);
+        commitChainSlots();
+        resized();
+    }
+    dragSourceRow = -1;
+    dragHoverRow  = -1;
+    repaint();
 }
 
 void StardustEditor::resized()
@@ -2287,25 +3509,8 @@ void StardustEditor::resized()
     const int barH = 22;
     bottomBarBounds = { margin, getHeight() - margin - barH, panelW, barH };
 
-    // Layout constants for sections (uniform 16px padding on all sides)
-    const int knobW = 78;
-    const int knobH = 68;
-    const int headerH = 14;
-    const int headerToKnob = 16;
-    const int topPad = 16;
-    const int sectionBottomPad = 16;
-    const int cellPadX = 16;
-
-    // Grid: 2 columns with a divider gap
-    const int dividerGap = 1;
-    const int cellW = (panelW - dividerGap) / 2;
-    const int leftX = margin;
-    const int rightX = margin + cellW + dividerGap;
-
-    // 2x2 grid: each section gets equal height (2 rows of full-size knobs)
-    const int row2Gap = 4;  // gap between row 1 and row 2
-    const int sectionH = topPad + headerH + headerToKnob + knobH + row2Gap + knobH + sectionBottomPad;
-    const int panelH = sectionH * 2 + dividerGap;
+    // 4 equal sections: 24px header + 68px knobs each = 92px per section
+    const int panelH = 4 * 92;
     controlsBounds = { margin, bottomBarBounds.getY() - gap - panelH, panelW, panelH };
 
     // Galaxy viewport: top, between top margin and controls
@@ -2358,119 +3563,89 @@ void StardustEditor::resized()
         processorRef.loadPreset(presetSelector.getSelectedId() - 1);
         updateDoubleClickDefaults();
         updateFavoriteButton();
+        resized();
     };
 
-    // ---- Grid layout: 2x2 equal sections ----
-    const int panelTop = controlsBounds.getY();
-    const int topRowBot = panelTop + sectionH;
-    const int botRowTop = topRowBot + dividerGap;
-    // Right column: GRANULAR top, MULTIPLY bottom (equal height)
-    const int rightRow1Top = panelTop;
-    const int rightGranularBot = topRowBot;
-    const int rightMultiplyTop = botRowTop;
-
-    auto cellGridX = [&](int cellX, int numKnobs) {
-        const int totalKnobW = knobW * numKnobs;
-        return cellX + cellPadX + (cellW - cellPadX * 2 - totalKnobW) / 2;
-    };
+    // ---- FX chain strip + active section panel ----
+    syncChainSlots();
 
     const int toggleH = 14;
     const int toggleW = 26;
+    const int numStripRows = 4;
 
-    // Left column: TAPE top, DESTROY bottom (equal height)
-    const int leftTapeTop = botRowTop;
+    // Toggle buttons are kept for APVTS binding but rendered as name-pill in paint()
+    juce::ignoreUnused(toggleH, toggleW);
+    for (int fx = 1; fx <= 7; ++fx)
+        toggleForSection(fx).setBounds({0, 0, 0, 0});
 
-    // --- LEFT TOP: TAPE (Drive / Wear / Glue / Noise + Mix + Output) ---
+    // Hide all section knobs first, then lay out each occupied slot
+    for (auto* k : { &destroyMixKnob, &destroyBitsKnob, &destroyRateKnob,
+                     &destroyInKnob, &destroyOutKnob,
+                     &hazeColorKnob,
+                     &grainMixKnob, &grainCloudKnob, &grainScatterKnob, &grainSpaceKnob,
+                     &grainReverbSizeKnob, &grainMorphKnob, &grainSizeSyncKnob, &grainRevKnob, &grainFeedbackKnob,
+                     &chorusMixKnob, &chorusSpeedKnob, &multiplyDepthKnob, &multiplyToneKnob,
+                     &multiplyFeedbackKnob, &multiplyShimmerKnob, &multiplyDriftKnob, &panOuterKnob, &panInnerKnob,
+                     &tapeDriveKnob, &tapeWearKnob, &tapeGlueKnob, &tapeNoiseKnob,
+                     &tapeMixKnob, &tapeOutputKnob, &tapeWowKnob, &tapeFlutterKnob,
+                     &distortionDriveKnob, &distortionToneKnob, &distortionBiasKnob, &distortionAsymKnob,
+                     &reverbMixKnob, &reverbSizeKnob, &reverbDecayKnob, &reverbDampKnob, &reverbPreDelayKnob, &reverbDiffusionKnob, &reverbWidthKnob })
+        k->setBounds({0, 0, 0, 0});
+
+    // Hide all sidebar mix sliders first
+    for (auto* s : { &destroyMixStrip, &grainMixStrip, &multiplyMixStrip, &tapeMixStrip, &hazeMixStrip })
+        s->setBounds({0, 0, 0, 0});
+
+    hazeTypeLabel.setVisible(false);
+    for (auto& b : hazeTypeBtn) b.setVisible(false);
+    tapeNoiseSpeedLabel.setVisible(false);
+    for (auto& b : tapeNoiseSpeedBtn) b.setVisible(false);
+    tapeEQStandardLabel.setVisible(false);
+    for (auto& b : tapeEQStandardBtn) b.setVisible(false);
+    tapeFormulationLabel.setVisible(false);
+    for (auto& b : tapeFormulationBtn) b.setVisible(false);
+    distortionModeLabel.setVisible(false);
+    for (auto& b : distortionModeBtn) b.setVisible(false);
+    grainShapeLabel.setVisible(false);
+    for (auto& b : grainShapeBtn) b.setVisible(false);
+    grainQuantLabel.setVisible(false);
+    for (auto& b : grainQuantBtn) b.setVisible(false);
+    multiplyLfoLabel.setVisible(false);
+    for (auto& b : multiplyLfoBtn) b.setVisible(false);
+    multiplyVintageLabel.setVisible(false);
+    for (auto& b : multiplyVintageBtn) b.setVisible(false);
+    multiplyTempoSyncBtn.setVisible(false);
+
+    // Pill constants (mirror paint() constants)
+    static constexpr int kSbPillX = 18;
+    static constexpr int kSbPillW = 92;
+    static constexpr int kSbPillH = 28;
+    juce::Slider* mixStripForFx[8] = { nullptr, &destroyMixStrip, &grainMixStrip,
+                                        &multiplyMixStrip, &tapeMixStrip, nullptr, nullptr, &hazeMixStrip };
+
+    // Layout all occupied slots simultaneously
+    for (int row = 0; row < 4; ++row)
     {
-        const int hdrY = panelTop + topPad;
-        const int row1Y = hdrY + headerH + headerToKnob;
-        const int qw = (cellW - cellPadX * 2) / 5;
-        const int qx = leftX + cellPadX;
-        layoutKnobInBounds(tapeDriveKnob, { qx,            row1Y, qw, knobH });
-        layoutKnobInBounds(tapeWearKnob,  { qx + qw,       row1Y, qw, knobH });
-        layoutKnobInBounds(tapeGlueKnob,  { qx + qw * 2,   row1Y, qw, knobH });
-        layoutKnobInBounds(tapeNoiseKnob, { qx + qw * 3,   row1Y, qw, knobH });
-        layoutKnobInBounds(tapeMixKnob,   { qx + qw * 4,   row1Y, qw, knobH });
-
-        const int row2Y = row1Y + knobH + row2Gap;
-        const int gapBtns = 8;
-        const int outColW = juce::jmax(qw, 56);
-        const int btnsW = juce::jmax(96, cellW - cellPadX * 2 - outColW - gapBtns);
-        const int row2X = leftX + cellPadX;
-        const int btnH = 20;
-        // Center label+buttons group vertically within the row2 (knobH) space
-        const int btnGroupH = 14 + btnH;
-        const int btnVOffset = (knobH - btnGroupH) / 2;
-        tapeNoiseSpeedLabel.setBounds(row2X, row2Y + btnVOffset, btnsW, 12);
+        const int fx = chainSlots[row];
+        if (fx == 0) continue;
+        const auto kp = sectionKnobBounds(row);
+        switch (fx)
         {
-            const int bw = btnsW / 3;
-            for (int i = 0; i < 3; ++i)
-                tapeNoiseSpeedBtn[i].setBounds(row2X + i * bw, row2Y + btnVOffset + 14, bw, btnH);
+            case 1: layoutCrushSection(kp);      break;
+            case 2: layoutGranularSection(kp);   break;
+            case 3: layoutMultiplySection(kp);   break;
+            case 4: layoutTapeSection(kp);       break;
+            case 5: layoutDistortionSection(kp); break;
+            case 6: layoutReverbSection(kp);     break;
+            case 7: layoutHazeSection(kp);       break;
+            default: break;
         }
-        layoutKnobInBounds(tapeOutputKnob, { row2X + btnsW + gapBtns, row2Y, outColW, knobH });
 
-        tapeToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- LEFT BOTTOM: DESTROY (Mix / Bits / Rate / Filter / LFO | row2: In / Out centered) ---
-    {
-        const int hdrY = leftTapeTop + topPad;
-        const int row1Y = hdrY + headerH + headerToKnob;
-        const int dAvailW = cellW - cellPadX * 2;
-        const int dOffsetX = leftX + cellPadX;
-
-        // Row 1: Mix | Bits | Rate | Filter | LFO (5 knobs)
-        const int dKnobW = dAvailW / 5;
-        layoutKnobInBounds(destroyMixKnob,  { dOffsetX,              row1Y, dKnobW, knobH });
-        layoutKnobInBounds(destroyBitsKnob, { dOffsetX + dKnobW,     row1Y, dKnobW, knobH });
-        layoutKnobInBounds(destroyRateKnob, { dOffsetX + dKnobW * 2, row1Y, dKnobW, knobH });
-        layoutKnobInBounds(cutoffKnob,      { dOffsetX + dKnobW * 3, row1Y, dKnobW, knobH });
-        layoutKnobInBounds(filterLfoKnob,   { dOffsetX + dKnobW * 4, row1Y, dAvailW - dKnobW * 4, knobH });
-
-        // Row 2: In | Out — centered horizontally
-        const int row2Y = row1Y + knobH + row2Gap;
-        const int ioTotalW = dKnobW * 2;
-        const int ioStartX = dOffsetX + (dAvailW - ioTotalW) / 2;
-        layoutKnobInBounds(destroyInKnob,  { ioStartX,            row2Y, dKnobW, knobH });
-        layoutKnobInBounds(destroyOutKnob, { ioStartX + dKnobW,   row2Y, dKnobW, knobH });
-
-        destroyToggle.setBounds(leftX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- RIGHT TOP: GRANULAR ---
-    {
-        const int hdrY = rightRow1Top + topPad;
-        const int gx = rightX + cellPadX;
-        const int availW = cellW - cellPadX * 2;
-        const int row1Y = hdrY + headerH + headerToKnob;
-
-        // Row 1: Mix | Spread | Space | Size | Rev | Pitch (6 knobs)
-        const int kW6 = availW / 6;
-        layoutKnobInBounds(grainMixKnob,      { gx,         row1Y, kW6, knobH });
-        layoutKnobInBounds(grainScatterKnob,  { gx + kW6,   row1Y, kW6, knobH });
-        layoutKnobInBounds(grainSpaceKnob,    { gx + kW6*2, row1Y, kW6, knobH });
-        layoutKnobInBounds(grainSizeSyncKnob, { gx + kW6*3, row1Y, kW6, knobH });
-        layoutKnobInBounds(grainRevKnob,      { gx + kW6*4, row1Y, kW6, knobH });
-        layoutKnobInBounds(grainMorphKnob,    { gx + kW6*5, row1Y, availW - kW6*5, knobH });
-
-        // Row 2 (bottom): Amount — full width, centred
-        const int row2Y = row1Y + knobH + 6;
-        layoutKnobInBounds(grainCloudKnob, { gx, row2Y, availW, knobH });
-
-        granularToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
-    }
-
-    // --- RIGHT BOTTOM: MULTIPLY (4 knobs, centered) ---
-    {
-        const int hdrY = rightMultiplyTop + topPad;
-        const int availBelowHdr = sectionH - topPad - headerH;
-        const int knobY = hdrY + headerH + (availBelowHdr - knobH) / 2;
-        const int gx = cellGridX(rightX, 4);
-        layoutKnobInBounds(chorusMixKnob,   { gx,              knobY, knobW, knobH });
-        layoutKnobInBounds(chorusSpeedKnob, { gx + knobW,      knobY, knobW, knobH });
-        layoutKnobInBounds(panOuterKnob,    { gx + knobW * 2,  knobY, knobW, knobH });
-        layoutKnobInBounds(panInnerKnob,    { gx + knobW * 3,  knobY, knobW, knobH });
-        multiplyToggle.setBounds(rightX + cellPadX, hdrY + 1, toggleW, toggleH);
+        // Position sidebar mix slider below name pill (not all sections have one)
+        const auto rb = stripRowBounds(row);
+        const int sliderY = rb.getCentreY() + kSbPillH / 2 + 5;
+        if (auto* strip = mixStripForFx[fx])
+            strip->setBounds(rb.getX() + kSbPillX, sliderY, kSbPillW, 14);
     }
 
     // Right padding: 3 knobs stacked vertically (Input, Output, Dry/Wet)

@@ -50,6 +50,8 @@ public:
     void setSpeed(float speedIps);
     void setFormulation(int index);
     void setStandard(int index);  // 0=NAB, 1=IEC
+    void setPrintThrough(float level); // 0-1, scales print-through coupling
+    void setMotorEnabled(bool enabled); // ramps output up/down over ~2s
     void resetState();
     void process(juce::AudioBuffer<float>& buffer);
     static constexpr int getBaseDelaySamples() { return static_cast<int>(kBaseDelay); }
@@ -76,6 +78,7 @@ private:
 
     // Speed-dependent coefficient recomputation
     void recomputeSpeedCoeffs();
+    void recomputeCrossoverCoeffs();
 
     float readHermite(int channel, float delaySamples) const;
     static float fastNoise(uint32_t& state);
@@ -88,9 +91,11 @@ private:
     // Tape formulations (J-A parameters for different oxide types)
     struct TapeFormulation { float ms, baseA, baseK, c, alpha; };
     static constexpr TapeFormulation kFormulations[] = {
-        { 1.0f, 0.35f, 0.45f, 0.10f, 1.6e-4f },  // Ampex 456 (warm, saturated)
-        { 0.8f, 0.45f, 0.35f, 0.15f, 1.2e-4f },  // Quantegy GP9 (bright, clean)
-        { 0.9f, 0.40f, 0.40f, 0.12f, 1.4e-4f },  // SM900 (balanced, neutral)
+        { 1.0f, 0.35f, 0.45f, 0.10f, 1.6e-4f },  // 0: Ampex 456 (warm, saturated)
+        { 0.8f, 0.45f, 0.35f, 0.15f, 1.2e-4f },  // 1: Quantegy GP9 (bright, clean)
+        { 0.9f, 0.40f, 0.40f, 0.12f, 1.4e-4f },  // 2: SM900 (balanced, neutral)
+        { 0.75f, 0.50f, 0.30f, 0.18f, 1.0e-4f }, // 3: BASF LH (bright, LF-limited)
+        { 1.05f, 0.38f, 0.42f, 0.11f, 1.5e-4f }, // 4: SM468 (wide, neutral, high output)
     };
     int currentFormulation = 0;
     std::atomic<int> pendingFormulation { 0 };
@@ -103,6 +108,11 @@ private:
     // Tape compression dynamics (program-dependent saturation threshold)
     float compEnvState[kMaxChannels] = {};
     float compAttackAlpha = 0.0f, compReleaseAlpha = 0.0f;
+
+    // HF energy envelope for frequency-dependent saturation (C6)
+    // 8-sample time constant — fast enough to track HF transients
+    float hfEnvState[kMaxChannels] = {};
+    static constexpr float kHFEnvAlpha = 0.117f; // 1 - exp(-1/8)
 
     juce::SmoothedValue<float> wowSmoothed { 0.0f };
     juce::SmoothedValue<float> flutterSmoothed { 0.0f };
@@ -153,6 +163,7 @@ private:
     float cachedDriveGain = 1.0f;
     float cachedDriveMakeup = 1.0f;
     float cachedBiasNorm = 1.05f;  // = 3.0f * hystA — normalises J-A small-signal gain to ~1
+    float cachedSatOnset = 0.45f;  // speed-adaptive soft saturation onset threshold
     float hissSpeedIpsStored = 15.0f;
     float cachedHissSpeedScale = 1.0f;
 
@@ -160,6 +171,20 @@ private:
     static_assert((kDelayBufferSize & (kDelayBufferSize - 1)) == 0, "must be power of 2");
     float delayBuffer[kMaxChannels][kDelayBufferSize] = {};
     int writePos = 0;
+
+    // Print-through simulation: adjacent tape layer magnetization (C1)
+    // Wet output is delayed 3ms and added to the future input at -46dB (0.005 linear)
+    static constexpr int kPrintThroughBufSize = 512; // power-of-2; 512/44100 ≈ 11.6ms
+    static constexpr float kPrintThroughCoeff = 0.005f; // -46dB coupling
+    float printThroughBuf[kMaxChannels][kPrintThroughBufSize] = {};
+    int printThroughWritePos = 0;
+    int printThroughDelaySamples = 132; // ~3ms at 44.1kHz; recomputed in prepare()
+    float printThroughLevel = 1.0f;    // user-controlled 0-1 scale on print-through
+
+    // Motor start/stop ramp (ramps output over ~2s to simulate motor speed-up/down)
+    bool motorEnabled = true;
+    float motorRamp = 1.0f;    // current gain [0-1]; 1=running, 0=stopped
+    float motorRampInc = 0.0f; // per-sample increment (positive=ramping up, negative=down)
 
     static constexpr float kBaseDelay = 80.0f;
 
@@ -188,23 +213,57 @@ private:
     HysteresisState hystState[kMaxChannels] = {};
     float prevH[kMaxChannels] = {};  // previous-previous H for Hermite upsampling tangents
 
-    static constexpr int kOversample = 4;
+    static constexpr int kOversample = 8;
 
-    // 7-tap half-band polyphase decimation (cascaded: 4x->2x->1x)
-    // Separate history arrays for each first-stage polyphase branch (was shared — filter state bug)
+    // 7-tap half-band polyphase decimation (cascaded: 8x->4x->2x->1x — 3 stages)
+    // 3-stage cascade eliminates J-A discretization error above 15kHz at 8× vs 4×
     float hb1aHistory[kMaxChannels][4] = {};
     float hb1bHistory[kMaxChannels][4] = {};
-    float hb2History[kMaxChannels][4] = {};
+    float hb1cHistory[kMaxChannels][4] = {}; // stage 1 branch C (samples 4-5)
+    float hb1dHistory[kMaxChannels][4] = {}; // stage 1 branch D (samples 6-7)
+    float hb2aHistory[kMaxChannels][4] = {}; // stage 2 branch A (hb1a+hb1b)
+    float hb2bHistory[kMaxChannels][4] = {}; // stage 2 branch B (hb1c+hb1d)
+    float hb3History[kMaxChannels][4] = {};  // stage 3 (hb2a+hb2b → 1x)
+
+    // Half-band decimation history for LF/HF band oversampling (4× → 2× → 1×, 2 stages each)
+    // Each branch (a = samples 0-1, b = samples 2-3) needs independent state (A7 fix)
+    float hbLFaHistory[kMaxChannels][4] = {};  // LF stage 1 branch A: osLF[0,1]
+    float hbLFbHistory[kMaxChannels][4] = {};  // LF stage 1 branch B: osLF[2,3]
+    float hbLFHistory2[kMaxChannels][4] = {};  // LF stage 2: 2× → 1×
+    float hbHFaHistory[kMaxChannels][4] = {};  // HF stage 1 branch A: osHF[0,1]
+    float hbHFbHistory[kMaxChannels][4] = {};  // HF stage 1 branch B: osHF[2,3]
+    float hbHFHistory2[kMaxChannels][4] = {};  // HF stage 2: 2× → 1×
 
     BiquadCoeffs headBumpCoeffs, notchCoeffs, preEmpCoeffs, deEmpCoeffs, hissCoeffs;
-    BiquadCoeffs gapLossCoeffs;
+    // Gap comb filter: sinc multi-null response  y[n] = 0.5*(x[n] + x[n-D])
+    // D = sr * kHeadGapM / (speedIps * 0.0254) → first null at v/(2*g)
+    static constexpr float kHeadGapM = 6.8e-6f; // 6.8 micron effective gap (Ampex-style)
+    static constexpr int kGapBufSize = 16;       // covers D up to 16 samples (192kHz + 7.5ips)
+    static constexpr int kGapMask = kGapBufSize - 1;
+    float gapBuf[kMaxChannels][kGapBufSize] = {};
+    int gapWritePos = 0;
+    float gapDelaySamples = 1.575f; // recomputed in recomputeSpeedCoeffs()
     // NAB LF shelf (318µs time constant — +3dB below ~500Hz for LF warmth)
     BiquadCoeffs nabLfPreCoeffs, nabLfDeCoeffs;
     BiquadState nabLfPreState[kMaxChannels], nabLfDeState[kMaxChannels];
     BiquadState headBumpState[kMaxChannels], notchState[kMaxChannels];
     BiquadState preEmpState[kMaxChannels], deEmpState[kMaxChannels];
     BiquadState hissFilterState[kMaxChannels];
-    BiquadState gapLossState[kMaxChannels];
+
+    // 3-band J-A crossover filters (LP at 500Hz and 5kHz for band splitting)
+    BiquadCoeffs xoverLF500Coeffs {};   // LP at 500Hz  (extracts LF band)
+    BiquadCoeffs xoverHF5kCoeffs  {};   // LP at 5kHz   (extracts LF+MID band)
+    BiquadState  xoverLF500State[kMaxChannels]  {};
+    BiquadState  xoverHF5kState[kMaxChannels]   {};
+    // Second filter instance for MID band extraction (parallel path, own state)
+    BiquadState  xoverLF500bState[kMaxChannels] {};
+    BiquadState  xoverHF5kbState[kMaxChannels]  {};
+
+    // Per-band J-A states for LF (<500Hz) and HF (>5kHz) bands
+    HysteresisState hystStateLF[kMaxChannels] {};
+    HysteresisState hystStateHF[kMaxChannels] {};
+    float prevHLF[kMaxChannels] {};   // previous H for LF band oversampling
+    float prevHHF[kMaxChannels] {};   // previous H for HF band oversampling
 
     BiquadCoeffs dynLpCoeffs[kMaxChannels];
     BiquadState dynLpBqState[kMaxChannels];
@@ -217,6 +276,13 @@ private:
     BiquadState wearToneLp2State[kMaxChannels] {};
     float glueCohesionEnv[kMaxChannels] = {};
     float glueAttackAlpha = 0.0f, glueReleaseAlpha = 0.0f;
+
+    // Azimuth misalignment: right channel (ch=1) delayed 0–50µs vs left (worn head tilt)
+    static constexpr float kAzimMaxUs = 50.0f;
+    static constexpr int kAzimBufSize = 16;  // covers 50µs at up to 192kHz
+    static constexpr int kAzimMask = kAzimBufSize - 1;
+    float azimBuf[kAzimBufSize] = {};
+    int azimWritePos = 0;
 
     float dcBlockX1[kMaxChannels] = {};
     float dcBlockY1[kMaxChannels] = {};

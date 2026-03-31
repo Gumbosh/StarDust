@@ -1,5 +1,16 @@
 #include "DestroyDrive.h"
 
+static float fastTanh(float x) noexcept
+{
+    if (x > 4.0f) return 1.0f;
+    if (x < -4.0f) return -1.0f;
+    const float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
+static constexpr float kSatKnee = 0.7f;
+static constexpr float kInvTanhKnee = 1.6544f; // ≈ 1/tanh(0.7)
+
 void DestroyDrive::prepare(double sampleRate, int /*samplesPerBlock*/)
 {
     constexpr double rampTimeSec = 0.005; // 5ms smoothing
@@ -35,7 +46,11 @@ void DestroyDrive::processInput(juce::AudioBuffer<float>& buffer)
     {
         const float gain = inputGainSmoothed.getNextValue();
         for (int ch = 0; ch < numChannels; ++ch)
-            buffer.getWritePointer(ch)[i] *= gain;
+        {
+            float& s = buffer.getWritePointer(ch)[i];
+            s *= gain;
+            s = fastTanh(s * kSatKnee) * kInvTanhKnee;
+        }
     }
 }
 

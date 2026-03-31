@@ -125,7 +125,10 @@ public:
     void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void timerCallback() override;
     void parameterChanged(const juce::String& parameterID, float newValue) override;
 
@@ -140,17 +143,48 @@ private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
-    struct LabeledKnob
+    struct LabeledKnob : public juce::Component
     {
         juce::Slider slider;
         juce::Label label;
         std::unique_ptr<SliderAttachment> attachment;
+
+        LabeledKnob();
+        void resized() override;
+
+    private:
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LabeledKnob)
     };
 
     void setupKnob(LabeledKnob& knob, const juce::String& paramId, const juce::String& labelText);
     void layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> bounds);
     void updateDoubleClickDefaults();
     std::map<juce::String, LabeledKnob*> paramToKnob;
+
+    // FX chain strip state
+    int activeSection = 0;
+    int dragSourceRow = -1;
+    int dragHoverRow  = -1;
+    juce::Point<int> dragPos;
+    std::array<int,4> chainSlots { 1, 2, 3, 4 };
+    int hoverRow  = -1;
+    bool hoverOnX = false;
+
+    void syncChainSlots();
+    void commitChainSlots();
+    void showAddEffectMenu(int row);
+    int  firstNonEmptyRow() const;
+    juce::ToggleButton& toggleForSection(int fxId);
+    juce::Rectangle<int> stripRowBounds(int row) const;
+    juce::Rectangle<int> sectionKnobBounds(int row) const;
+
+    void layoutCrushSection(juce::Rectangle<int> bounds);
+    void layoutHazeSection(juce::Rectangle<int> bounds);
+    void layoutGranularSection(juce::Rectangle<int> bounds);
+    void layoutMultiplySection(juce::Rectangle<int> bounds);
+    void layoutTapeSection(juce::Rectangle<int> bounds);
+    void layoutDistortionSection(juce::Rectangle<int> bounds);
+    void layoutReverbSection(juce::Rectangle<int> bounds);
 
     StardustProcessor& processorRef;
     StardustLookAndFeel lookAndFeel;
@@ -166,27 +200,60 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyInKnob, cutoffKnob, destroyOutKnob, destroyMixKnob, filterLfoKnob;
+    LabeledKnob destroyInKnob, destroyOutKnob, destroyMixKnob;
     LabeledKnob destroyBitsKnob, destroyRateKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
     LabeledKnob grainMixKnob, grainCloudKnob;
     LabeledKnob grainScatterKnob, grainSpaceKnob;
+    LabeledKnob grainReverbSizeKnob;
     LabeledKnob grainMorphKnob;
     LabeledKnob grainSizeSyncKnob;
     LabeledKnob grainRevKnob;
+    LabeledKnob grainFeedbackKnob;
+    juce::TextButton grainShapeBtn[4];
+    juce::Label grainShapeLabel;
+    juce::TextButton grainQuantBtn[5];
+    juce::Label grainQuantLabel;
     LabeledKnob chorusMixKnob, chorusSpeedKnob;
     LabeledKnob panOuterKnob, panInnerKnob;
+    LabeledKnob multiplyDepthKnob, multiplyToneKnob;
+    LabeledKnob multiplyFeedbackKnob, multiplyShimmerKnob;
+    juce::TextButton multiplyLfoBtn[3];
+    juce::Label multiplyLfoLabel;
+    juce::ToggleButton multiplyTempoSyncBtn;
+    juce::TextButton multiplyVintageBtn[5];
+    juce::Label multiplyVintageLabel;
+    LabeledKnob multiplyDriftKnob;
+    std::unique_ptr<ButtonAttachment> multiplyTempoSyncAttach;
     LabeledKnob tapeDriveKnob, tapeWearKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
+    LabeledKnob tapeWowKnob, tapeFlutterKnob;
+    juce::TextButton tapeEQStandardBtn[2];
+    juce::Label tapeEQStandardLabel;
+    LabeledKnob distortionDriveKnob, distortionToneKnob, distortionBiasKnob, distortionAsymKnob;
+    juce::TextButton distortionModeBtn[6];
+    juce::Label distortionModeLabel;
+    LabeledKnob reverbMixKnob, reverbSizeKnob, reverbDecayKnob, reverbDampKnob, reverbPreDelayKnob, reverbDiffusionKnob, reverbWidthKnob;
     juce::TextButton tapeNoiseSpeedBtn[3];
     juce::Label tapeNoiseSpeedLabel;
+    juce::TextButton tapeFormulationBtn[5];
+    juce::Label tapeFormulationLabel;
+    // HAZE section
+    LabeledKnob hazeColorKnob;
+    juce::TextButton hazeTypeBtn[3];
+    juce::Label hazeTypeLabel;
+    juce::ToggleButton hazeToggle;
+    std::unique_ptr<ButtonAttachment> hazeToggleAttach;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 
+    // Sidebar mix sliders (one per section, positioned below name pill)
+    juce::Slider destroyMixStrip, grainMixStrip, multiplyMixStrip, tapeMixStrip, hazeMixStrip;
+    std::unique_ptr<SliderAttachment> destroyMixStripAttach, grainMixStripAttach,
+                                      multiplyMixStripAttach, tapeMixStripAttach, hazeMixStripAttach;
 
-
-    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle, tapeToggle;
-    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach;
+    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
+    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach, distortionToggleAttach, reverbToggleAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 

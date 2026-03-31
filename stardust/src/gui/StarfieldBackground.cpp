@@ -47,12 +47,25 @@ void StarfieldBackground::timerCallback()
 StarfieldParams StarfieldBackground::readParams() const
 {
     static constexpr float kWearDepth = 0.48f;
-    const float wear = *apvts.getRawParameterValue("tapeWear");
-    const float noise = *apvts.getRawParameterValue("tapeNoise");
-    const float wobble = kWearDepth * wear;
-    const float tapeWowVal = wobble * 0.70f;
-    const float tapeFlutterVal = wobble * 0.30f;
-    const float tapeHissVal = juce::jlimit(0.0f, 1.0f, noise);
+    const float wear     = *apvts.getRawParameterValue("tapeWear");
+    const float noise    = *apvts.getRawParameterValue("tapeNoise");
+    const float tapeMixV = *apvts.getRawParameterValue("tapeMix");
+    const float wobble   = kWearDepth * wear;
+    // Scale wow/flutter/hiss by tapeMix so they fade with the dry/wet blend
+    const float tapeWowVal     = wobble * 0.70f * tapeMixV;
+    const float tapeFlutterVal = wobble * 0.30f * tapeMixV;
+    const float tapeHissVal    = juce::jlimit(0.0f, 1.0f, noise) * tapeMixV;
+
+    // Determine which effects are actually present in the chain slots
+    bool destroyInChain = false, granularInChain = false, multiplyInChain = false, tapeInChain = false;
+    for (int i = 0; i < 4; ++i)
+    {
+        const int slot = static_cast<int>(*apvts.getRawParameterValue("chainSlot" + juce::String(i)));
+        if (slot == 1) destroyInChain  = true;
+        if (slot == 2) granularInChain = true;
+        if (slot == 3) multiplyInChain = true;
+        if (slot == 4) tapeInChain     = true;
+    }
 
     return StarfieldParams {
         *apvts.getRawParameterValue("destroyFader"),
@@ -76,10 +89,18 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("inputGain"),
         *apvts.getRawParameterValue("outputGain"),
         *apvts.getRawParameterValue("masterMix"),
-        *apvts.getRawParameterValue("tapeEnabled") >= 0.5f,
-        *apvts.getRawParameterValue("destroyEnabled") >= 0.5f,
-        *apvts.getRawParameterValue("granularEnabled") >= 0.5f,
-        *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f
+        *apvts.getRawParameterValue("tapeEnabled")    >= 0.5f && tapeInChain,
+        *apvts.getRawParameterValue("destroyEnabled")  >= 0.5f && destroyInChain,
+        *apvts.getRawParameterValue("granularEnabled") >= 0.5f && granularInChain,
+        *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f && multiplyInChain,
+        // NEW fields
+        *apvts.getRawParameterValue("destroyBits"),
+        *apvts.getRawParameterValue("grainSizeSync"),
+        *apvts.getRawParameterValue("grainReverse"),
+        *apvts.getRawParameterValue("tapeDrive") * tapeMixV,
+        *apvts.getRawParameterValue("tapeGlue")  * tapeMixV,
+        tapeMixV,
+        *apvts.getRawParameterValue("tapeOutput")
     };
 }
 
@@ -241,6 +262,43 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
                 for (int dy = 0; dy < blockSize && (by + dy) < kRenderHeight; ++dy)
                     for (int dx = 0; dx < blockSize && (bx + dx) < kRenderWidth; ++dx)
                         pixelData[static_cast<size_t>((by + dy) * kRenderWidth + (bx + dx))] = avg;
+            }
+    }
+    // ---- Bit-depth posterization (destroyBits: 4..24) ----
+    // Blend toward posterized — subtle at normal settings, noticeable only at very low bits
+    if (params.destroyEnabled && params.destroyBits < 23.5f)
+    {
+        const float bitsNorm = juce::jlimit(0.0f, 1.0f, (params.destroyBits - 4.0f) / 20.0f);
+        const float levels = 6.0f + bitsNorm * 18.0f; // 6 levels (low bits) → 24 levels (high bits)
+        const float strength = (1.0f - bitsNorm) * 0.45f; // max 45% blend at lowest bits
+        const float invLevels = 1.0f / levels;
+        for (auto& px : pixelData)
+        {
+            const float posterized = std::floor(px * levels) * invLevels;
+            px = px + (posterized - px) * strength;
+        }
+    }
+
+    // ---- destroyOut highlight bloom: high output → bright stars spread outward ----
+    if (params.destroyEnabled && outNorm > 0.5f)
+    {
+        const float bloomStr = (outNorm - 0.5f) * 0.6f; // 0..0.3
+        auto& src = tempBuffer_;
+        std::copy(pixelData.begin(), pixelData.end(), src.begin());
+        constexpr float kThreshold = 0.5f;
+        for (int y = 1; y < kRenderHeight - 1; ++y)
+            for (int x = 1; x < kRenderWidth - 1; ++x)
+            {
+                const float excess = std::max(0.0f, src[static_cast<size_t>(y * kRenderWidth + x)] - kThreshold);
+                if (excess < 0.005f) continue;
+                const float spread = excess * bloomStr;
+                for (int dy2 = -1; dy2 <= 1; ++dy2)
+                    for (int dx2 = -1; dx2 <= 1; ++dx2)
+                        if (dx2 != 0 || dy2 != 0)
+                        {
+                            auto& p = pixelData[static_cast<size_t>((y + dy2) * kRenderWidth + (x + dx2))];
+                            p = std::min(1.0f, p + spread * (dx2 == 0 || dy2 == 0 ? 0.5f : 0.35f));
+                        }
             }
     }
   } // end DESTROY
@@ -479,6 +537,10 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     const float spreadScale = 0.20f + scatter * 0.80f;   // scatter == grainDrift
     const float maxR        = std::min(fw * 0.46f, fh * 0.46f);
 
+    // grainSizeSync: 0=Free(1px) → 10=1/32(4px) blob radius
+    const float syncNorm   = juce::jlimit(0.0f, 1.0f, params.grainSizeSync / 10.0f);
+    const int   grainRadius = 1 + static_cast<int>(syncNorm * 3.0f); // 1..4
+
     for (int gi = 0; gi < kMaxGrainParticles; ++gi)
     {
         const auto& gp = grainParticles[gi];
@@ -488,11 +550,14 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         const float bright = juce::jlimit(0.0f, 1.0f, hann * grainBrightScale);
         if (bright < 0.005f) continue;
 
-        // Stable angular slot; distance from centre grows as grain ages
+        // Stable angular slot
         const float angle   = hash(static_cast<float>(gi), 1.7f)
                               * juce::MathConstants<float>::twoPi;
         const float ageFrac = juce::jlimit(0.0f, 1.0f, 1.0f - gp.normPos);
-        const float r       = ageFrac * maxR * spreadScale;
+
+        // grainReverse: fraction of grains move inward (toward centre) instead of outward
+        const bool reversed = (hash(static_cast<float>(gi), 5.3f) < params.grainReverse);
+        const float r = (reversed ? (1.0f - ageFrac) : ageFrac) * maxR * spreadScale;
 
         const int sx = juce::jlimit(0, kRenderWidth  - 1, static_cast<int>(cx + std::cos(angle) * r));
         const int sy = juce::jlimit(0, kRenderHeight - 1, static_cast<int>(cy + std::sin(angle) * r));
@@ -501,16 +566,59 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         auto& centre = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
         centre = std::min(1.0f, centre + bright);
 
-        // Soft cardinal ring — same as the Hanning star shape
-        const float ringStr = bright * 0.4f;
-        static constexpr int kCard[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (const auto& c : kCard)
+        // Particle body: cardinal ring (default) or circular blob (larger sync)
+        if (grainRadius <= 1)
         {
-            const int qx = sx + c[0], qy = sy + c[1];
-            if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
+            const float ringStr = bright * 0.4f;
+            static constexpr int kCard[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+            for (const auto& c : kCard)
             {
-                auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
-                p = std::min(1.0f, p + ringStr);
+                const int qx = sx + c[0], qy = sy + c[1];
+                if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
+                {
+                    auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
+                    p = std::min(1.0f, p + ringStr);
+                }
+            }
+        }
+        else
+        {
+            for (int dy = -grainRadius; dy <= grainRadius; ++dy)
+                for (int dx = -grainRadius; dx <= grainRadius; ++dx)
+                {
+                    const float d = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                    if (d > static_cast<float>(grainRadius)) continue;
+                    const float falloff = 1.0f - d / static_cast<float>(grainRadius + 1);
+                    const int qx = sx + dx, qy = sy + dy;
+                    if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
+                    {
+                        auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
+                        p = std::min(1.0f, p + bright * falloff);
+                    }
+                }
+        }
+
+        // grainSpace halo: diffuse ring mirrors Dattorro reverb diffusion
+        if (params.grainSpace > 0.05f)
+        {
+            const float haloR     = 3.0f + params.grainSpace * 8.0f;
+            const float haloAlpha = bright * params.grainSpace * 0.3f;
+            if (haloAlpha > 0.005f)
+            {
+                constexpr int kHaloSteps = 8;
+                for (int step = 0; step < kHaloSteps; ++step)
+                {
+                    const float a  = static_cast<float>(step)
+                                     * juce::MathConstants<float>::twoPi
+                                     / static_cast<float>(kHaloSteps);
+                    const int hx = sx + static_cast<int>(std::cos(a) * haloR);
+                    const int hy = sy + static_cast<int>(std::sin(a) * haloR);
+                    if (hx >= 0 && hx < kRenderWidth && hy >= 0 && hy < kRenderHeight)
+                    {
+                        auto& p = pixelData[static_cast<size_t>(hy * kRenderWidth + hx)];
+                        p = std::min(1.0f, p + haloAlpha);
+                    }
+                }
             }
         }
     }
@@ -588,6 +696,56 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
                 }
             }
         }
+
+        // Drive: tanh soft-clip (crunches highlights) + spread bloom
+        if (params.tapeDrive > 0.01f)
+        {
+            const float driveGain  = 1.0f + params.tapeDrive * 3.0f;
+            const float driveScale = std::tanh(driveGain);
+            for (auto& px : pixelData)
+                px = std::tanh(px * driveGain) / driveScale;
+
+            // Highlight bloom: bright pixels spread to neighbors
+            if (params.tapeDrive > 0.08f)
+            {
+                auto& src = tempBuffer_;
+                std::copy(pixelData.begin(), pixelData.end(), src.begin());
+                constexpr float kThreshold = 0.55f;
+                const float bloomStr = params.tapeDrive * 0.35f;
+                for (int y = 1; y < kRenderHeight - 1; ++y)
+                    for (int x = 1; x < kRenderWidth - 1; ++x)
+                    {
+                        const float excess = std::max(0.0f, src[static_cast<size_t>(y * kRenderWidth + x)] - kThreshold);
+                        if (excess < 0.005f) continue;
+                        const float spread = excess * bloomStr;
+                        for (int dy2 = -1; dy2 <= 1; ++dy2)
+                            for (int dx2 = -1; dx2 <= 1; ++dx2)
+                                if (dx2 != 0 || dy2 != 0)
+                                {
+                                    auto& p = pixelData[static_cast<size_t>((y + dy2) * kRenderWidth + (x + dx2))];
+                                    p = std::min(1.0f, p + spread * (dx2 == 0 || dy2 == 0 ? 0.5f : 0.35f));
+                                }
+                    }
+            }
+        }
+
+        // Glue: compress dynamic range toward midpoint (mirrors tape compression)
+        if (params.tapeGlue > 0.01f)
+        {
+            constexpr float kMid = 0.45f;
+            const float glueStr = params.tapeGlue * 0.55f;
+            for (auto& px : pixelData)
+                px = px + (kMid - px) * glueStr;
+        }
+
+        // Output: post-tape brightness trim (-24..+12 dB)
+        {
+            const float outNorm2 = juce::jlimit(0.0f, 1.0f, (params.tapeOutput + 24.0f) / 36.0f);
+            const float brightMul = 0.4f + outNorm2 * 1.2f; // 0.4..1.6×
+            if (std::abs(brightMul - 1.0f) > 0.02f)
+                for (auto& px : pixelData)
+                    px = juce::jlimit(0.0f, 1.0f, px * brightMul);
+        }
     }
 
     // ---- Kaleidoscope (MULTIPLY) ----
@@ -599,6 +757,10 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         // Chorus speed drives kaleidoscope rotation
         const float kRotation = time * params.chorusSpeed * 0.3f;
 
+        // Pan asymmetry shifts fold center horizontally (panOuter - panInner both 0..1)
+        const float panAsymmetry = (params.panOuter - params.panInner) * 0.5f;
+        const float foldCx = cx + panAsymmetry * fw * 0.12f;
+
         auto& source = tempBuffer_;
         std::copy(pixelData.begin(), pixelData.end(), source.begin());
         // Reuse pixelData as kaleidoscope output (we read from source, write to pixelData)
@@ -609,7 +771,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         {
             for (int x = 0; x < kRenderWidth; ++x)
             {
-                const float dx = static_cast<float>(x) - cx;
+                const float dx = static_cast<float>(x) - foldCx;
                 const float dy = static_cast<float>(y) - cy;
                 const float dist = std::sqrt(dx * dx + dy * dy);
                 float angle = std::atan2(dy, dx) + kRotation;
@@ -622,7 +784,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
                     angle = wedgeAngle - angle;
 
                 // Map back to source coordinates
-                const float srcXf = cx + std::cos(angle) * dist;
+                const float srcXf = foldCx + std::cos(angle) * dist;
                 const float srcYf = cy + std::sin(angle) * dist;
 
                 // Bilinear interpolation with clamping (no black edges)

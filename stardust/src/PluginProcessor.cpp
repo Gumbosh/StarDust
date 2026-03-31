@@ -37,15 +37,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(4.0f, 24.0f, 0.5f), 12.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("destroyNoise", 1), "Destroy Noise",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.1f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyJitter", 1), "Destroy Jitter",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("filterResonance", 1), "Filter Resonance",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -65,16 +57,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("grainMorph", 1), "Grain Morph",
+        juce::ParameterID("grainReverbSize", 1), "Reverb Size",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("filterCutoff", 1), "Filter Cutoff",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::ParameterID("grainReverbPreDelay", 1), "Reverb Pre-Delay",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 20.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("filterLfo", 1), "Filter LFO",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::ParameterID("grainMorph", 1), "Grain Morph",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
@@ -91,6 +84,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("multiplyPanInner", 1), "Multiply Pan Inner",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyDepth", 1), "Multiply Depth",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.13f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyTone", 1), "Multiply Tone",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.7f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyFeedback", 1), "Multiply Feedback",
+        juce::NormalisableRange<float>(-0.7f, 0.7f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("multiplyLfoShape", 1), "Multiply LFO Shape",
+        juce::StringArray{"Sine", "Tri", "Random"}, 0));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("multiplyTempoSync", 1), "Multiply Tempo Sync", false));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyShimmer", 1), "Multiply Shimmer",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.2f));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("multiplyVintage", 1), "Vintage Mode",
+        juce::StringArray{"Custom", "Juno-60", "Dim-D", "Tri-Cho", "Flanger"}, 0));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("grainFreeze", 1), "Grain Freeze", false));
@@ -125,6 +145,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainInterval", 1), "Grain Interval",
         juce::NormalisableRange<float>(1.0f, 24.0f, 0.5f), 7.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("grainShape", 1), "Grain Shape",
+        juce::StringArray{"Hann", "Gauss", "Tri", "Trap"}, 0));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("grainPitchQuant", 1), "Grain Pitch Quant",
+        juce::StringArray{"Off", "Chr", "Maj", "Min", "Pent"}, 0));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainSVFCutoff", 1), "Grain Filter Cutoff",
+        juce::NormalisableRange<float>(500.0f, 20000.0f, 1.0f, 0.3f),  // log-ish skew
+        16000.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainSVFResonance", 1), "Grain Filter Resonance",
+        juce::NormalisableRange<float>(0.3f, 4.0f, 0.01f),
+        0.5f));
 
     // Modulation LFOs (2 LFOs x 4 params = 8 params)
     for (int lfo = 1; lfo <= 2; ++lfo)
@@ -177,6 +215,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID("tapeNoiseSpeed", 1), "Tape Noise Speed",
         juce::StringArray{"7.5 ips", "15 ips", "30 ips"}, 1));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("tapeFormulation", 1), "Tape Formulation",
+        juce::StringArray{"456", "GP9", "SM900", "LH", "SM468"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("tapeMix", 1), "Tape Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
@@ -209,6 +251,104 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("msWidth", 1), "M/S Width",
         juce::NormalisableRange<float>(0.0f, 2.0f, 0.01f), 1.0f));
 
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("distortionDrive", 1), "Distortion Drive",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("distortionTone", 1), "Distortion Tone",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("distortionBias", 1), "Distortion Bias",
+        juce::NormalisableRange<float>(-0.5f, 0.5f, 0.01f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("distortionMode", 1), "Distortion Mode",
+        juce::StringArray{"Soft", "Tube", "Hard", "Trans", "Satin", "Vari-Mu"}, 0));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("distortionAsym", 1), "Distortion Asym",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
+
+    // FX chain slot assignments (0=empty, 1=CRUSH, 2=GRANULAR, 3=CHORUS, 4=TAPE, 5=SATURATE, 6=REVERB, 7=HAZE)
+    for (int i = 0; i < 4; ++i)
+        params.push_back(std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID("chainSlot" + juce::String(i), 1),
+            "FX Slot " + juce::String(i + 1), 0, 7, i + 1));
+
+    // Reverb (standalone Dattorro plate)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbMix", 1), "Reverb Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbSize", 1), "Reverb Size",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbDecay", 1), "Reverb Decay",
+        juce::NormalisableRange<float>(0.0f, 0.99f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbDamp", 1), "Reverb Damp",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.7f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbPreDelay", 1), "Reverb Pre-Delay",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.5f), 10.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbDiffusion", 1), "Reverb Diffusion",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.7f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverbWidth", 1), "Reverb Width",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("reverbEnabled", 1), "Reverb Enabled", false));
+
+    // --- Feature additions ---
+
+    // Tape: separate Wow + Flutter knobs, Print-Through level, EQ standard, Motor
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeWow", 1), "Tape Wow",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.07f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapeFlutter", 1), "Tape Flutter",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.05f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("tapePrintThrough", 1), "Tape Print-Through",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("tapeEQStandard", 1), "Tape EQ Standard",
+        juce::StringArray{"NAB", "IEC"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("tapeMotorEnabled", 1), "Tape Motor", true));
+
+    // Granular: per-grain pitch spread, loopback
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainPitchSpread", 1), "Grain Pitch Spread",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainLoopback", 1), "Grain Loopback",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    // Multiply: drift amount
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("multiplyDrift", 1), "Multiply Drift",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
+
+    // HAZE: noise texture injection (slot 7)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("hazeColor", 1), "Haze Color",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("hazeType", 1), "Haze Type",
+        juce::StringArray{"Pink", "White", "Vinyl"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("hazeEnabled", 1), "Haze Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("hazeMix", 1), "Haze Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+
     return { params.begin(), params.end() };
 }
 
@@ -216,21 +356,27 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
 
-    // 2x oversampling (order=1 means 2^1 = 2x) for distortion + destroy
+    // 2x oversampling for destroy section
     oversampling = std::make_unique<juce::dsp::Oversampling<float>>(
         2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
     oversampling->initProcessing(static_cast<size_t>(samplesPerBlock));
 
-    // Destroy DSP modules run at oversampled rate
+    // Separate 4x oversampling for distortion (2 stages → 4×; eliminates aliasing above 12kHz at max drive)
+    oversamplingDist = std::make_unique<juce::dsp::Oversampling<float>>(
+        2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
+    oversamplingDist->initProcessing(static_cast<size_t>(samplesPerBlock));
+
+    // CRUSH DSP modules run at oversampled rate
     const double oversampledRate = sampleRate * 2.0;
     bitCrusher.prepare(oversampledRate, samplesPerBlock * 2);
     destroyDrive.prepare(oversampledRate, samplesPerBlock * 2);
-    butterworthFilter.prepare(oversampledRate, samplesPerBlock * 2);
 
     // Granular + chorus run at original rate
     granularEngine.prepare(sampleRate, samplesPerBlock);
     chorusEngine.prepare(sampleRate, samplesPerBlock);
     tapeEngine.prepare(sampleRate, samplesPerBlock);
+    saturation.prepare(sampleRate * 4.0, samplesPerBlock * 4);
+    standaloneReverb.prepare(sampleRate);
 
     // Pre-allocate with generous headroom for oversampled data
     // Use 8x to handle hosts that exceed the declared block size
@@ -298,9 +444,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float destroyMixVal   = *apvts.getRawParameterValue("destroyMix");
     const float destroyFaderVal = *apvts.getRawParameterValue("destroyFader");
     const float destroyBitsVal  = *apvts.getRawParameterValue("destroyBits");
-    const float destroyNoiseVal = *apvts.getRawParameterValue("destroyNoise");
     const float destroyJitterVal = *apvts.getRawParameterValue("destroyJitter");
-    const float filterResVal    = *apvts.getRawParameterValue("filterResonance");
     const float grainMixVal    = *apvts.getRawParameterValue("grainMix");
     const float grainCloud     = *apvts.getRawParameterValue("grainCloud");
     const float grainDrift     = *apvts.getRawParameterValue("grainDrift");
@@ -357,11 +501,18 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     float grainSizeVal          = 500.0f - modCloud * 499.5f;
     const float grainScatterVal = modScatter;  // Scatter knob directly controls position + pitch scatter
     const float stereoWidthVal  = 0.3f + modSpace * 0.7f;
-    const float cutoffVal      = *apvts.getRawParameterValue("filterCutoff");
     const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
     const bool destroyOn  = *apvts.getRawParameterValue("destroyEnabled") >= 0.5f;
     const bool granularOn = *apvts.getRawParameterValue("granularEnabled") >= 0.5f;
     const bool multiplyOn = *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f;
+    const bool tapeOn     = *apvts.getRawParameterValue("tapeEnabled") >= 0.5f;
+
+    // Reset tape state BEFORE processing when tape toggles on (fix 1.4)
+    if (tapeOn != lastTapeOn)
+    {
+        if (tapeOn) tapeEngine.resetState();
+        lastTapeOn = tapeOn;
+    }
 
     // If host exceeds our generous headroom (2x declared block size for
     // oversampling, 8x for dry buffer), skip oversampled processing rather
@@ -369,206 +520,321 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // but no crash occurs.
     const bool dryBufferOk = dryBuffer.getNumSamples() >= numSamples * 4;
 
-    // Oversampled processing for DESTROY section (SP-950)
-    if (destroyOn && dryBufferOk)
+    // Process effects in chain slot order
+    for (int slot = 0; slot < 4; ++slot)
     {
-        juce::dsp::AudioBlock<float> block(buffer);
-        auto oversampledBlock = oversampling->processSamplesUp(block);
-
-        const auto osNumSamples = static_cast<int>(oversampledBlock.getNumSamples());
-        const auto osNumChannels = static_cast<int>(oversampledBlock.getNumChannels());
-        float* channelPtrs[2] = {
-            oversampledBlock.getChannelPointer(0),
-            osNumChannels > 1 ? oversampledBlock.getChannelPointer(1) : nullptr
-        };
-        juce::AudioBuffer<float> osBuffer(channelPtrs, osNumChannels, osNumSamples);
-
-        // Save pre-destroy dry copy for wet/dry blend
-            for (int ch = 0; ch < osNumChannels; ++ch)
-                dryBuffer.copyFrom(ch, 0, osBuffer, ch, 0, osNumSamples);
-
-            // Single fader → sample rate: left=4kHz (crush), right=52kHz (clean)
-            static constexpr float kRpmRates[6] = { 4000.0f, 8000.0f, 19000.0f, 26040.0f, 45000.0f, 52080.0f };
-            const float clampedFader = juce::jlimit(0.0f, 5.0f, destroyFaderVal);
-            const int seg = juce::jlimit(0, 4, static_cast<int>(clampedFader));
-            const float frac = clampedFader - static_cast<float>(seg);
-            const float effectiveRate = kRpmRates[seg] + frac * (kRpmRates[seg + 1] - kRpmRates[seg]);
-
-            // Input gain (dB) — drives signal into 12-bit converter
-            destroyDrive.setInputDrive(destroyInVal);
-            destroyDrive.processInput(osBuffer);
-
-            // Bit depth + sample-rate reduction (variable bits, jitter-capable)
-            bitCrusher.setBitDepth(destroyBitsVal);
-            bitCrusher.setSampleRate(effectiveRate);
-            bitCrusher.setJitter(destroyJitterVal);
-            bitCrusher.process(osBuffer);
-
-            // Low-pass filter (6th-order Butterworth, SP-950 style)
-            const float filterLfoDepth = *apvts.getRawParameterValue("filterLfo");
-            butterworthFilter.setCutoff(cutoffVal);
-            butterworthFilter.setResonance(filterResVal);
-            butterworthFilter.setLFO(1.5f, filterLfoDepth);
-            butterworthFilter.process(osBuffer);
-
-            // Output gain (dB)
-            destroyDrive.setOutputColor(destroyOutVal);
-            destroyDrive.processOutput(osBuffer);
-
-            // Wet/dry blend (constant-power crossfade)
-            if (destroyMixVal < 0.999f)
+        const int fx = static_cast<int>(*apvts.getRawParameterValue("chainSlot" + juce::String(slot)));
+        switch (fx)
+        {
+            case 1: // CRUSH — bit + sample-rate degradation
             {
-                const float dryGain = std::cos(destroyMixVal * juce::MathConstants<float>::halfPi);
-                const float wetGain = std::sin(destroyMixVal * juce::MathConstants<float>::halfPi);
+                if (!destroyOn || !dryBufferOk) break;
+                juce::dsp::AudioBlock<float> block(buffer);
+                auto oversampledBlock = oversampling->processSamplesUp(block);
+
+                const auto osNumSamples = static_cast<int>(oversampledBlock.getNumSamples());
+                const auto osNumChannels = static_cast<int>(oversampledBlock.getNumChannels());
+                float* channelPtrs[2] = {
+                    oversampledBlock.getChannelPointer(0),
+                    osNumChannels > 1 ? oversampledBlock.getChannelPointer(1) : nullptr
+                };
+                juce::AudioBuffer<float> osBuffer(channelPtrs, osNumChannels, osNumSamples);
+
                 for (int ch = 0; ch < osNumChannels; ++ch)
+                    dryBuffer.copyFrom(ch, 0, osBuffer, ch, 0, osNumSamples);
+
+                static constexpr float kRpmRates[6] = { 4000.0f, 8000.0f, 19000.0f, 26040.0f, 45000.0f, 52080.0f };
+                const float clampedFader = juce::jlimit(0.0f, 5.0f, destroyFaderVal);
+                const int seg = juce::jlimit(0, 4, static_cast<int>(clampedFader));
+                const float frac = clampedFader - static_cast<float>(seg);
+                const float effectiveRate = kRpmRates[seg] + frac * (kRpmRates[seg + 1] - kRpmRates[seg]);
+
+                destroyDrive.setInputDrive(destroyInVal);
+                destroyDrive.processInput(osBuffer);
+
+                bitCrusher.setBitDepth(destroyBitsVal);
+                bitCrusher.setSampleRate(effectiveRate);
+                bitCrusher.setJitter(destroyJitterVal);
+                bitCrusher.process(osBuffer);
+
+                destroyDrive.setOutputColor(destroyOutVal);
+                destroyDrive.processOutput(osBuffer);
+
+                if (destroyMixVal < 0.999f)
                 {
-                    auto* wet = osBuffer.getWritePointer(ch);
-                    const auto* dry = dryBuffer.getReadPointer(ch);
-                    for (int i = 0; i < osNumSamples; ++i)
-                        wet[i] = dry[i] * dryGain + wet[i] * wetGain;
-                }
-        }
-
-        oversampling->processSamplesDown(block);
-
-        // Noise floor injection — level controlled by destroyNoise knob (0=silent, 0.1=-60dB, 1.0=-40dB)
-        if (destroyNoiseVal > 0.0f)
-        {
-            const float noiseLevel = destroyNoiseVal * 0.01f;
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto* data = buffer.getWritePointer(ch);
-                for (int s = 0; s < numSamples; ++s)
-                    data[s] += (random.nextFloat() * 2.0f - 1.0f) * noiseLevel;
-            }
-        }
-    }
-
-    // 2. GRANULAR section — macros derive all internal values
-    if (granularOn)
-    {
-        // Use modulated values (mod matrix applied above)
-        float pitchSemitones = (modMorph - 0.5f) * 24.0f;
-        if (*apvts.getRawParameterValue("grainPitchSnap") >= 0.5f)
-            pitchSemitones = std::round(pitchSemitones);
-        granularEngine.setBasePitch(pitchSemitones);
-        granularEngine.setCloud(modCloud);
-        granularEngine.setPosition(modPosition);
-
-        granularEngine.setFreeze(*apvts.getRawParameterValue("grainFreeze") >= 0.5f);
-        granularEngine.setHQMode(*apvts.getRawParameterValue("grainHQ") >= 0.5f);
-
-        // Tempo sync: query host transport
-        {
-            const int syncMode = static_cast<int>(*apvts.getRawParameterValue("grainSync"));
-            double bpm = 120.0;
-            double ppq = 0.0;
-            if (syncMode > 0)
-            {
-                if (auto* playHead = getPlayHead())
-                {
-                    if (auto pos = playHead->getPosition())
+                    const float dryGain = std::cos(destroyMixVal * juce::MathConstants<float>::halfPi);
+                    const float wetGain = std::sin(destroyMixVal * juce::MathConstants<float>::halfPi);
+                    for (int ch = 0; ch < osNumChannels; ++ch)
                     {
-                        bpm = pos->getBpm().orFallback(120.0);
-                        ppq = pos->getPpqPosition().orFallback(0.0);
+                        auto* wet = osBuffer.getWritePointer(ch);
+                        const auto* dry = dryBuffer.getReadPointer(ch);
+                        for (int i = 0; i < osNumSamples; ++i)
+                            wet[i] = dry[i] * dryGain + wet[i] * wetGain;
                     }
                 }
-            }
-            granularEngine.setTempoSync(syncMode, bpm, ppq);
-        }
 
-        // BPM-synced grain size: override Amount-derived size with note division
-        {
-            const int sizeSyncMode = static_cast<int>(*apvts.getRawParameterValue("grainSizeSync"));
-            if (sizeSyncMode > 0)
+                oversampling->processSamplesDown(block);
+                break;
+            }
+            case 2: // GRANULAR
             {
-                double bpm = 120.0;
-                if (auto* ph = getPlayHead())
-                    if (auto pos = ph->getPosition())
-                        bpm = pos->getBpm().orFallback(120.0);
-                // Divisions in beats (indices 0–10, backward-compatible: 0–6 unchanged)
-                // Free, 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/4., 1/4T, 1/8., 1/8T
-                static constexpr float kSizeDivBeats[] = {
-                    0.0f, 4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f,
-                    1.5f, 2.0f/3.0f, 0.75f, 1.0f/3.0f
-                };
-                const float divisionMs = (kSizeDivBeats[sizeSyncMode] / (static_cast<float>(bpm) / 60.0f)) * 1000.0f;
-                grainSizeVal = juce::jlimit(0.5f, 500.0f, divisionMs);
+                if (!granularOn) break;
+                float pitchSemitones = (modMorph - 0.5f) * 24.0f;
+                if (*apvts.getRawParameterValue("grainPitchSnap") >= 0.5f)
+                    pitchSemitones = std::round(pitchSemitones);
+                granularEngine.setBasePitch(pitchSemitones);
+                granularEngine.setCloud(modCloud);
+                granularEngine.setPosition(modPosition);
+                granularEngine.setFreeze(*apvts.getRawParameterValue("grainFreeze") >= 0.5f);
+
+                {
+                    const int syncMode = static_cast<int>(*apvts.getRawParameterValue("grainSync"));
+                    double bpm = 120.0;
+                    double ppq = 0.0;
+                    if (syncMode > 0)
+                    {
+                        if (auto* playHead = getPlayHead())
+                        {
+                            if (auto pos = playHead->getPosition())
+                            {
+                                bpm = pos->getBpm().orFallback(120.0);
+                                ppq = pos->getPpqPosition().orFallback(0.0);
+                            }
+                        }
+                    }
+                    granularEngine.setTempoSync(syncMode, bpm, ppq);
+                }
+
+                {
+                    const int sizeSyncMode = static_cast<int>(*apvts.getRawParameterValue("grainSizeSync"));
+                    if (sizeSyncMode > 0)
+                    {
+                        double bpm = 120.0;
+                        if (auto* ph = getPlayHead())
+                            if (auto pos = ph->getPosition())
+                                bpm = pos->getBpm().orFallback(120.0);
+                        static constexpr float kSizeDivBeats[] = {
+                            0.0f, 4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f,
+                            1.5f, 2.0f/3.0f, 0.75f, 1.0f/3.0f
+                        };
+                        const float divisionMs = (kSizeDivBeats[sizeSyncMode] / (static_cast<float>(bpm) / 60.0f)) * 1000.0f;
+                        grainSizeVal = juce::jlimit(0.5f, 500.0f, divisionMs);
+                    }
+                }
+
+                granularEngine.setFeedback(feedbackRaw);
+                granularEngine.setTexture(modSpace);
+                granularEngine.setSpace(modSpace);
+                granularEngine.setDrift(modScatter);
+                granularEngine.setReverse(modReverse);
+                granularEngine.setVoices(static_cast<int>(std::round(
+                    *apvts.getRawParameterValue("grainVoices"))));
+                granularEngine.setVoiceInterval(*apvts.getRawParameterValue("grainInterval"));
+                granularEngine.setGrainShape(static_cast<GranularEngine::GrainShape>(
+                    static_cast<int>(*apvts.getRawParameterValue("grainShape"))));
+                granularEngine.setPitchQuant(
+                    static_cast<int>(*apvts.getRawParameterValue("grainPitchQuant")));
+                granularEngine.setSVFCutoff(*apvts.getRawParameterValue("grainSVFCutoff"));
+                granularEngine.setSVFResonance(*apvts.getRawParameterValue("grainSVFResonance"));
+                granularEngine.setReverbSize(*apvts.getRawParameterValue("grainReverbSize"));
+                granularEngine.setReverbPreDelay(*apvts.getRawParameterValue("grainReverbPreDelay"));
+                granularEngine.setPitchSpread(*apvts.getRawParameterValue("grainPitchSpread"));
+                granularEngine.setLoopback(*apvts.getRawParameterValue("grainLoopback"));
+                granularEngine.setParameters(
+                    grainSizeVal, grainDensityVal, grainScatterVal,
+                    modMix, stereoWidthVal);
+                granularEngine.process(buffer);
+                break;
             }
+            case 3: // MULTIPLY
+            {
+                if (!multiplyOn) break;
+                const float panOuter = *apvts.getRawParameterValue("multiplyPanOuter");
+                const float panInner = *apvts.getRawParameterValue("multiplyPanInner");
+                chorusEngine.setMix(chorusMixVal);
+                chorusEngine.setSpeed(*apvts.getRawParameterValue("chorusSpeed"));
+                chorusEngine.setDepth(*apvts.getRawParameterValue("multiplyDepth"));
+                chorusEngine.setTone(*apvts.getRawParameterValue("multiplyTone"));
+                chorusEngine.setFeedback(*apvts.getRawParameterValue("multiplyFeedback"));
+                chorusEngine.setShimmer(*apvts.getRawParameterValue("multiplyShimmer"));
+                chorusEngine.setVintageMode(static_cast<int>(*apvts.getRawParameterValue("multiplyVintage")));
+                chorusEngine.setDrift(*apvts.getRawParameterValue("multiplyDrift"));
+                chorusEngine.setLfoShape(static_cast<int>(*apvts.getRawParameterValue("multiplyLfoShape")));
+                {
+                    const bool syncOn = *apvts.getRawParameterValue("multiplyTempoSync") > 0.5f;
+                    double bpm = 120.0;
+                    if (auto* ph = getPlayHead())
+                        if (auto pos = ph->getPosition(); pos.hasValue())
+                            if (auto bpmOpt = pos->getBpm(); bpmOpt.hasValue())
+                                bpm = *bpmOpt;
+                    chorusEngine.setTempoSync(syncOn, bpm);
+                }
+                chorusEngine.setPans(panOuter, panInner);
+                chorusEngine.process(buffer);
+                break;
+            }
+            case 4: // TAPE
+            {
+                if (!tapeOn) break;
+                const float driveN = modMatrix.modulate(ModTarget::TapeDrive, *apvts.getRawParameterValue("tapeDrive"));
+                const float wear   = modMatrix.modulate(ModTarget::TapeWear, *apvts.getRawParameterValue("tapeWear"));
+                const float mix    = modMatrix.modulate(ModTarget::TapeMix, *apvts.getRawParameterValue("tapeMix"));
+                const float glue   = *apvts.getRawParameterValue("tapeGlue");
+                const float noise  = *apvts.getRawParameterValue("tapeNoise");
+                // Separate Wow + Flutter knobs (direct control, 0-1 maps to 0-0.48 depth)
+                tapeEngine.setWow(*apvts.getRawParameterValue("tapeWow") * 0.48f);
+                tapeEngine.setFlutter(*apvts.getRawParameterValue("tapeFlutter") * 0.48f);
+                tapeEngine.setHiss(juce::jlimit(0.0f, 1.0f, noise));
+                tapeEngine.setBias(juce::jlimit(0.0f, 1.0f, glue));
+                tapeEngine.setDrive(juce::jlimit(0.0f, 1.0f, driveN));
+                tapeEngine.setMix(mix);
+                tapeEngine.setTapeOutputDb(*apvts.getRawParameterValue("tapeOutput"));
+                tapeEngine.setWearTone(juce::jlimit(0.0f, 1.0f, wear));
+                tapeEngine.setPrintThrough(*apvts.getRawParameterValue("tapePrintThrough"));
+                tapeEngine.setMotorEnabled(*apvts.getRawParameterValue("tapeMotorEnabled") >= 0.5f);
+                {
+                    static constexpr float kNoiseIps[] = { 7.5f, 15.0f, 30.0f };
+                    int noiseIx = 1;
+                    if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeNoiseSpeed")))
+                        noiseIx = juce::jlimit(0, 2, pc->getIndex());
+                    const float ips = kNoiseIps[noiseIx];
+                    tapeEngine.setSpeed(ips);
+                    tapeEngine.setHissSpeedIps(ips);
+                }
+                tapeEngine.setFormulation(static_cast<int>(*apvts.getRawParameterValue("tapeFormulation")));
+                tapeEngine.setStandard(static_cast<int>(*apvts.getRawParameterValue("tapeEQStandard")));
+                tapeEngine.process(buffer);
+                break;
+            }
+            case 5: // DISTORTION (saturation + tone filter, 2x oversampled)
+            {
+                if (!(*apvts.getRawParameterValue("distortionEnabled") >= 0.5f)) break;
+                if (!dryBufferOk) break;
+                const float driveVal = *apvts.getRawParameterValue("distortionDrive");
+                const float toneVal  = *apvts.getRawParameterValue("distortionTone");
+
+                juce::dsp::AudioBlock<float> block(buffer);
+                auto oversampledBlock = oversamplingDist->processSamplesUp(block);
+
+                const auto osNumSamples = static_cast<int>(oversampledBlock.getNumSamples());
+                const auto osNumChannels = static_cast<int>(oversampledBlock.getNumChannels());
+                float* osChannelPtrs[2] = {
+                    oversampledBlock.getChannelPointer(0),
+                    osNumChannels > 1 ? oversampledBlock.getChannelPointer(1) : nullptr
+                };
+                juce::AudioBuffer<float> osBuffer(osChannelPtrs, osNumChannels, osNumSamples);
+
+                saturation.setInputGain(driveVal * 24.0f);
+                saturation.setDrive(driveVal);
+                saturation.setBias(*apvts.getRawParameterValue("distortionBias"));
+                saturation.setMode(static_cast<int>(*apvts.getRawParameterValue("distortionMode")));
+                saturation.setAsym(*apvts.getRawParameterValue("distortionAsym"));
+                saturation.processInput(osBuffer);
+                saturation.setTone(toneVal);
+                saturation.processTone(osBuffer);
+                saturation.setOutputGain(-driveVal * 24.0f);
+                saturation.processOutput(osBuffer);
+
+                oversamplingDist->processSamplesDown(block);
+                break;
+            }
+            case 6: // REVERB (standalone Dattorro plate)
+            {
+                if (!(*apvts.getRawParameterValue("reverbEnabled") >= 0.5f)) break;
+
+                standaloneReverb.setSize(*apvts.getRawParameterValue("reverbSize"));
+                standaloneReverb.setDecay(*apvts.getRawParameterValue("reverbDecay"));
+                standaloneReverb.setDamping(*apvts.getRawParameterValue("reverbDamp"));
+                standaloneReverb.setPreDelay(*apvts.getRawParameterValue("reverbPreDelay"));
+                standaloneReverb.setDiffusion(*apvts.getRawParameterValue("reverbDiffusion"));
+
+                const float reverbMixVal = *apvts.getRawParameterValue("reverbMix");
+                const float dryGain = std::cos(reverbMixVal * juce::MathConstants<float>::halfPi);
+                const float wetGain = std::sin(reverbMixVal * juce::MathConstants<float>::halfPi);
+
+                auto* dataL = buffer.getWritePointer(0);
+                auto* dataR = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+
+                const float width = *apvts.getRawParameterValue("reverbWidth");
+                // M/S width: 0=mono wet, 1=full stereo wet
+                const float msS = width;
+                const float msM = 1.0f;
+
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const float inL = dataL[i];
+                    const float inR = dataR ? dataR[i] : inL;
+                    float outL = 0.0f, outR = 0.0f;
+                    standaloneReverb.processSample(inL, inR, outL, outR);
+                    // Apply M/S width to wet signal before dry/wet blend
+                    const float wetMid  = (outL + outR) * 0.5f * msM;
+                    const float wetSide = (outL - outR) * 0.5f * msS;
+                    const float wL = wetMid + wetSide;
+                    const float wR = wetMid - wetSide;
+                    dataL[i] = inL * dryGain + wL * wetGain;
+                    if (dataR) dataR[i] = inR * dryGain + wR * wetGain;
+                }
+                break;
+            }
+            case 7: // HAZE — atmospheric noise texture
+            {
+                if (!(*apvts.getRawParameterValue("hazeEnabled") >= 0.5f)) break;
+
+                const float hazeColor  = *apvts.getRawParameterValue("hazeColor");
+                const int   hazeType   = static_cast<int>(*apvts.getRawParameterValue("hazeType"));
+                const float hazeMixVal = *apvts.getRawParameterValue("hazeMix");
+
+                // 1-pole LP coefficient for noise color (hazeColor 0=500Hz, 1=20kHz)
+                const float colorFreq = 500.0f + hazeColor * hazeColor * 19500.0f;
+                const float hazeLP = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * colorFreq
+                                                     / static_cast<float>(currentSampleRate));
+
+                const float noiseScale = hazeMixVal * 0.012f; // ~-38dBFS at full strip
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    auto* data = buffer.getWritePointer(ch);
+                    for (int s = 0; s < numSamples; ++s)
+                    {
+                        float raw = 0.0f;
+                        if (hazeType == 1) // White
+                        {
+                            raw = random.nextFloat() * 2.0f - 1.0f;
+                        }
+                        else if (hazeType == 2) // Vinyl: pink + rare crackle impulses
+                        {
+                            const float w = random.nextFloat() * 2.0f - 1.0f;
+                            noisePinkB[0][ch] = 0.99886f * noisePinkB[0][ch] + w * 0.0555179f;
+                            noisePinkB[1][ch] = 0.99332f * noisePinkB[1][ch] + w * 0.0750759f;
+                            noisePinkB[2][ch] = 0.96900f * noisePinkB[2][ch] + w * 0.1538520f;
+                            noisePinkB[3][ch] = 0.86650f * noisePinkB[3][ch] + w * 0.3104856f;
+                            noisePinkB[4][ch] = 0.55000f * noisePinkB[4][ch] + w * 0.5329522f;
+                            raw = (noisePinkB[0][ch] + noisePinkB[1][ch]
+                                 + noisePinkB[2][ch] + noisePinkB[3][ch]
+                                 + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
+                            if (random.nextFloat() < 0.001f)
+                                raw += (random.nextFloat() * 2.0f - 1.0f) * 3.0f;
+                        }
+                        else // Pink (default)
+                        {
+                            const float w = random.nextFloat() * 2.0f - 1.0f;
+                            noisePinkB[0][ch] = 0.99886f * noisePinkB[0][ch] + w * 0.0555179f;
+                            noisePinkB[1][ch] = 0.99332f * noisePinkB[1][ch] + w * 0.0750759f;
+                            noisePinkB[2][ch] = 0.96900f * noisePinkB[2][ch] + w * 0.1538520f;
+                            noisePinkB[3][ch] = 0.86650f * noisePinkB[3][ch] + w * 0.3104856f;
+                            noisePinkB[4][ch] = 0.55000f * noisePinkB[4][ch] + w * 0.5329522f;
+                            raw = (noisePinkB[0][ch] + noisePinkB[1][ch]
+                                 + noisePinkB[2][ch] + noisePinkB[3][ch]
+                                 + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
+                        }
+                        // Apply LP color filter then scale
+                        hazeColorLP[ch] += hazeLP * (raw - hazeColorLP[ch]);
+                        data[s] += hazeColorLP[ch] * noiseScale;
+                    }
+                }
+                break;
+            }
+            default: break; // 0 = empty slot
         }
-
-        // Space → texture + reverb wet (feedback now has its own knob)
-        granularEngine.setFeedback(feedbackRaw);
-        granularEngine.setTexture(modSpace);
-        granularEngine.setSpace(modSpace);
-        granularEngine.setDrift(modScatter);
-        granularEngine.setReverse(modReverse);
-        granularEngine.setVoices(static_cast<int>(std::round(
-            *apvts.getRawParameterValue("grainVoices"))));
-        granularEngine.setVoiceInterval(*apvts.getRawParameterValue("grainInterval"));
-
-        granularEngine.setParameters(
-            grainSizeVal, grainDensityVal, grainScatterVal,
-            modMix, stereoWidthVal);
-        granularEngine.process(buffer);
-    }
-
-    // 3. MULTIPLY section
-    if (multiplyOn)
-    {
-        const float panOuter = *apvts.getRawParameterValue("multiplyPanOuter");
-        const float panInner = *apvts.getRawParameterValue("multiplyPanInner");
-        chorusEngine.setMix(chorusMixVal);
-        chorusEngine.setSpeed(*apvts.getRawParameterValue("chorusSpeed"));
-        chorusEngine.setPans(panOuter, panInner);
-        chorusEngine.process(buffer);
-    }
-
-    // 4. TAPE section (wow + flutter + hiss)
-    const bool tapeOn = *apvts.getRawParameterValue("tapeEnabled") >= 0.5f;
-
-    // Reset state BEFORE processing when tape toggles on (fix 1.4)
-    if (tapeOn != lastTapeOn)
-    {
-        if (tapeOn) tapeEngine.resetState();
-        lastTapeOn = tapeOn;
-        // Latency is always reported as max in prepareToPlay (fix 1.5)
-    }
-
-    if (tapeOn)
-    {
-        // Single “house” recipe — user trims with Drive / Wear / Glue / Noise / Mix / Output
-        static constexpr float kWearDepth = 0.48f;
-        const float driveN = modMatrix.modulate(ModTarget::TapeDrive, *apvts.getRawParameterValue("tapeDrive"));
-        const float wear   = modMatrix.modulate(ModTarget::TapeWear, *apvts.getRawParameterValue("tapeWear"));
-        const float mix    = modMatrix.modulate(ModTarget::TapeMix, *apvts.getRawParameterValue("tapeMix"));
-        const float glue   = *apvts.getRawParameterValue("tapeGlue");
-        const float noise  = *apvts.getRawParameterValue("tapeNoise");
-        const float wobble = kWearDepth * wear;
-        // Dynamic ratio: heavy flutter at low wear (erratic VHS character),
-        // shifting toward wow dominance at high wear (smooth tape degradation).
-        // At full wear the split is identical to the previous 30/70 ratio.
-        const float flutterRatio = 0.50f - 0.20f * wear;  // 0.50 at wear=0, 0.30 at wear=1
-        tapeEngine.setFlutter(wobble * flutterRatio);
-        tapeEngine.setWow(wobble * (1.0f - flutterRatio));
-        tapeEngine.setHiss(juce::jlimit(0.0f, 1.0f, noise));
-        tapeEngine.setBias(juce::jlimit(0.0f, 1.0f, glue));
-        tapeEngine.setDrive(juce::jlimit(0.0f, 1.0f, driveN));
-        tapeEngine.setMix(mix);
-        tapeEngine.setTapeOutputDb(*apvts.getRawParameterValue("tapeOutput"));
-        tapeEngine.setWearTone(juce::jlimit(0.0f, 1.0f, wear));
-        {
-            static constexpr float kNoiseIps[] = { 7.5f, 15.0f, 30.0f };
-            int noiseIx = 1;
-            if (auto* pc = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeNoiseSpeed")))
-                noiseIx = juce::jlimit(0, 2, pc->getIndex());
-            tapeEngine.setHissSpeedIps(kNoiseIps[noiseIx]);
-        }
-        tapeEngine.setSpeed(15.0f);
-        tapeEngine.setFormulation(0);
-        tapeEngine.setStandard(0);
-
-        tapeEngine.process(buffer);
     }
 
     // M/S stereo width control (after all processing, before output gain)
@@ -1006,1059 +1272,309 @@ juce::AudioProcessorEditor* StardustProcessor::createEditor()
 
 void StardustProcessor::initFactoryPresets()
 {
+    // Helper macro: default values used in every preset unless overridden
+    // chain: all slots explicitly set; enabled flags match which slots are occupied
     factoryPresets = {
-        // ======== INIT (1) ========
         { "Init", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.17f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.48f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 0.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== DESTROY ONLY (2-13) ========
         { "SP-950 Classic", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.85f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.85f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "SP-950 Scorched", {
-            {"destroyFader", 2.0f}, {"destroyIn", 10.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 10.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "33 RPM Haze", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.55f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.55f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "78 RPM Shellac", {
-            {"destroyFader", 0.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.95f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 0.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.95f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "ADC Overdrive", {
-            {"destroyFader", 2.0f}, {"destroyIn", 12.0f}, {"destroyOut", -6.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.9f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 12.0f}, {"destroyOut", -6.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.9f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Muffled Sampler", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.25f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.25f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Telephone Line", {
-            {"destroyFader", 1.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.2f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 12.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.2f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Digital Grit", {
-            {"destroyFader", 1.0f}, {"destroyIn", 6.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.75f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 8.0f}, {"destroyIn", 6.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.75f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Warm Vinyl", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 2.0f}, {"destroyMix", 0.7f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.6f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.7f}, {"filterCutoff", 0.6f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Lo-Fi Radio", {
-            {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.15f}, {"filterCutoff", 0.4f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 3.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.4f}, {"filterLfo", 0.15f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "8-Bit Nostalgia", {
-            {"destroyFader", 0.5f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.65f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 0.5f}, {"destroyBits", 8.0f}, {"destroyIn", 3.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.65f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Subtle Color", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.35f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.9f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.35f}, {"filterCutoff", 0.9f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== GRANULAR ONLY (14-25) ========
+        { "Bitcrushed 4-bit", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 0.5f}, {"destroyBits", 4.0f}, {"destroyIn", 6.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.8f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
+        }},
+        { "SP-950 Filtered", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.5f}, {"filterLfo", 0.3f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
+        }},
         { "Morning Fog", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.2f}, {"grainDrift", 0.1f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.2f}, {"grainDrift", 0.1f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Shimmer Pad", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.75f}, {"grainCloud", 0.8f}, {"grainDrift", 0.15f}, {"grainSpace", 0.7f}, {"grainMorph", 0.62f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.8f}, {"grainDrift", 0.15f}, {"grainSpace", 0.7f}, {"grainMorph", 0.62f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.75f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Frozen Cathedral", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 1.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.05f}, {"grainSpace", 0.9f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.05f}, {"grainSpace", 0.9f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 1.0f}, {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Scattered Glass", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.9f}, {"grainDrift", 0.8f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.9f}, {"grainDrift", 0.8f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.8f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Pitch Cloud Up", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.75f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.75f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Pitch Cloud Down", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.25f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.25f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Ambient Dust", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.5f}, {"grainDrift", 0.4f}, {"grainSpace", 0.65f}, {"grainMorph", 0.52f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.4f}, {"grainSpace", 0.65f}, {"grainMorph", 0.52f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
         { "Dense Swarm", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.85f}, {"grainCloud", 1.0f}, {"grainDrift", 0.6f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 1.0f}, {"grainDrift", 0.6f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.85f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Sparse Droplets", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.65f}, {"grainCloud", 0.05f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.55f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.05f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.55f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.65f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Reverse Drift", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.35f}, {"grainDrift", 0.9f}, {"grainSpace", 0.45f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.35f}, {"grainDrift", 0.9f}, {"grainSpace", 0.45f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Octave Halo", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.7f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 1.0f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.7f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 1.0f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.8f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
         }},
         { "Grain Whisper", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.4f}, {"grainCloud", 0.15f}, {"grainDrift", 0.25f}, {"grainSpace", 0.35f}, {"grainMorph", 0.48f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.15f}, {"grainDrift", 0.25f}, {"grainSpace", 0.35f}, {"grainMorph", 0.48f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.4f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== TAPE ONLY (26-37) ========
+        { "Frozen Void", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.2f}, {"grainDrift", 0.02f}, {"grainSpace", 1.0f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 1.0f}, {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
+        }},
         { "Reel To Reel", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Tape Warmth", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.55f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Wobble Machine", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.27f}, {"tapeWear", 0.36f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.18f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.27f}, {"tapeWear", 0.36f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.18f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Old Cassette", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.32f}, {"tapeWear", 0.43f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.25f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.32f}, {"tapeWear", 0.43f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.25f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Tape Saturation", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.23f}, {"tapeWear", 0.32f}, {"tapeGlue", 0.7f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.23f}, {"tapeWear", 0.32f}, {"tapeGlue", 0.7f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Mastering Glue", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.1f}, {"tapeWear", 0.16f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.5f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.16f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.5f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "30 IPS Punch", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 2.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Ampex Vintage", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "SM900 Clarity", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.03f}, {"tapeWear", 0.06f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
-        }},
-        { "IEC Broadcast", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.07f}, {"tapeWear", 0.1f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.03f}, {"tapeWear", 0.06f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Hiss Machine", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.2f}, {"tapeWear", 0.26f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.11f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.2f}, {"tapeWear", 0.26f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.11f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Tape Overdrive", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.8f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 3.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.8f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 3.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== MULTIPLY ONLY (38-45) ========
+        { "IEC Broadcast", {
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.07f}, {"tapeWear", 0.1f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
+        }},
         { "Classic Chorus", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.5f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Slow Ensemble", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.6f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.6f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
         { "Fast Shimmer", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 4.0f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 4.0f}, {"chorusMix", 0.4f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Wide Stereo Wash", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.7f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.7f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Tight Doubles", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 0.5f}, {"multiplyPanInner", 0.4f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f}, {"multiplyPanOuter", 0.5f}, {"multiplyPanInner", 0.4f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Vibrato Voice", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 5.0f}, {"chorusMix", 0.3f},
-            {"multiplyPanOuter", 0.7f}, {"multiplyPanInner", 0.7f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 5.0f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 0.7f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Mono Thicken", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.45f},
-            {"multiplyPanOuter", 0.2f}, {"multiplyPanInner", 0.1f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.8f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.45f}, {"multiplyPanOuter", 0.2f}, {"multiplyPanInner", 0.1f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.8f}
         }},
         { "Detuned Spread", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.15f}, {"chorusMix", 0.8f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 1.0f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
+            {"chainSlot0", 3.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.15f}, {"chorusMix", 0.8f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 1.0f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
         }},
-
-        // ======== DESTROY + TAPE (46-55) ========
         { "Dusty Cassette", {
-            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.8f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.65f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.23f}, {"tapeWear", 0.31f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.8f}, {"filterCutoff", 0.65f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.23f}, {"tapeWear", 0.31f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Sampler Through Tape", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.8f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.8f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "VHS Memories", {
-            {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 0.9f},
-            {"filterLfo", 0.1f}, {"filterCutoff", 0.5f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.28f}, {"tapeWear", 0.38f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.2f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 0.9f}, {"filterCutoff", 0.5f}, {"filterLfo", 0.1f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.28f}, {"tapeWear", 0.38f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.2f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Vinyl Through Reel", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 1.0f}, {"destroyMix", 0.75f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.6f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.75f}, {"filterCutoff", 0.6f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Broken Walkman", {
-            {"destroyFader", 1.5f}, {"destroyIn", 5.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.2f}, {"filterCutoff", 0.35f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.46f}, {"tapeWear", 0.63f}, {"tapeGlue", 0.3f}, {"tapeNoise", 0.49f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 1.5f}, {"destroyBits", 12.0f}, {"destroyIn", 5.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.35f}, {"filterLfo", 0.2f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.46f}, {"tapeWear", 0.63f}, {"tapeGlue", 0.3f}, {"tapeNoise", 0.49f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Warm Sampler Dub", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 2.0f}, {"destroyMix", 0.6f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.16f}, {"tapeWear", 0.22f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 2.0f}, {"destroyMix", 0.6f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.16f}, {"tapeWear", 0.22f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Lo-Fi Beat Tape", {
-            {"destroyFader", 2.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.85f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.55f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.85f}, {"filterCutoff", 0.55f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Crushed Tape Drone", {
-            {"destroyFader", 0.5f}, {"destroyIn", 8.0f}, {"destroyOut", -5.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.45f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.65f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 0.5f}, {"destroyBits", 12.0f}, {"destroyIn", 8.0f}, {"destroyOut", -5.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.45f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.33f}, {"tapeWear", 0.44f}, {"tapeGlue", 0.65f}, {"tapeNoise", 0.26f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Subtle Degradation", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.4f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.85f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.07f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.6f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.4f}, {"filterCutoff", 0.85f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.07f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.6f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "78 RPM Wax Cylinder", {
-            {"destroyFader", 0.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.05f}, {"filterCutoff", 0.3f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.37f}, {"tapeWear", 0.5f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.33f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.7f}
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 0.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.3f}, {"filterLfo", 0.05f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.37f}, {"tapeWear", 0.5f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.33f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 0.7f}
         }},
-
-        // ======== GRANULAR + MULTIPLY (56-63) ========
         { "Shimmer Ensemble", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.6f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.6f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.5f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
         { "Wide Cloud Layer", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.75f}, {"grainCloud", 0.7f}, {"grainDrift", 0.3f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.6f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.7f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.7f}, {"grainDrift", 0.3f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.75f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.6f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.7f}
         }},
         { "Frozen Chorus", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 1.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.05f}, {"grainSpace", 0.85f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 1.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.55f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.05f}, {"grainSpace", 0.85f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 1.0f}, {"grainFreeze", 1.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.55f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Scatter Voices", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.85f}, {"grainDrift", 0.7f}, {"grainSpace", 0.35f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.2f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.85f}, {"grainDrift", 0.7f}, {"grainSpace", 0.35f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.2f}, {"chorusMix", 0.4f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Ambient Multiplier", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.75f}, {"grainMorph", 0.55f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.2f}, {"chorusMix", 0.7f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.75f}, {"grainMorph", 0.55f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.2f}, {"chorusMix", 0.7f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
         }},
         { "Pitched Swirl", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.65f}, {"grainCloud", 0.6f}, {"grainDrift", 0.25f}, {"grainSpace", 0.5f}, {"grainMorph", 0.72f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 2.5f}, {"chorusMix", 0.45f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.25f}, {"grainSpace", 0.5f}, {"grainMorph", 0.72f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.65f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 2.5f}, {"chorusMix", 0.45f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
         { "Grain Nebula", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.85f}, {"grainCloud", 0.95f}, {"grainDrift", 0.5f}, {"grainSpace", 0.8f}, {"grainMorph", 0.45f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.65f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.95f}, {"grainDrift", 0.5f}, {"grainSpace", 0.8f}, {"grainMorph", 0.45f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.85f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.65f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
         }},
         { "Suboctave Bloom", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.3f}, {"grainDrift", 0.1f}, {"grainSpace", 0.6f}, {"grainMorph", 0.0f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.1f}, {"grainSpace", 0.6f}, {"grainMorph", 0.0f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.5f}, {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== GRANULAR + TAPE (64-71) ========
         { "Grain Through Tape", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Organic Texture", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.35f}, {"grainDrift", 0.35f}, {"grainSpace", 0.5f}, {"grainMorph", 0.48f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.55f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.35f}, {"grainDrift", 0.35f}, {"grainSpace", 0.5f}, {"grainMorph", 0.48f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.55f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
         { "Frozen On Tape", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 1.0f}, {"grainCloud", 0.25f}, {"grainDrift", 0.05f}, {"grainSpace", 0.8f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.16f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.25f}, {"grainDrift", 0.05f}, {"grainSpace", 0.8f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 1.0f}, {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.16f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Warped Shimmer", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.65f}, {"grainDrift", 0.15f}, {"grainSpace", 0.65f}, {"grainMorph", 0.65f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.65f}, {"grainDrift", 0.15f}, {"grainSpace", 0.65f}, {"grainMorph", 0.65f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.13f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Tape Scatter", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.8f}, {"grainDrift", 0.75f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.8f}, {"grainDrift", 0.75f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.8f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
         { "Vintage Ambience", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.45f}, {"grainCloud", 0.3f}, {"grainDrift", 0.15f}, {"grainSpace", 0.7f}, {"grainMorph", 0.52f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.52f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.55f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.08f}, {"tapeWear", 0.11f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
-        { "Saturated Clouds", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.55f}, {"grainDrift", 0.2f}, {"grainSpace", 0.55f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.2f}, {"tapeWear", 0.28f}, {"tapeGlue", 0.65f}, {"tapeNoise", 0.11f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Cloud Tape Pad", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.15f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.06f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Wobble Drone", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.9f}, {"grainCloud", 0.2f}, {"grainDrift", 0.1f}, {"grainSpace", 0.85f}, {"grainMorph", 0.35f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.23f}, {"tapeWear", 0.3f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.14f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Reverse Tape", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.6f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.8f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.18f}, {"tapeWear", 0.25f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== DESTROY + GRANULAR (72-79) ========
-        { "Crushed Grains", {
-            {"destroyFader", 2.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.8f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.65f}, {"grainCloud", 0.5f}, {"grainDrift", 0.3f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Gritty Cloud", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 10.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.8f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Bit-Reduced Texture", {
-            {"destroyFader", 1.0f}, {"destroyIn", 6.0f}, {"destroyOut", -3.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.6f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.7f}, {"grainDrift", 0.4f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Crushed Ambience", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 8.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.5f}, {"filterLfo", 0.0f}, {"grainCloud", 0.7f}, {"grainDrift", 0.3f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Glitch Garden", {
-            {"destroyFader", 0.5f}, {"destroyIn", 8.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.8f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.9f}, {"grainDrift", 0.85f}, {"grainSpace", 0.2f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Broken Shimmer", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 0.5f}, {"destroyBits", 6.0f}, {"destroyIn", 6.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.9f}, {"filterLfo", 0.0f}, {"grainCloud", 0.8f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 0.6f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.8f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Sampled Shimmer", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.7f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.8f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.65f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
+        { "SP-950 Granular", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.85f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.15f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Destroyed Freeze", {
-            {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.5f},
-            {"grainMix", 1.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.05f}, {"grainSpace", 0.7f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 1.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Lo-Fi Pad", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.55f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Lo-Fi Ambient", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 1.0f}, {"destroyMix", 0.55f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.55f},
-            {"grainMix", 0.55f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+        { "Digital Fog", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 10.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.4f}, {"grainSpace", 0.55f}, {"grainMorph", 0.52f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Digital Decay", {
-            {"destroyFader", 1.5f}, {"destroyIn", 5.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.9f},
-            {"filterLfo", 0.1f}, {"filterCutoff", 0.45f},
-            {"grainMix", 0.75f}, {"grainCloud", 0.6f}, {"grainDrift", 0.5f}, {"grainSpace", 0.35f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Vintage Dream", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.6f}, {"filterCutoff", 0.65f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.2f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.55f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f}
         }},
-        { "Mangled Octaves", {
-            {"destroyFader", 0.0f}, {"destroyIn", 7.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.75f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.45f}, {"grainDrift", 0.3f}, {"grainSpace", 0.4f}, {"grainMorph", 1.0f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Glitch Cloud", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 6.0f}, {"destroyIn", 8.0f}, {"destroyOut", -4.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.9f}, {"filterLfo", 0.0f}, {"grainCloud", 0.9f}, {"grainDrift", 0.7f}, {"grainSpace", 0.2f}, {"grainMorph", 0.55f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.8f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-
-        // ======== FULL CHAIN (80-91) ========
-        { "Gentle Warmth", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.3f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.9f},
-            {"grainMix", 0.2f}, {"grainCloud", 0.3f}, {"grainDrift", 0.1f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.2f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.07f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.5f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.1f}
+        { "Full Lo-Fi Stack", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.6f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f}, {"tapeDrive", 0.2f}, {"tapeWear", 0.25f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.1f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Stardust", {
-            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.6f},
-            {"filterLfo", 0.05f}, {"filterCutoff", 0.75f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.5f}, {"grainDrift", 0.25f}, {"grainSpace", 0.6f}, {"grainMorph", 0.55f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}
+        { "Textured Shimmer", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.6f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.4f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Cosmic Debris", {
-            {"destroyFader", 1.0f}, {"destroyIn", 5.0f}, {"destroyOut", -3.0f}, {"destroyMix", 0.8f},
-            {"filterLfo", 0.15f}, {"filterCutoff", 0.55f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.75f}, {"grainDrift", 0.6f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
+        { "Gritty Ambience", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 10.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.2f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Sunken Cathedral", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 1.0f}, {"destroyMix", 0.5f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.5f},
-            {"grainMix", 0.8f}, {"grainCloud", 0.35f}, {"grainDrift", 0.1f}, {"grainSpace", 0.9f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.5f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-                        {"tapeDrive", 0.09f}, {"tapeWear", 0.1f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.6f}
+        { "Classic Sampler Stack", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.85f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.11f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Total Annihilation", {
-            {"destroyFader", 0.0f}, {"destroyIn", 12.0f}, {"destroyOut", -6.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.3f}, {"filterCutoff", 0.35f},
-            {"grainMix", 1.0f}, {"grainCloud", 1.0f}, {"grainDrift", 1.0f}, {"grainSpace", 0.2f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 4.5f}, {"chorusMix", 0.8f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 1.0f},
-                        {"tapeDrive", 0.54f}, {"tapeWear", 0.75f}, {"tapeGlue", 0.2f}, {"tapeNoise", 0.67f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 6.0f}, {"outputGain", -6.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
+        { "Space Choir", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.7f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 0.6f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.75f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.6f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Lucid Dream", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.4f},
-            {"filterLfo", 0.08f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.45f}, {"grainDrift", 0.2f}, {"grainSpace", 0.7f}, {"grainMorph", 0.58f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.45f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-                        {"tapeDrive", 0.06f}, {"tapeWear", 0.09f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.01f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.7f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
+        { "Destroyed Ensemble", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 1.0f}, {"destroyBits", 8.0f}, {"destroyIn", 3.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.2f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.55f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.35f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Midnight Transmission", {
-            {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 0.75f},
-            {"filterLfo", 0.12f}, {"filterCutoff", 0.45f},
-            {"grainMix", 0.45f}, {"grainCloud", 0.55f}, {"grainDrift", 0.35f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.3f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.21f}, {"tapeWear", 0.28f}, {"tapeGlue", 0.4f}, {"tapeNoise", 0.12f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Tape Cloud Chorus", {
+            {"chainSlot0", 4.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.2f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.6f}, {"chorusMix", 0.4f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.15f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.05f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Parallel Universe", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.5f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.85f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.6f}, {"grainDrift", 0.3f}, {"grainSpace", 0.75f}, {"grainMorph", 0.7f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.55f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-                        {"tapeDrive", 0.09f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.75f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.8f}
+        { "Atmospheric Lo-Fi", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 2.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.5f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.2f}, {"tapeWear", 0.3f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.12f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Faded Photograph", {
-            {"destroyFader", 3.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.45f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.5f},
-            {"grainMix", 0.35f}, {"grainCloud", 0.3f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.25f},
-            {"multiplyPanOuter", 0.9f}, {"multiplyPanInner", 0.7f},
-                        {"tapeDrive", 0.11f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.45f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}
+        { "Shimmer Tape Pad", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.08f}, {"grainSpace", 0.75f}, {"grainMorph", 0.62f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.4f}, {"chorusMix", 0.45f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Black Hole", {
-            {"destroyFader", 2.0f}, {"destroyIn", 6.0f}, {"destroyOut", -3.0f}, {"destroyMix", 0.7f},
-            {"filterLfo", 0.2f}, {"filterCutoff", 0.4f},
-            {"grainMix", 0.9f}, {"grainCloud", 0.8f}, {"grainDrift", 0.7f}, {"grainSpace", 0.9f}, {"grainMorph", 0.3f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.2f}, {"chorusMix", 0.7f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.3f},
-                        {"tapeDrive", 0.34f}, {"tapeWear", 0.46f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.29f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -3.0f}, {"masterMix", 1.0f}, {"msWidth", 2.0f}
+        { "Broken Radio Dreams", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 2.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 1.0f}, {"destroyBits", 8.0f}, {"destroyIn", 5.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.3f}, {"filterLfo", 0.2f}, {"grainCloud", 0.4f}, {"grainDrift", 0.3f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.35f}, {"tapeWear", 0.48f}, {"tapeGlue", 0.35f}, {"tapeNoise", 0.3f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Everything On", {
-            {"destroyFader", 2.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.8f},
-            {"filterLfo", 0.15f}, {"filterCutoff", 0.65f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.6f}, {"grainDrift", 0.5f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.4f},
-                        {"tapeDrive", 0.19f}, {"tapeWear", 0.24f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.09f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", -2.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f}
+        { "Lush Grain Ensemble", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 3.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.7f}, {"grainMorph", 0.55f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.5f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
-        { "Studio Polish", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.25f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.95f},
-            {"grainMix", 0.15f}, {"grainCloud", 0.2f}, {"grainDrift", 0.05f}, {"grainSpace", 0.25f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.9f}, {"chorusMix", 0.15f},
-            {"multiplyPanOuter", 0.8f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.08f}, {"tapeWear", 0.13f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.02f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.4f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.05f}
+        { "Vintage Texture Stack", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 3.0f}, {"destroyBits", 12.0f}, {"destroyIn", 1.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.65f}, {"filterLfo", 0.0f}, {"grainCloud", 0.35f}, {"grainDrift", 0.3f}, {"grainSpace", 0.45f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.15f}, {"tapeWear", 0.18f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.06f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.1f}
         }},
-
-        // ======== MODULATED (92-100) ========
-        { "Breathing Filter", {
-            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.6f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modLfo1Rate", 0.3f}, {"modLfo1Depth", 0.7f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 1.0f}, {"modSlot1Amt", 0.6f}
+        { "Full Stack", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 4.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.85f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Evolving Texture", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.65f}, {"grainCloud", 0.5f}, {"grainDrift", 0.3f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.2f},
-            {"modLfo1Rate", 0.08f}, {"modLfo1Depth", 0.6f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modLfo2Rate", 0.13f}, {"modLfo2Depth", 0.4f}, {"modLfo2Wave", 1.0f}, {"modLfo2Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 1.0f}, {"modSlot1Amt", 0.5f},
-            {"modSlot2Src", 2.0f}, {"modSlot2Tgt", 5.0f}, {"modSlot2Amt", 0.4f}
+        { "Lo-Fi Dream", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 2.0f}, {"chainSlot3", 3.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.6f}, {"filterLfo", 0.0f}, {"grainCloud", 0.5f}, {"grainDrift", 0.15f}, {"grainSpace", 0.6f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.6f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.35f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f}, {"tapeDrive", 0.2f}, {"tapeWear", 0.25f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.1f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Rhythmic Crush", {
-            {"destroyFader", 2.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modLfo1Rate", 3.0f}, {"modLfo1Depth", 0.8f}, {"modLfo1Wave", 2.0f}, {"modLfo1Sync", 1.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 7.0f}, {"modSlot1Amt", 0.7f}
+        { "Total Texture", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 4.0f}, {"chainSlot3", 3.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 10.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.8f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.55f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Tape Drift LFO", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.15f}, {"tapeWear", 0.19f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.06f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modLfo1Rate", 0.15f}, {"modLfo1Depth", 0.5f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 8.0f}, {"modSlot1Amt", 0.4f},
-            {"modSlot2Src", 1.0f}, {"modSlot2Tgt", 8.0f}, {"modSlot2Amt", 0.3f}
+        { "Tape First", {
+            {"chainSlot0", 4.0f}, {"chainSlot1", 1.0f}, {"chainSlot2", 2.0f}, {"chainSlot3", 3.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 0.75f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.15f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.5f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.7f}, {"chorusMix", 0.3f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.7f}, {"tapeDrive", 0.1f}, {"tapeWear", 0.14f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Morphing Clouds", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.75f}, {"grainCloud", 0.6f}, {"grainDrift", 0.2f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f},
-            {"modLfo1Rate", 0.05f}, {"modLfo1Depth", 0.8f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modLfo2Rate", 0.12f}, {"modLfo2Depth", 0.5f}, {"modLfo2Wave", 1.0f}, {"modLfo2Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 6.0f}, {"modSlot1Amt", 0.6f},
-            {"modSlot2Src", 2.0f}, {"modSlot2Tgt", 1.0f}, {"modSlot2Amt", 0.4f}
+        { "Cinematic Grain", {
+            {"chainSlot0", 2.0f}, {"chainSlot1", 4.0f}, {"chainSlot2", 1.0f}, {"chainSlot3", 3.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 2.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.3f}, {"filterCutoff", 0.9f}, {"filterLfo", 0.0f}, {"grainCloud", 0.4f}, {"grainDrift", 0.1f}, {"grainSpace", 0.8f}, {"grainMorph", 0.55f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 0.3f}, {"chorusMix", 0.4f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f}, {"tapeDrive", 0.12f}, {"tapeWear", 0.15f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.04f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.4f}
         }},
-        { "Random Scatter", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.7f}, {"grainCloud", 0.7f}, {"grainDrift", 0.5f}, {"grainSpace", 0.4f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modLfo1Rate", 2.0f}, {"modLfo1Depth", 0.7f}, {"modLfo1Wave", 3.0f}, {"modLfo1Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 2.0f}, {"modSlot1Amt", 0.8f},
-            {"modSlot2Src", 1.0f}, {"modSlot2Tgt", 4.0f}, {"modSlot2Amt", 0.5f}
+        { "Everything", {
+            {"chainSlot0", 1.0f}, {"chainSlot1", 2.0f}, {"chainSlot2", 3.0f}, {"chainSlot3", 4.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f}, {"tapeEnabled", 1.0f}, {"destroyFader", 1.0f}, {"destroyBits", 8.0f}, {"destroyIn", 4.0f}, {"destroyOut", -2.0f}, {"destroyMix", 0.8f}, {"filterCutoff", 0.7f}, {"filterLfo", 0.0f}, {"grainCloud", 0.7f}, {"grainDrift", 0.3f}, {"grainSpace", 0.7f}, {"grainMorph", 0.6f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.7f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.5f}, {"chorusMix", 0.5f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f}, {"tapeDrive", 0.22f}, {"tapeWear", 0.28f}, {"tapeGlue", 0.6f}, {"tapeNoise", 0.1f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}
         }},
-        { "Envelope Follower Tape", {
-            {"destroyFader", 2.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 1.0f},
-            {"grainMix", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f},
-                        {"tapeDrive", 0.06f}, {"tapeWear", 0.05f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.01f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},
-            {"modSlot1Src", 3.0f}, {"modSlot1Tgt", 8.0f}, {"modSlot1Amt", 0.5f},
-            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 9.0f}, {"modSlot2Amt", -0.3f}
-        }},
-        { "Dual LFO Cosmos", {
-            {"destroyFader", 2.0f}, {"destroyIn", 2.0f}, {"destroyOut", 0.0f}, {"destroyMix", 0.6f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.7f},
-            {"grainMix", 0.6f}, {"grainCloud", 0.5f}, {"grainDrift", 0.25f}, {"grainSpace", 0.65f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.5f}, {"chorusMix", 0.4f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.5f},
-                        {"tapeDrive", 0.1f}, {"tapeWear", 0.12f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.03f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 0.8f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.5f},
-            {"modLfo1Rate", 0.1f}, {"modLfo1Depth", 0.6f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modLfo2Rate", 0.33f}, {"modLfo2Depth", 0.5f}, {"modLfo2Wave", 1.0f}, {"modLfo2Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 5.0f}, {"modSlot1Amt", 0.4f},
-            {"modSlot2Src", 2.0f}, {"modSlot2Tgt", 6.0f}, {"modSlot2Amt", 0.3f},
-            {"modSlot3Src", 1.0f}, {"modSlot3Tgt", 8.0f}, {"modSlot3Amt", 0.25f},
-            {"modSlot4Src", 2.0f}, {"modSlot4Tgt", 10.0f}, {"modSlot4Amt", 0.3f}
-        }},
-        { "Living Machine", {
-            {"destroyFader", 2.0f}, {"destroyIn", 3.0f}, {"destroyOut", -1.0f}, {"destroyMix", 0.7f},
-            {"filterLfo", 0.0f}, {"filterCutoff", 0.65f},
-            {"grainMix", 0.5f}, {"grainCloud", 0.45f}, {"grainDrift", 0.3f}, {"grainSpace", 0.5f}, {"grainMorph", 0.5f},
-            {"grainFreeze", 0.0f}, {"chorusSpeed", 0.8f}, {"chorusMix", 0.35f},
-            {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.6f},
-                        {"tapeDrive", 0.16f}, {"tapeWear", 0.2f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.07f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f},
-            {"tapeEnabled", 1.0f}, {"destroyEnabled", 1.0f}, {"granularEnabled", 1.0f}, {"multiplyEnabled", 1.0f},
-            {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.3f},
-            {"modLfo1Rate", 0.2f}, {"modLfo1Depth", 0.5f}, {"modLfo1Wave", 0.0f}, {"modLfo1Sync", 0.0f},
-            {"modLfo2Rate", 1.5f}, {"modLfo2Depth", 0.3f}, {"modLfo2Wave", 3.0f}, {"modLfo2Sync", 0.0f},
-            {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 7.0f}, {"modSlot1Amt", 0.35f},
-            {"modSlot2Src", 3.0f}, {"modSlot2Tgt", 8.0f}, {"modSlot2Amt", 0.4f},
-            {"modSlot3Src", 2.0f}, {"modSlot3Tgt", 2.0f}, {"modSlot3Amt", 0.3f}
-        }}
     };
 }
 

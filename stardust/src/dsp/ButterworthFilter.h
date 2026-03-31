@@ -12,6 +12,7 @@ public:
     void setCutoff(float cutoffValue);    // 0.0-1.0 normalized
     void setResonance(float resonance);   // 0.0-1.0
     void setLFO(float rate, float depth);
+    void setFilterType(int type);         // 0=LP, 1=HP, 2=BP, 3=Notch
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
@@ -55,6 +56,7 @@ private:
     // Butterworth Q values for 6th-order (pole angles)
     static constexpr float kButterworthQ[kNumSections] = { 0.5176f, 0.7071f, 1.9319f };
 
+    int filterType = 0; // 0=LP, 1=HP, 2=BP, 3=Notch
     bool needsRecalc = true;
     float lastCalcCutoff = -1.0f;
     float lastCalcResonance = -1.0f;

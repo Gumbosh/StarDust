@@ -7,6 +7,30 @@ static constexpr float kMaxNormGain = 1.2f;       // ~1.6dB max boost at sparse 
 static constexpr float kGrainGainVariation = 0.25f;
 
 
+static float quantizePitch(float semitones, int mode)
+{
+    if (mode == 0) return semitones;
+    static const int kScales[4][7] = {
+        {0,1,2,3,4,5,6},      // Chromatic (all 12 — use steps=12)
+        {0,2,4,5,7,9,11},     // Major
+        {0,2,3,5,7,8,10},     // Minor
+        {0,2,4,7,9,-1,-1}     // Pentatonic (5 notes)
+    };
+    const int modeIdx = juce::jlimit(0, 3, mode - 1);
+    const int* scale = kScales[modeIdx];
+    const int steps = (mode == 1) ? 12 : (mode == 4 ? 5 : 7);
+    const int oct = static_cast<int>(std::floor(semitones / 12.0f));
+    const int rem = static_cast<int>(std::round(semitones)) % 12;
+    const int remWrapped = ((rem % 12) + 12) % 12;
+    int best = scale[0], bestDist = 99;
+    for (int i = 0; i < steps && scale[i] >= 0; ++i)
+    {
+        const int d = std::abs(remWrapped - scale[i]);
+        if (d < bestDist) { bestDist = d; best = scale[i]; }
+    }
+    return static_cast<float>(oct * 12 + best);
+}
+
 float GranularEngine::fastNoise(uint32_t& state)
 {
     state ^= state << 13;
@@ -35,7 +59,7 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     if (!sincLUT)
         sincLUT = std::make_unique<std::array<float, kSincTableSize * kSincTaps>>();
     {
-        constexpr float beta = 6.0f;
+        constexpr float beta = 8.6f;
         constexpr float pi = 3.14159265358979f;
         // Approximate Kaiser window: I0(beta * sqrt(1 - x^2)) / I0(beta)
         // Using I0 approximation: I0(x) ≈ 1 + (x/2)^2 + (x/2)^4/4 + (x/2)^6/36 + (x/2)^8/576
@@ -90,7 +114,7 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     feedbackLpAlpha = 1.0f - std::exp(-twoPi * 8000.0f / sr);
 
     writePos = 0; frozenWritePos = 0;
-    samplesSinceLastGrain = 0; nextGrainInterval = 0;
+    samplesSinceLastGrain = 0.0f; nextGrainInterval = 0.0f;
     warmupSamples = 512; frozen = false;
     freezeFade = 0.0f; freezeTarget = false;
     freezeFadeInc = 1.0f / (0.01f * sr); // 10ms crossfade
@@ -184,6 +208,25 @@ void GranularEngine::setVoiceInterval(float semitones)
     voiceIntervalSemitones = juce::jlimit(0.0f, 24.0f, semitones);
 }
 
+void GranularEngine::setPitchQuant(int mode)
+{
+    currentPitchQuant = juce::jlimit(0, 4, mode);
+}
+
+void GranularEngine::setPitchSpread(float spread)
+{
+    pitchSpread = juce::jlimit(0.0f, 1.0f, spread);
+}
+
+void GranularEngine::setLoopback(float amount)
+{
+    loopbackAmount = juce::jlimit(0.0f, 1.0f, amount);
+}
+
+void GranularEngine::setSVFCutoff(float hz) { svfCutoffHz = hz; }
+
+void GranularEngine::setSVFResonance(float q) { svfResonance = juce::jlimit(0.3f, 4.0f, q); }
+
 float GranularEngine::readHermite(int channel, float position) const
 {
     int idx1 = static_cast<int>(std::floor(position)) & kInputBufferMask;
@@ -216,6 +259,26 @@ float GranularEngine::readSinc(int channel, float position) const
     return result;
 }
 
+// B12: Time-reversed sinc kernel for reversed grains.
+// Uses 1-frac for the table index so the kernel is mirrored around the read point,
+// giving the correct spectral envelope when grains play backwards.
+float GranularEngine::readSincReversed(int channel, float position) const
+{
+    const int idx = static_cast<int>(std::floor(position));
+    const float frac = position - std::floor(position);
+    const float revFrac = 1.0f - frac; // mirror fractional offset
+    const int tableIdx = std::min(kSincTableSize - 1, static_cast<int>(revFrac * static_cast<float>(kSincTableSize)));
+    const auto& buf = (*inputBuffer)[static_cast<size_t>(channel)];
+    const float* taps = &(*sincLUT)[static_cast<size_t>(tableIdx * kSincTaps)];
+    float result = 0.0f;
+    for (int t = 0; t < kSincTaps; ++t)
+    {
+        const int sampleIdx = (idx - kSincHalfTaps + t) & kInputBufferMask;
+        result += buf[static_cast<size_t>(sampleIdx)] * taps[t];
+    }
+    return result;
+}
+
 bool GranularEngine::isBufferSilent(float position, int lengthSamples) const
 {
     constexpr int kCheckPoints = 8;
@@ -229,17 +292,41 @@ bool GranularEngine::isBufferSilent(float position, int lengthSamples) const
     return peak < kSilenceThreshold;
 }
 
-int GranularEngine::findNearestZeroCrossing(int startIdx, int searchRange) const
+float GranularEngine::findNearestZeroCrossing(int startIdx, int searchRange) const
 {
-    int bestIdx = startIdx;
-    float bestAbs = 999.0f;
-    for (int off = -searchRange; off <= searchRange; ++off)
+    // Prefer actual sign-change crossings with linear interpolation (C8)
+    // Falls back to minimum-amplitude sample if no sign change found in range.
+    float bestCrossingFrac = static_cast<float>(startIdx & kInputBufferMask);
+    float bestCrossingDist = static_cast<float>(searchRange + 1);
+
+    int fallbackIdx = startIdx & kInputBufferMask;
+    float fallbackAbs = std::abs((*inputBuffer)[0][static_cast<size_t>(startIdx & kInputBufferMask)]);
+
+    for (int off = -searchRange + 1; off <= searchRange; ++off)
     {
-        int idx = (startIdx + off) & kInputBufferMask;
-        float s = std::abs((*inputBuffer)[0][static_cast<size_t>(idx)]);
-        if (s < bestAbs) { bestAbs = s; bestIdx = idx; }
+        const int i0 = (startIdx + off - 1) & kInputBufferMask;
+        const int i1 = (startIdx + off)     & kInputBufferMask;
+        const float s0 = (*inputBuffer)[0][static_cast<size_t>(i0)];
+        const float s1 = (*inputBuffer)[0][static_cast<size_t>(i1)];
+
+        // Track minimum amplitude fallback
+        if (std::abs(s1) < fallbackAbs) { fallbackAbs = std::abs(s1); fallbackIdx = i1; }
+
+        // Sign change: find interpolated crossing point
+        if (s0 * s1 < 0.0f)
+        {
+            // Linear interpolation: s0 + t*(s1-s0) = 0  →  t = -s0/(s1-s0) = s0/(s0-s1)
+            const float t = s0 / (s0 - s1); // in [0, 1]
+            const float crossingFrac = static_cast<float>(i0) + t;
+            const float dist = std::abs(crossingFrac - static_cast<float>(startIdx & kInputBufferMask));
+            if (dist < bestCrossingDist) { bestCrossingDist = dist; bestCrossingFrac = crossingFrac; }
+        }
     }
-    return bestIdx;
+
+    // Return sign-change crossing if found; otherwise return minimum-amplitude sample
+    if (bestCrossingDist <= static_cast<float>(searchRange))
+        return bestCrossingFrac;
+    return static_cast<float>(fallbackIdx);
 }
 
 void GranularEngine::rebuildActiveList()
@@ -264,7 +351,7 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
     // Fixed-interval scheduling (GRN Lite style — metronomic, density = grains/sec)
     // Mean interval = grainLength / density (in samples)
     const float meanIntervalSamples = static_cast<float>(grainSizeSamples) / std::max(0.1f, effectiveDensity);
-    nextGrainInterval = std::max(1, static_cast<int>(meanIntervalSamples));
+    nextGrainInterval = std::max(1.0f, meanIntervalSamples);
 
     // Single grain per trigger — steal oldest grain if pool is full
     Grain* target = nullptr;
@@ -275,6 +362,14 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
     // Voice stealing: if no free slot, steal the grain closest to finishing
     if (!target)
     {
+        // Pool exhaustion guard: if all grains are near end-of-life (>80%), skip this
+        // spawn to prevent spawn→immediate-steal stutter (they'll complete in ~0.2×grainLen)
+        bool anyHasRoom = false;
+        for (const auto& g : grains)
+            if (g.currentSample < static_cast<int>(g.lengthInSamples * 0.8f))
+                { anyHasRoom = true; break; }
+        if (!anyHasRoom) return;
+
         int maxProgress = -1;
         for (auto& g : grains)
         {
@@ -288,7 +383,13 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
 
         // Cap to 200ms max temporal scatter regardless of buffer depth
         const float maxScatter = std::min(scatter * bufDepth * 0.3f, static_cast<float>(sampleRate) * 0.2f);
-        float startPos = readAnchor + fastNoise(noiseState) * maxScatter;
+        // Transient-aware spawn: when Texture > 0.5 and an envelope peak is detected,
+        // bias grains toward the current write position (the transient) by reducing scatter.
+        const float envLevel = inputFollower.getEnvelope();
+        const float transientBias = juce::jlimit(0.0f, 1.0f,
+            (currentTexture - 0.5f) * 2.0f) * envLevel;
+        const float effectiveScatter = maxScatter * (1.0f - transientBias * 0.8f);
+        float startPos = readAnchor + fastNoise(noiseState) * effectiveScatter;
 
         // Freeze micro-variation: noise-shaped drift + per-grain random offset
         g.freezeJitterOffset = fastNoise(spatialNoiseState); // random ±1 per grain (spatial PRNG)
@@ -305,7 +406,7 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         if (grainSizeSamples < static_cast<int>(sr * 0.01f))
         {
             const int searchRange = std::min(32, grainSizeSamples / 2);
-            startPos = static_cast<float>(findNearestZeroCrossing(static_cast<int>(startPos), searchRange));
+            startPos = findNearestZeroCrossing(static_cast<int>(startPos), searchRange);
         }
 
         // Only skip if the buffer region is truly silent AND we're reading near the write head
@@ -321,10 +422,21 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         if (frozen)
             pitchRate *= 1.0f + (freezePitchNoise + g.freezeJitterOffset * 0.3f) * 0.015f; // ±25 cents noise-shaped
 
-        // Continuous pitch jitter ±12st (GRN Lite style — no quantized intervals)
+        // Continuous pitch jitter ±12st (GRN Lite style — with optional scale quantization)
         if (scatter > 0.0f)
-            pitchRate *= std::pow(2.0f, fastNoise(noiseState) * scatter * 12.0f / 12.0f);
+        {
+            float pitchSemitones = fastNoise(noiseState) * scatter * 12.0f;
+            pitchSemitones = quantizePitch(pitchSemitones, currentPitchQuant);
+            pitchRate *= std::pow(2.0f, pitchSemitones / 12.0f);
+        }
         g.playbackRate = pitchRate * std::pow(2.0f, fastNoise(noiseState) * 5.0f / 1200.0f);
+
+        // Pitch spread: per-grain random pitch offset ±12 semitones (user-controlled)
+        if (pitchSpread > 0.0f)
+        {
+            const float spreadSt = fastNoise(noiseState) * pitchSpread * 12.0f;
+            g.playbackRate *= std::pow(2.0f, spreadSt / 12.0f);
+        }
 
         // Reverse: probability set by explicit reverseProb member (user knob)
         g.reverse = (fastNoise(noiseState) * 0.5f + 0.5f) < reverseProb;
@@ -376,8 +488,13 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         g.aaS1[0] = g.aaS1[1] = g.aaS2[0] = g.aaS2[1] = 0.0f;
         g.aa2S1[0] = g.aa2S1[1] = g.aa2S2[0] = g.aa2S2[1] = 0.0f;
 
-        // SVF disabled — per-grain resonant filter adds unwanted coloring not in GRN Lite style
-        g.svfActive = false;
+        // SVF enabled with near-transparent high-frequency LP (adds subtle air/warmth)
+        // Cutoff is envelope-modulated: louder input → brighter grains, silence → darker
+        g.svfActive = true;
+        g.svfBaseFreq = svfCutoffHz;
+        g.svfRange = svfCutoffHz * 0.3f * juce::jlimit(0.0f, 1.0f, inputFollower.getEnvelope() * 2.0f);
+        g.svfQ = svfResonance;
+        g.svfIc1[0] = g.svfIc1[1] = g.svfIc2[0] = g.svfIc2[1] = 0.0f;
 
         // Decorrelation allpass (0.2–0.6 range safer for mono compatibility)
         g.decorrelCoeff = 0.2f + (fastNoise(spatialNoiseState) * 0.5f + 0.5f) * 0.4f;
@@ -398,7 +515,9 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
     const float phase = static_cast<float>(g.currentSample) / static_cast<float>(g.lengthInSamples);
 
     // Hann-only envelope (GRN Lite style — consistent, click-free)
-    float envelope = GrainEnvelopeLUT::lookup(GrainEnvelopeLUT::Hanning, phase);
+    // Reversed grains invert envelope phase so attack/release are also reversed
+    const float envPhase = g.reverse ? (1.0f - phase) : phase;
+    float envelope = GrainEnvelopeLUT::lookup(GrainEnvelopeLUT::Hanning, envPhase);
 
     // Minimum 16-sample fade-in/fade-out guard (prevents clicks regardless of envelope shape)
     constexpr int kMinFadeSamples = 16;
@@ -407,10 +526,20 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
     else if (g.currentSample >= g.lengthInSamples - kMinFadeSamples)
         envelope *= std::max(0.0f, static_cast<float>(g.lengthInSamples - 1 - g.currentSample) / static_cast<float>(kMinFadeSamples));
 
-    // Read from buffer (sinc HQ mode for high pitch ratios, Hermite otherwise)
-    const bool useSinc = hqMode && sincLUT && std::abs(g.playbackRate) > 1.5f;
-    float sL = useSinc ? readSinc(0, g.currentPosition) : readHermite(0, g.currentPosition);
-    float sR = isStereo ? (useSinc ? readSinc(1, g.currentPosition) : readHermite(1, g.currentPosition)) : sL;
+    // Read from buffer — sinc HQ mode always when LUT is available (B9).
+    // Reversed grains use time-reversed sinc kernel for correct spectral envelope (B12).
+    const bool useSinc = (sincLUT != nullptr);
+    float sL, sR;
+    if (useSinc)
+    {
+        sL = g.reverse ? readSincReversed(0, g.currentPosition) : readSinc(0, g.currentPosition);
+        sR = isStereo ? (g.reverse ? readSincReversed(1, g.currentPosition) : readSinc(1, g.currentPosition)) : sL;
+    }
+    else
+    {
+        sL = readHermite(0, g.currentPosition);
+        sR = isStereo ? readHermite(1, g.currentPosition) : sL;
+    }
 
     // AA biquad (first stage — 12dB/oct)
     if (g.aaActive)
@@ -452,10 +581,8 @@ void GranularEngine::processGrain(Grain& g, bool isStereo, float sr, float envFo
         if (g.svfUpdateCounter <= 0)
         {
             const float cutoff = std::min(g.svfBaseFreq + envelope * g.svfRange, sr * 0.45f);
-            // Fast tan approximation clamped to valid range (fix 3.6)
-            const float x = std::min(0.785f, 3.14159265f * cutoff / sr);
-            const float x2 = x * x;
-            g.svfCachedG0 = x * (1.0f + x2 * (1.0f/3.0f + x2 * (2.0f/15.0f)));
+            // std::tan for accurate SVF coefficient up to 0.499×Nyquist
+            g.svfCachedG0 = std::tan(juce::MathConstants<float>::pi * std::min(cutoff, sr * 0.499f) / sr);
             g.svfCachedK = 1.0f / g.svfQ;
             g.svfUpdateCounter = 16;
         }
@@ -636,7 +763,7 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
         if (shouldSpawn && canSpawn)
         {
-            samplesSinceLastGrain = 0;
+            samplesSinceLastGrain -= nextGrainInterval;
             for (int v = 0; v < numVoices; ++v)
             {
                 const float vPitch = basePitchRate
@@ -696,6 +823,21 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
                 const float knee = over * over * (3.0f - 2.0f * over);
                 *s = *s * (1.0f - knee) + fastTanh(*s) * knee;
             }
+        }
+
+        // Loopback: feed a fraction of grain output back into the input buffer
+        // (injected ahead of write position so grains read it on the next cycle)
+        if (loopbackAmount > 0.001f && !frozen)
+        {
+            const int loopbackPos = (writePos + 1) & kInputBufferMask;
+            (*inputBuffer)[0][static_cast<size_t>(loopbackPos)] +=
+                grainOutputL * loopbackAmount * 0.5f;
+            if (isStereo)
+                (*inputBuffer)[1][static_cast<size_t>(loopbackPos)] +=
+                    grainOutputR * loopbackAmount * 0.5f;
+            else
+                (*inputBuffer)[1][static_cast<size_t>(loopbackPos)] +=
+                    grainOutputL * loopbackAmount * 0.5f;
         }
 
         // Feedback (LP filtered + cross-channel coupling for stereo evolution)

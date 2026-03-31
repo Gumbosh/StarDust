@@ -29,10 +29,16 @@ public:
     void setDrift(float drift);
     void setCloud(float cloud);
     void setGrainShape(GrainShape newShape) { shape = newShape; }
-    void setHQMode(bool hq) { hqMode = hq; }
     void setReverse(float prob);
     void setVoices(int count);
     void setVoiceInterval(float semitones);
+    void setPitchQuant(int mode); // 0=Off, 1=Chromatic, 2=Major, 3=Minor, 4=Pentatonic
+    void setSVFCutoff(float hz);     // 1000–20000Hz, default 16000
+    void setSVFResonance(float q);   // 0.3–2.0, default 0.5
+    void setReverbSize(float s)    { dattorro.setSize(s); }
+    void setReverbPreDelay(float ms) { dattorro.setPreDelay(ms); }
+    void setPitchSpread(float spread); // [0,1] → per-grain random pitch ±12st
+    void setLoopback(float amount);    // [0,1] → grain output fed back into input buffer
     void setTempoSync(int mode, double bpm, double ppq)
     {
         syncMode = mode;
@@ -41,7 +47,7 @@ public:
     }
     void process(juce::AudioBuffer<float>& buffer);
 
-    static constexpr int kMaxGrains = 32;
+    static constexpr int kMaxGrains = 64;
 
     // Visual feedback: normalized buffer positions + grain phase for each active grain
     struct GrainDisplayInfo { float normPos = 0.0f; float phase = 0.0f; bool active = false; };
@@ -67,7 +73,7 @@ private:
 
         // SVF with coefficient caching
         float svfIc1[2] = {}, svfIc2[2] = {};
-        float svfBaseFreq = 8000.0f, svfRange = 6000.0f, svfQ = 0.707f;
+        float svfBaseFreq = 16000.0f, svfRange = 2000.0f, svfQ = 0.5f;
         float svfCachedG0 = 0.0f, svfCachedK = 1.0f;
         int svfUpdateCounter = 0;
         bool svfActive = true;
@@ -92,16 +98,15 @@ private:
 
     float readHermite(int channel, float position) const;
     float readSinc(int channel, float position) const;
+    float readSincReversed(int channel, float position) const; // B12: time-reversed kernel for reverse grains
     bool isBufferSilent(float position, int lengthSamples) const;
-    int findNearestZeroCrossing(int startIdx, int searchRange) const;
+    float findNearestZeroCrossing(int startIdx, int searchRange) const;
     static float fastNoise(uint32_t& state);
     static float fastTanh(float x);
 
-    bool hqMode = false;
-
-    // Windowed sinc LUT (8-tap Kaiser, pre-computed at prepare)
+    // Windowed sinc LUT (32-tap Kaiser, pre-computed at prepare)
     static constexpr int kSincTableSize = 512;
-    static constexpr int kSincTaps = 8;
+    static constexpr int kSincTaps = 32;
     static constexpr int kSincHalfTaps = kSincTaps / 2;
     std::unique_ptr<std::array<float, kSincTableSize * kSincTaps>> sincLUT;
 
@@ -127,14 +132,15 @@ private:
     float currentDriftRaw = 0.0f, currentCloud = 0.3f;
     float lastDattorroTexture = -1.0f;
     bool frozen = false;
+    int currentPitchQuant = 0; // 0=Off, 1=Chr, 2=Maj, 3=Min, 4=Pent
 
     // Freeze crossfade (10ms smooth transition)
     float freezeFade = 0.0f;
     float freezeFadeInc = 0.0f;
     std::atomic<bool> freezeTarget { false };
 
-    // Buffer (power-of-2 for bitmask indexing — ~3s at 44.1kHz, covers GRN Lite 2s buffer)
-    static constexpr int kInputBufferSize = 131072; // 2^17
+    // Buffer (power-of-2 for bitmask indexing — ~6s at 44.1kHz, covers longer freeze/scatter ranges)
+    static constexpr int kInputBufferSize = 262144; // 2^18
     static constexpr int kInputBufferMask = kInputBufferSize - 1;
     static constexpr int kMaxChannels = 2;
 
@@ -148,7 +154,8 @@ private:
     bool activeListDirty = false;
     void rebuildActiveList();
 
-    int samplesSinceLastGrain = 0, nextGrainInterval = 0, warmupSamples = 0;
+    float samplesSinceLastGrain = 0.0f, nextGrainInterval = 0.0f;
+    int warmupSamples = 0;
     GrainShape shape = GrainShape::Hanning;
 
     // Tempo sync (0=off, 1=1/4, 2=1/8, 3=1/16, 4=1/32)
@@ -193,4 +200,11 @@ private:
     float reverseProb = 0.0f;
     int numVoices = 1;
     float voiceIntervalSemitones = 7.0f;
+
+    float pitchSpread = 0.0f;   // [0,1]: per-grain pitch randomization ±12 semitones
+    float loopbackAmount = 0.0f; // [0,1]: fraction of grain output fed back into input buffer
+
+    // SVF cutoff/resonance (user-controllable, applied at grain spawn)
+    float svfCutoffHz = 16000.0f;
+    float svfResonance = 0.5f;
 };

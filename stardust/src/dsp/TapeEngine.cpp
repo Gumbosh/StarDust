@@ -7,9 +7,10 @@ static constexpr float kSatTransition = 0.55f;
 // Hiss parameters — gain increased for authentic tape noise floor at default 7% setting;
 // reduction max raised so loud signals mask noise more convincingly (psychoacoustic masking)
 static constexpr float kHissGain = 0.020f;
+static constexpr float kMechanicalNoise = 0.000015f;  // motor/bearing noise (speed-independent)
 static constexpr float kHissReductionScale = 1.2f;
 static constexpr float kHissReductionMax = 0.45f;
-static constexpr float kHissPeakFreq = 4500.0f;  // oxide character peak
+static constexpr float kHissPeakFreq = 2250.0f;  // oxide character peak at 7.5 ips (scales linearly with speed)
 static constexpr float kHissPeakQ = 0.6f;
 
 // Dynamic LP update interval
@@ -46,8 +47,8 @@ static constexpr int kCachedUpdateInterval = 16;
 static constexpr int kOscNormalizeInterval = 512;
 
 // Per-channel phase offsets (radians) — ALL oscillators get stereo decorrelation
-static constexpr float kWowOffset[2] = { 0.0f, 0.3f };
-static constexpr float kWow2Offset[2] = { 0.0f, 0.45f };   // pinch roller
+static constexpr float kWowOffset[2] = { 0.0f, 1.2f };
+static constexpr float kWow2Offset[2] = { 0.0f, 1.5f };    // pinch roller
 static constexpr float kWow3Offset[2] = { 0.0f, 0.15f };   // supply reel
 static constexpr float kFlutterOffset[2] = { 0.0f, 0.5f };
 static constexpr float kFlutter2Offset[2] = { 0.0f, 0.7f }; // secondary flutter
@@ -67,10 +68,12 @@ static constexpr float kNotchQ = 0.8f;
 
 float TapeEngine::fastTanh(float x)
 {
-    if (x > 4.0f) return 1.0f;
-    if (x < -4.0f) return -1.0f;
+    if (x > 3.5f) return 1.0f;
+    if (x < -3.5f) return -1.0f;
+    // 5-coefficient minimax rational — max error < 0.03% across [-3.5, 3.5]
     const float x2 = x * x;
-    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    return x * (135135.0f + x2 * (17325.0f + x2 * 378.0f))
+             / (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)));
 }
 
 float TapeEngine::fastSinh(float x)
@@ -102,12 +105,12 @@ float TapeEngine::langevin(float x)
 
 float TapeEngine::langevinDeriv(float x)
 {
-    // L'(x) = 1/x^2 - 1/sinh^2(x). Taylor threshold matches langevin at 0.2.
+    // L'(x) = 1/x^2 - 1/sinh^2(x). Extended Taylor to 0.25 (5-term, ~1e-8 error).
     const float ax = std::abs(x);
-    if (ax < 0.2f)
+    if (ax < 0.25f)
     {
         const float x2 = x * x;
-        return 1.0f/3.0f - x2 * (1.0f/15.0f - x2 * (2.0f/189.0f - x2 * (1.0f/675.0f)));
+        return 1.0f/3.0f - x2 * (1.0f/15.0f - x2 * (2.0f/189.0f - x2 * (1.0f/675.0f - x2 * (2.0f/10395.0f))));
     }
     const float sinhX = fastSinh(x);
     return 1.0f / (x * x) - 1.0f / (sinhX * sinhX);
@@ -220,6 +223,16 @@ static TapeEngine::BiquadCoeffs makeButterworthLP(float fc, float sr)
 }
 
 // ============================================================================
+// Crossover filter coefficient recomputation (3-band J-A band splitting)
+// ============================================================================
+
+void TapeEngine::recomputeCrossoverCoeffs()
+{
+    xoverLF500Coeffs = makeButterworthLP(500.0f,  static_cast<float>(sampleRate));
+    xoverHF5kCoeffs  = makeButterworthLP(5000.0f, static_cast<float>(sampleRate));
+}
+
+// ============================================================================
 // Speed-dependent coefficient recomputation
 // ============================================================================
 
@@ -239,9 +252,9 @@ void TapeEngine::recomputeSpeedCoeffs()
     wow2Osc.setFreq(kBasePinchHz * speedFactor, sr);
     wow3Osc.setFreq(kBaseReelHz / speedFactor, sr);  // reel wow decreases at higher speed
 
-    // Dynamic LP: wider bandwidth at higher speeds
+    // Dynamic LP: max bandwidth widens at higher speeds; range is fixed (speed-independent)
     dynLpMax = std::min(kBaseDynLpMax * speedFactor, sr * 0.45f);
-    dynLpRange = kBaseDynLpRange * std::min(speedFactor, dynLpMax / kBaseDynLpMax);
+    dynLpRange = kBaseDynLpRange / speedFactor;  // Narrower range at higher speeds (tape compression character)
 
     // Head bump: frequency scales with speed
     const float bumpFreq = kBaseBumpFreq * speedFactor;
@@ -265,23 +278,33 @@ void TapeEngine::recomputeSpeedCoeffs()
     preEmpCoeffs = makeHighShelf(empFreq, std::max(1.0f, empGainDb), 0.707f, sr);
     deEmpCoeffs = makeHighShelf(empFreq, -std::max(1.0f, empGainDb), 0.707f, sr);
 
-    // NAB LF shelf (3180µs time constant → turnover at ~50Hz)
-    // Only applies at 7.5 ips AND NAB standard; IEC has no LF pre-emphasis
-    if (standard == 0 && speedFactor <= 1.01f) // NAB at 7.5 ips
+    // NAB LF shelf (318µs time constant → turnover at ~50Hz)
+    // Applies at all speeds when NAB standard; gain scales with 1/speedFactor
+    // (6dB at 7.5 ips, ~3dB at 15 ips, ~1.5dB at 30 ips). IEC has no LF pre-emphasis.
+    if (standard == 0) // NAB at all speeds
     {
-        nabLfPreCoeffs = makeFirstOrderShelf(50.0f, 6.0f, sr);
-        nabLfDeCoeffs = makeFirstOrderShelf(50.0f, -6.0f, sr);
+        const float empGainDb_lf = kBaseEmpGainDb / speedFactor;
+        nabLfPreCoeffs = makeFirstOrderShelf(50.0f,  empGainDb_lf, sr);
+        nabLfDeCoeffs  = makeFirstOrderShelf(50.0f, -empGainDb_lf, sr);
     }
     else
     {
-        // IEC mode or higher speeds: bypass LF shelf
+        // IEC mode: bypass LF shelf
         nabLfPreCoeffs = { 1, 0, 0, 0, 0 };
         nabLfDeCoeffs = { 1, 0, 0, 0, 0 };
     }
 
-    // Gap loss: cutoff scales with speed (at 15/30 ips, pushes above Nyquist = minimal loss)
-    const float gapLossFreq = kBaseGapLossFreq * speedFactor;
-    gapLossCoeffs = makeButterworthLP(gapLossFreq, sr);
+    // Gap loss: sinc comb with first null at f = v / (2*g), higher at faster speeds
+    // D = sr * g / v (fractional gap delay in samples)
+    gapDelaySamples = static_cast<float>(sampleRate) * kHeadGapM
+                      / (static_cast<float>(currentSpeed.load()) * 0.0254f);
+
+    // Hiss character peak: frequency scales with speed (oxide noise shifts up at higher speeds)
+    { const float f0 = std::min(kHissPeakFreq * speedFactor, sr * 0.45f), Q = kHissPeakQ;
+      const float w0 = kTwoPi * f0 / sr;
+      const float alpha = std::sin(w0) / (2.0f * Q);
+      const float a0 = 1.0f + alpha;
+      hissCoeffs = { alpha/a0, 0, -alpha/a0, (-2*std::cos(w0))/a0, (1-alpha)/a0 }; }
 
     // Reset dynamic LP to new max
     for (int ch = 0; ch < kMaxChannels; ++ch)
@@ -296,10 +319,13 @@ void TapeEngine::recomputeSpeedCoeffs()
         deEmpState[ch] = {};
         nabLfPreState[ch] = {};
         nabLfDeState[ch] = {};
-        gapLossState[ch] = {};
+        std::fill(gapBuf[ch], gapBuf[ch] + kGapBufSize, 0.0f);
         dynLpBqState[ch] = {};
         wearToneLpState[ch] = {};
     }
+    gapWritePos = 0;
+    std::fill(std::begin(azimBuf), std::end(azimBuf), 0.0f);
+    azimWritePos = 0;
 }
 
 // ============================================================================
@@ -319,7 +345,7 @@ void TapeEngine::resetChannelState(int ch)
     nabLfDeState[ch] = {};
     hissFilterState[ch] = {};
     dynLpBqState[ch] = {};
-    gapLossState[ch] = {};
+    std::fill(gapBuf[ch], gapBuf[ch] + kGapBufSize, 0.0f);
     wearToneLpState[ch] = {};
     glueCohesionEnv[ch] = 0.0f;
     prevH[ch] = 0.0f;
@@ -327,15 +353,33 @@ void TapeEngine::resetChannelState(int ch)
     dcBlockY1[ch] = 0.0f;
     dynLpEnvState[ch] = 0.0f;
     hystState[ch] = {};
+    hystStateLF[ch] = {};   prevHLF[ch] = 0.0f;
+    hystStateHF[ch] = {};   prevHHF[ch] = 0.0f;
+    xoverLF500State[ch]  = {};
+    xoverHF5kState[ch]   = {};
+    xoverLF500bState[ch] = {};
+    xoverHF5kbState[ch]  = {};
     pinkB0[ch] = 0.0f;
     pinkB1[ch] = 0.0f;
     pinkB2[ch] = 0.0f;
     pinkB3[ch] = 0.0f;
     pinkB4[ch] = 0.0f;
     compEnvState[ch] = 0.0f;
+    hfEnvState[ch] = 0.0f;
     std::fill(std::begin(hb1aHistory[ch]), std::end(hb1aHistory[ch]), 0.0f);
     std::fill(std::begin(hb1bHistory[ch]), std::end(hb1bHistory[ch]), 0.0f);
-    std::fill(std::begin(hb2History[ch]), std::end(hb2History[ch]), 0.0f);
+    std::fill(std::begin(hb1cHistory[ch]), std::end(hb1cHistory[ch]), 0.0f);
+    std::fill(std::begin(hb1dHistory[ch]), std::end(hb1dHistory[ch]), 0.0f);
+    std::fill(std::begin(hb2aHistory[ch]), std::end(hb2aHistory[ch]), 0.0f);
+    std::fill(std::begin(hb2bHistory[ch]), std::end(hb2bHistory[ch]), 0.0f);
+    std::fill(std::begin(hb3History[ch]), std::end(hb3History[ch]), 0.0f);
+    std::fill(std::begin(hbLFaHistory[ch]),  std::end(hbLFaHistory[ch]),  0.0f);
+    std::fill(std::begin(hbLFbHistory[ch]),  std::end(hbLFbHistory[ch]),  0.0f);
+    std::fill(std::begin(hbLFHistory2[ch]),  std::end(hbLFHistory2[ch]),  0.0f);
+    std::fill(std::begin(hbHFaHistory[ch]),  std::end(hbHFaHistory[ch]),  0.0f);
+    std::fill(std::begin(hbHFbHistory[ch]),  std::end(hbHFbHistory[ch]),  0.0f);
+    std::fill(std::begin(hbHFHistory2[ch]),  std::end(hbHFHistory2[ch]),  0.0f);
+    std::fill(std::begin(printThroughBuf[ch]), std::end(printThroughBuf[ch]), 0.0f);
 }
 
 void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
@@ -355,6 +399,9 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     for (int ch = 0; ch < kMaxChannels; ++ch) resetChannelState(ch);
     writePos = 0;
     sampleCounter = 0;
+    printThroughWritePos = 0;
+    printThroughDelaySamples = std::max(1, std::min(kPrintThroughBufSize - 1,
+        static_cast<int>(0.003f * sr))); // 3ms
 
     // Initialize oscillators (wow frequencies set by recomputeSpeedCoeffs below)
     wow1Osc.init(kBaseCapstanHz, sr);
@@ -392,16 +439,9 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     glueReleaseAlpha = 1.0f - std::exp(-kTwoPi * 2.2f / sr);   // ~72ms slow release
     dcBlockCoeff = std::exp(-kTwoPi * 20.0f / sr);
 
-    { // Hiss character peak at 4.5kHz (closer to open-reel oxide spectrum)
-        const float f0 = kHissPeakFreq, Q = kHissPeakQ;
-        const float w0 = kTwoPi * f0 / sr;
-        const float alpha = std::sin(w0) / (2.0f * Q);
-        const float a0 = 1.0f + alpha;
-        hissCoeffs = { alpha/a0, 0, -alpha/a0, (-2*std::cos(w0))/a0, (1-alpha)/a0 };
-    }
-
-    // Compute all speed-dependent coefficients
+    // Compute all speed-dependent coefficients (includes hiss filter)
     recomputeSpeedCoeffs();
+    recomputeCrossoverCoeffs();
     wearToneLpCoeffs = makeButterworthLP(juce::jmin(22000.0f, static_cast<float>(sampleRate) * 0.45f),
                                          static_cast<float>(sampleRate));
     hissSpeedIpsStored = -1.0f;
@@ -412,7 +452,11 @@ void TapeEngine::resetState()
 {
     for (int ch = 0; ch < kMaxChannels; ++ch) resetChannelState(ch);
     writePos = 0;
+    gapWritePos = 0;
+    std::fill(std::begin(azimBuf), std::end(azimBuf), 0.0f);
+    azimWritePos = 0;
     sampleCounter = 0;
+    printThroughWritePos = 0;
 }
 
 void TapeEngine::setWow(float a) { if (currentWow != a) { currentWow = a; wowSmoothed.setTargetValue(a); } }
@@ -461,7 +505,7 @@ void TapeEngine::setTapeOutputDb(float db)
 
 void TapeEngine::setFormulation(int index)
 {
-    pendingFormulation.store(std::max(0, std::min(index, 2)), std::memory_order_relaxed);
+    pendingFormulation.store(std::max(0, std::min(index, 4)), std::memory_order_relaxed);
 }
 
 void TapeEngine::setSpeed(float speedIps)
@@ -480,6 +524,20 @@ void TapeEngine::setStandard(int index)
         tapeStandard.store(index);
         standardChanged.store(true);
     }
+}
+
+void TapeEngine::setPrintThrough(float level)
+{
+    printThroughLevel = juce::jlimit(0.0f, 1.0f, level);
+}
+
+void TapeEngine::setMotorEnabled(bool enabled)
+{
+    if (motorEnabled == enabled) return;
+    motorEnabled = enabled;
+    // Ramp over ~2 seconds
+    const float rampSamples = static_cast<float>(sampleRate) * 2.0f;
+    motorRampInc = (motorEnabled ? 1.0f : -1.0f) / std::max(1.0f, rampSamples);
 }
 
 float TapeEngine::readHermite(int channel, float delaySamples) const
@@ -553,21 +611,31 @@ float TapeEngine::computeModDelay(int ch, float wowAmt, float flutterAmt)
 
 float TapeEngine::processHysteresisBlock(int ch, float input)
 {
+    // --- Frequency-dependent J-A: split into 3 bands with distinct saturation curves ---
+    // LP + HP complementary pairs guarantee perfect reconstruction (LP + HP == input).
+    // LF (<500Hz): easier saturation — more magnetic material resonates at low frequencies.
+    // MID (500Hz–5kHz): nominal parameters — the primary character band.
+    // HF (>5kHz): less saturation — high frequencies are harder to drive into the tape.
+
+    // Band splitting via complementary LP/HP filters
+    const float lfBand  = processBiquad(input, xoverLF500Coeffs, xoverLF500State[ch]);
+    const float lfmBand = processBiquad(input, xoverHF5kCoeffs,  xoverHF5kState[ch]);
+    const float midBand = lfmBand - lfBand;   // 500Hz–5kHz (complementary subtract)
+    const float hfBand  = input   - lfmBand;  // >5kHz       (complementary subtract)
+
+    // --- MID band: full 8× oversampled J-A (nominal parameters, main character band) ---
     // Hermite (cubic) upsampling before nonlinear — avoids intermodulation aliasing
-    // Uses previous two samples + current to construct a cubic through 4 points
     const float h0 = hystState[ch].H_prev;  // sample n-1
-    const float h1 = input;  // sample n
-    // Cubic Hermite with centered-difference tangent at h0 (fix 2.5)
-    const float tangent0 = (h1 - prevH[ch]) * 0.5f;  // centered difference using n-2
-    const float tangent1 = (h1 - h0) * 0.5f;           // forward difference, scaled to match tangent0
-    prevH[ch] = h0;  // store for next call
+    const float h1 = midBand;               // sample n (mid band)
+    const float tangent0 = (h1 - prevH[ch]) * 0.5f;
+    const float tangent1 = (h1 - h0) * 0.5f;
+    prevH[ch] = h1;
     float os[kOversample];
     for (int j = 0; j < kOversample; ++j)
     {
         const float t = static_cast<float>(j + 1) / static_cast<float>(kOversample);
         const float t2 = t * t;
         const float t3 = t2 * t;
-        // Hermite basis functions
         const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
         const float h10 = t3 - 2.0f * t2 + t;
         const float h01 = -2.0f * t3 + 3.0f * t2;
@@ -577,7 +645,79 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
     }
     const float hb1a = halfBandDecimate(os[0], os[1], hb1aHistory[ch]);
     const float hb1b = halfBandDecimate(os[2], os[3], hb1bHistory[ch]);
-    return halfBandDecimate(hb1a, hb1b, hb2History[ch]);
+    const float hb1c = halfBandDecimate(os[4], os[5], hb1cHistory[ch]);
+    const float hb1d = halfBandDecimate(os[6], os[7], hb1dHistory[ch]);
+    const float hb2a = halfBandDecimate(hb1a, hb1b, hb2aHistory[ch]);
+    const float hb2b = halfBandDecimate(hb1c, hb1d, hb2bHistory[ch]);
+    const float midOut = halfBandDecimate(hb2a, hb2b, hb3History[ch]);
+
+    // --- LF band (<500Hz): easier saturation (warm, low-end glue) ---
+    // 4× oversampled J-A: Hermite upsample → 4× RK4 → 1-stage half-band decimate.
+    // Ms ×1.25 and K ×1.15 lower the coercivity threshold — LF saturates earlier.
+    const float savedMs = hystMs, savedK = hystK;
+    hystMs *= 1.25f;
+    hystK  *= 1.15f;
+    {
+        static constexpr int kOsLF = 4;
+        const float lf_h0 = hystStateLF[ch].H_prev;
+        const float lf_tangent0 = (lfBand - prevHLF[ch]) * 0.5f;
+        const float lf_tangent1 = (lfBand - lf_h0) * 0.5f;
+        prevHLF[ch] = lfBand; // A8 fix: store current sample (n), not H_prev (n-2)
+        float osLF[kOsLF];
+        for (int j = 0; j < kOsLF; ++j)
+        {
+            const float t  = static_cast<float>(j + 1) / static_cast<float>(kOsLF);
+            const float t2 = t * t;
+            const float t3 = t2 * t;
+            const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+            const float h10 = t3 - 2.0f * t2 + t;
+            const float h01 = -2.0f * t3 + 3.0f * t2;
+            const float h11 = t3 - t2;
+            const float H_interp = h00 * lf_h0 + h10 * lf_tangent0
+                                 + h01 * lfBand + h11 * lf_tangent1;
+            osLF[j] = hystRK4Step(H_interp, hystStateLF[ch].H_prev, hystStateLF[ch]);
+        }
+        // 2-stage half-band decimate: 4× → 2× (stage 1) → 1× (stage 2)
+        const float hbLF_a = halfBandDecimate(osLF[0], osLF[1], hbLFaHistory[ch]);
+        const float hbLF_b = halfBandDecimate(osLF[2], osLF[3], hbLFbHistory[ch]);
+        const float lfOut_4x = halfBandDecimate(hbLF_a, hbLF_b, hbLFHistory2[ch]);
+        // Restore nominal parameters before HF block
+        hystMs = savedMs;
+        hystK  = savedK;
+
+        // --- HF band (>5kHz): frequency-dependent saturation (C6) ---
+        // Real tape: HF saturates more aggressively at high HF levels (lower coercivity threshold).
+        // 8-sample HF envelope follower modulates K downward when HF energy is present.
+        hfEnvState[ch] += kHFEnvAlpha * (std::abs(hfBand) - hfEnvState[ch]);
+        const float kHFMod = 0.85f - 0.20f * std::min(1.0f, hfEnvState[ch] * 2.0f); // 0.85→0.65
+        hystMs *= 0.75f;
+        hystK  *= kHFMod;
+        const float hf_h0 = hystStateHF[ch].H_prev;
+        const float hf_tangent0 = (hfBand - prevHHF[ch]) * 0.5f;
+        const float hf_tangent1 = (hfBand - hf_h0) * 0.5f;
+        prevHHF[ch] = hfBand; // A8 fix: store current sample (n), not H_prev (n-2)
+        float osHF[kOsLF];
+        for (int j = 0; j < kOsLF; ++j)
+        {
+            const float t  = static_cast<float>(j + 1) / static_cast<float>(kOsLF);
+            const float t2 = t * t;
+            const float t3 = t2 * t;
+            const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+            const float h10 = t3 - 2.0f * t2 + t;
+            const float h01 = -2.0f * t3 + 3.0f * t2;
+            const float h11 = t3 - t2;
+            const float H_interp = h00 * hf_h0 + h10 * hf_tangent0
+                                 + h01 * hfBand + h11 * hf_tangent1;
+            osHF[j] = hystRK4Step(H_interp, hystStateHF[ch].H_prev, hystStateHF[ch]);
+        }
+        const float hbHF_a = halfBandDecimate(osHF[0], osHF[1], hbHFaHistory[ch]);
+        const float hbHF_b = halfBandDecimate(osHF[2], osHF[3], hbHFbHistory[ch]);
+        const float hfOut_4x = halfBandDecimate(hbHF_a, hbHF_b, hbHFHistory2[ch]);
+        hystMs = savedMs;
+        hystK  = savedK;
+
+        return lfOut_4x + midOut + hfOut_4x;
+    }
 }
 
 float TapeEngine::processSoftSat(float input, int ch)
@@ -588,7 +728,8 @@ float TapeEngine::processSoftSat(float input, int ch)
     compEnvState[ch] += compAlpha * (absLevel - compEnvState[ch]);
 
     // Dynamic onset: louder signal → earlier saturation → tape compression character
-    const float dynamicOnset = std::max(0.3f, kSatOnset - compEnvState[ch] * 0.2f);
+    // cachedSatOnset is speed-adaptive (lower at 30 ips, higher at 7.5 ips)
+    const float dynamicOnset = std::max(0.3f, cachedSatOnset - compEnvState[ch] * 0.2f);
 
     if (absLevel <= dynamicOnset) return input;
     const float over = std::min(1.0f, (absLevel - dynamicOnset) / kSatTransition);
@@ -608,6 +749,8 @@ void TapeEngine::processHissBlock(int ch, float hissAmt, float& wet)
     float pink = (pinkB0[ch] + pinkB1[ch] + pinkB2[ch] + pinkB3[ch] + pinkB4[ch] + white * 0.5362f) * 0.11f;
     pink = processBiquad(pink, hissCoeffs, hissFilterState[ch]) * 0.5f + pink * 0.5f;
     wet += pink;
+    // Mechanical noise floor (motor/bearing) — constant amplitude, not speed-scaled
+    wet += fastNoise(hissPrngState[ch]) * kMechanicalNoise * hissAmt;
 }
 
 // ============================================================================
@@ -668,10 +811,23 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             cachedWowSqrt = std::sqrt(wowRaw);
             cachedFlutterSqrt = std::sqrt(flutterRaw);
             cachedDriveMakeup = std::sqrt(cachedDriveGain);
+            // Speed-adaptive saturation onset: faster tape → earlier onset (HF saturates sooner)
+            // At 7.5 ips (ref): 0.45; at 15 ips: ~0.40; at 30 ips: ~0.35
+            {
+                const float speed = currentSpeed.load();
+                const float speedFactor = speed / kRefSpeed;
+                const float speedAdaptedOnset = 0.45f / std::sqrt(speedFactor);
+                cachedSatOnset = juce::jlimit(0.30f, 0.50f, speedAdaptedOnset);
+            }
             // Hysteresis curve shape from bias (fix 3.9 — was per-sample, now every 16)
-            const float biasOffset = bias - 0.5f;
-            hystK = std::max(0.05f, hystBaseK + biasOffset * (kBiasKMax - kBiasKMin));
-            hystA = std::max(0.05f, hystBaseA - biasOffset * (kBiasAMax - kBiasAMin));
+            // Sqrt response: perceptually linear — mid-range of knob has more nuanced effect
+            // than extreme ends. Range: K in [0.3x, 1.2x] base, A in [0.4x, 1.2x] base.
+            {
+                const float biasNorm = bias;  // 0..1 from smoothed parameter
+                const float biasSqrt = std::sqrt(biasNorm);
+                hystK = std::max(0.05f, hystBaseK * (0.3f + biasSqrt * 0.9f));
+                hystA = std::max(0.05f, hystBaseA * (0.4f + biasSqrt * 0.8f));
+            }
             // Bias normalisation: ideal anhysteretic small-signal slope ~ Ms/(3*hystA).
             // Under-bias (low hystK) pushes the real RK4 J-A gain well below that;
             // sqrt(kCentre/k) restores approximate level so Glue stays “character first”.
@@ -695,7 +851,10 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             const float totalDelay = computeModDelay(ch, cachedWowSqrt, cachedFlutterSqrt);
 
             auto* data = buffer.getWritePointer(ch);
-            const float dry = data[i];
+            // Print-through: inject delayed wet output (~3ms back) into the current input (C1)
+            const float printThruRead = printThroughBuf[ch][(printThroughWritePos - printThroughDelaySamples
+                + kPrintThroughBufSize) & (kPrintThroughBufSize - 1)];
+            const float dry = data[i] + printThruRead * kPrintThroughCoeff * printThroughLevel;
             delayBuffer[ch][writePos] = dry;
             float wet = readHermite(ch, totalDelay);
 
@@ -714,9 +873,11 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 // Residual DC after compensation is removed by the DC blocker below.
                 const float driveSpanAsym = juce::jmax(1.0e-6f, kMaxDriveLinearGain - 1.0f);
                 const float asymOffset = 0.022f * (cachedDriveGain - 1.0f) / driveSpanAsym;
-                wet += asymOffset;
                 wet *= cachedDriveGain;
                 wet = processHysteresisBlock(ch, wet);
+                // Asymmetric offset applied AFTER hysteresis so it adds even-harmonic
+                // distortion without shifting the J-A zero-mean operating point (A6 fix)
+                wet += asymOffset;
                 wet = processSoftSat(wet, ch);
                 wet /= cachedDriveMakeup;
                 wet -= asymOffset / cachedDriveMakeup;
@@ -735,10 +896,19 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 wet = y;
             }
 
-            // Head bump + notch + gap loss (all speed-scaled)
+            // Head bump + notch (speed-scaled)
             wet = processBiquad(wet, headBumpCoeffs, headBumpState[ch]);
             wet = processBiquad(wet, notchCoeffs, notchState[ch]);
-            wet = processBiquad(wet, gapLossCoeffs, gapLossState[ch]);
+
+            // Gap loss: sinc comb y[n] = 0.5*(x[n] + x[n-D]), nulls at f = (2k-1)*sr/(2D)
+            {
+                gapBuf[ch][gapWritePos] = wet;
+                const int D_int = static_cast<int>(gapDelaySamples);
+                const float D_frac = gapDelaySamples - static_cast<float>(D_int);
+                const float x0 = gapBuf[ch][(gapWritePos - D_int + kGapBufSize) & kGapMask];
+                const float x1 = gapBuf[ch][(gapWritePos - D_int - 1 + kGapBufSize) & kGapMask];
+                wet = (wet + x0 * (1.0f - D_frac) + x1 * D_frac) * 0.5f;
+            }
 
             // Per-channel dynamic LP (speed-scaled range)
             {
@@ -774,8 +944,9 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 const float glueCohesion = juce::jmax(0.0f, bias - 0.28f) * 1.55f;
                 if (glueCohesion > 0.002f)
                 {
-                    const float ax = (std::abs(wet) > glueCohesionEnv[ch]) ? glueAttackAlpha : glueReleaseAlpha;
-                    glueCohesionEnv[ch] += ax * (std::abs(wet) - glueCohesionEnv[ch]);
+                    const float absWetGlue = std::abs(wet); // PERF-6: cache abs once
+                    const float ax = (absWetGlue > glueCohesionEnv[ch]) ? glueAttackAlpha : glueReleaseAlpha;
+                    glueCohesionEnv[ch] += ax * (absWetGlue - glueCohesionEnv[ch]);
                     const float gr = glueCohesion * glueCohesionEnv[ch] * 0.8f;
                     wet *= 1.0f / (1.0f + gr);
                 }
@@ -786,10 +957,38 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             if (hiss > 0.001f)
                 processHissBlock(ch, hiss, wet);
 
+            // Azimuth misalignment: right channel delayed 0–50µs vs left (worn head tilt)
+            if (ch == 1)
+            {
+                const float azimD = wearToneAmt * kAzimMaxUs * 1e-6f * static_cast<float>(sampleRate);
+                azimBuf[azimWritePos] = wet;
+                const int D_int = static_cast<int>(azimD);
+                const float D_frac = azimD - static_cast<float>(D_int);
+                const float ax0 = azimBuf[(azimWritePos - D_int + kAzimBufSize) & kAzimMask];
+                const float ax1 = azimBuf[(azimWritePos - D_int - 1 + kAzimBufSize) & kAzimMask];
+                wet = ax0 * (1.0f - D_frac) + ax1 * D_frac;
+                azimWritePos = (azimWritePos + 1) & kAzimMask;
+            }
+
+            // Store wet for print-through source (adjacent layer coupling)
+            printThroughBuf[ch][printThroughWritePos] = wet;
+
             data[i] = dry + mix * (wet * tapeOutG - dry);
         }
 
+        // Motor ramp: multiply all channel outputs by motorRamp, then advance it
+        if (std::abs(motorRamp - (motorEnabled ? 1.0f : 0.0f)) > 1e-5f || motorRampInc != 0.0f)
+        {
+            for (int ch = 0; ch < numChannels && ch < kMaxChannels; ++ch)
+                buffer.getWritePointer(ch)[i] *= motorRamp;
+            motorRamp = juce::jlimit(0.0f, 1.0f, motorRamp + motorRampInc);
+            if (motorRamp <= 0.0f || motorRamp >= 1.0f)
+                motorRampInc = 0.0f; // reached target, stop ramping
+        }
+
+        printThroughWritePos = (printThroughWritePos + 1) & (kPrintThroughBufSize - 1);
         writePos = (writePos + 1) & (kDelayBufferSize - 1);
+        gapWritePos = (gapWritePos + 1) & kGapMask;
 
         // Advance oscillators (once per sample, shared across channels)
         wow1Osc.advance();

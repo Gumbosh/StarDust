@@ -6,10 +6,11 @@
 #include "dsp/BitCrusher.h"
 #include "dsp/DestroyDrive.h"
 #include "dsp/GranularEngine.h"
-#include "dsp/ButterworthFilter.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/TapeEngine.h"
 #include "dsp/ModulationMatrix.h"
+#include "dsp/Saturation.h"
+#include "dsp/DattorroReverb.h"
 
 struct Preset
 {
@@ -94,9 +95,10 @@ private:
     BitCrusher bitCrusher;
     DestroyDrive destroyDrive;
     GranularEngine granularEngine;
-    ButterworthFilter butterworthFilter;
     ChorusEngine chorusEngine;
     TapeEngine tapeEngine;
+    Saturation saturation;
+    DattorroReverb standaloneReverb;
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;
@@ -106,8 +108,10 @@ private:
     void scanUserPresets();
     void rebuildAllPresets();
 
-    // 2x oversampling for distortion + destroy sections
+    // 2x oversampling for destroy section
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
+    // Separate 2x oversampling for distortion section (stateful — cannot share with destroy)
+    std::unique_ptr<juce::dsp::Oversampling<float>> oversamplingDist;
 
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
@@ -119,6 +123,10 @@ private:
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
     ModulationMatrix modMatrix;
     juce::Random random;
+
+    // Shared pink-noise filter state (used by HAZE slot)
+    float noisePinkB[5][2] = {}; // Voss-McCartney pink noise: 5 stages × 2 channels
+    float hazeColorLP[2] = {};   // 1-pole LP state for HAZE color filter
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
 };

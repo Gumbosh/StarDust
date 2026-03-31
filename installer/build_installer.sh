@@ -91,12 +91,17 @@ DIST
 cat > "$STAGING/welcome.txt" << 'WELCOME'
 Welcome to Stardust
 
-A creative audio processor featuring:
+A creative audio processor featuring four DSP sections you can chain,
+reorder, and remove in any configuration:
 
-  - Destroy: SP-950 style 12-bit sampler emulation
-  - Granular: 256-voice granular engine with Dattorro reverb
-  - Multiply: 4-voice ensemble chorus with allpass diffusion
-  - Tape: Jiles-Atherton hysteresis reel-to-reel emulation
+  - Destroy:   SP-950 style 12-bit sampler emulation with bit-crusher,
+               sample-rate reduction, and 6th-order Butterworth filter
+  - Granular:  256-voice granular engine with Dattorro plate reverb,
+               pitch morphing, BPM-synced grain size, and freeze
+  - Multiply:  4-voice ensemble chorus with allpass phase diffusion
+               and stereo spread control
+  - Tape:      Jiles-Atherton hysteresis reel-to-reel emulation with
+               wow, flutter, hiss, and NAB/IEC emphasis
 
 This installer will place:
   - AU plugin in /Library/Audio/Plug-Ins/Components/

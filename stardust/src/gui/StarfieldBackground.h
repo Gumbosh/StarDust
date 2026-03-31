@@ -29,6 +29,14 @@ struct StarfieldParams
     bool destroyEnabled = true;
     bool granularEnabled = true;
     bool multiplyEnabled = true;
+    // NEW — previously had no visual representation
+    float destroyBits   = 12.0f; // 4..24 bits — controls posterization banding
+    float grainSizeSync = 0.0f;  // 0..10 (choice index) — controls particle radius
+    float grainReverse  = 0.0f;  // 0..1 — fraction of particles flowing inward
+    float tapeDrive     = 0.0f;  // 0..1 (pre-scaled by tapeMix) — highlight bloom
+    float tapeGlue      = 0.0f;  // 0..1 (pre-scaled by tapeMix) — dynamic range compression
+    float tapeMix       = 1.0f;  // 0..1 — scales all tape visual effects
+    float tapeOutput    = 0.0f;  // -24..+12 dB — post-tape brightness trim
 };
 
 class StarfieldBackground : public juce::Component, public juce::Timer
@@ -46,7 +54,7 @@ public:
 
     // Grain visualization — call from editor timer at 30Hz
     struct GrainParticle { float normPos = 0.0f; float phase = 0.0f; bool active = false; };
-    static constexpr int kMaxGrainParticles = 32;
+    static constexpr int kMaxGrainParticles = 64;
     void setGrainData(const std::array<GrainParticle, kMaxGrainParticles>& particles, bool isFrozen);
 
 

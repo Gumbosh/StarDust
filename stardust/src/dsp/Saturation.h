@@ -12,9 +12,14 @@ public:
     void setInputGain(float gainDb);
     void setOutputGain(float gainDb);
     void setDrive(float driveAmount);
+    void setBias(float b);   // [-0.5, 0.5] asymmetric offset → even harmonic character
+    void setMode(int m);     // 0=Soft (tanh), 1=Tube (asymmetric), 2=Hard (clip)
+    void setAsym(float a);   // [0,1]: tube knee softness (0=hard class-A, 1=soft class-AB)
+    void setTone(float t);   // [0,1]: HP 80–500Hz, LP 2kHz–20kHz (presence bandpass)
 
     void processInput(juce::AudioBuffer<float>& buffer);
     void processOutput(juce::AudioBuffer<float>& buffer);
+    void processTone(juce::AudioBuffer<float>& buffer); // 2-pole HP + LP EQ
 
 private:
     void applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
@@ -26,10 +31,16 @@ private:
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> driveSmoothed { 0.0f };
+    juce::SmoothedValue<float> biasSmoothed { 0.0f };
+    juce::SmoothedValue<float> asymSmoothed { 0.5f };
 
     float currentInputGainDb = 0.0f;
     float currentOutputGainDb = 0.0f;
     float currentDrive = 0.0f;
+    float currentBias = 0.0f;
+    float currentAsym = 0.5f;
+    int currentMode = 0; // 0=Soft, 1=Tube, 2=Hard
+    float currentTone = -1.0f; // -1 forces initial coefficient calculation
 
     double sampleRate = 44100.0;
 
@@ -38,4 +49,30 @@ private:
     float dcX1[kMaxChannels] = {};
     float dcY1[kMaxChannels] = {};
     float dcCoeff = 0.995f; // recalculated in prepare() for ~20Hz HPF
+
+    // 2-pole presence EQ (HP + LP biquad) for tone control
+    struct BiquadState { float z1 = 0.0f, z2 = 0.0f; };
+    std::array<BiquadState, kMaxChannels> toneHPState {}, toneLPState {};
+    float toneHP[5] = { 1, 0, 0, 0, 0 }; // b0 b1 b2 a1 a2
+    float toneLP[5] = { 1, 0, 0, 0, 0 };
+
+    // Output transformer stage: 30Hz coupling HP + 18kHz iron-core LP
+    void computeTransformerCoeffs();
+    std::array<BiquadState, kMaxChannels> xfmrHPState {}, xfmrLPState {};
+    float xfmrHP[5] = { 1, 0, 0, 0, 0 }; // b0 b1 b2 a1 a2
+    float xfmrLP[5] = { 1, 0, 0, 0, 0 };
+
+    // 8× oversampling for alias-free nonlinear processing
+    static constexpr int kOversample = 8;
+    float prevSample[kMaxChannels] = {};       // for Hermite cubic (Catmull-Rom) upsampling
+    float prevPrevSample[kMaxChannels] = {};   // second history slot for Catmull-Rom interpolation
+    // 15-tap Kaiser half-band (~90dB stopband) — 8-element even-polyphase history per stage
+    float hb1History[kMaxChannels][8] = {};    // stage 1 branch A  (8x→4x, pair 0-1)
+    float hb2History[kMaxChannels][8] = {};    // stage 1 branch B  (8x→4x, pair 2-3)
+    float hb3History[kMaxChannels][8] = {};    // stage 1 branch C  (8x→4x, pair 4-5)
+    float hb4History[kMaxChannels][8] = {};    // stage 1 branch D  (8x→4x, pair 6-7)
+    float hb3aHistory[kMaxChannels][8] = {};   // stage 2 branch A  (4x→2x)
+    float hb3bHistory[kMaxChannels][8] = {};   // stage 2 branch B  (4x→2x)
+    float hb4aHistory[kMaxChannels][8] = {};   // stage 3           (2x→1x)
+    static float halfBandDecimate(float a, float b, float* hist) noexcept;
 };

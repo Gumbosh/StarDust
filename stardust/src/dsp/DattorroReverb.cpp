@@ -32,7 +32,11 @@ static constexpr float kTapDelB1_b = 187.0f;
 static constexpr float kTapApB2_a = 1066.0f;
 static constexpr float kTapDelB2_a = 1913.0f;
 
+// Early reflection tap delays (at 29761 Hz reference, mutually prime for Schroeder spacing)
+static constexpr float kERRef[8] = { 149.0f, 214.0f, 318.0f, 419.0f, 529.0f, 631.0f, 764.0f, 839.0f };
+
 // Additional taps for stereo decorrelation
+static constexpr float kERGains[8] = { 0.70f, -0.62f, 0.55f, -0.48f, 0.41f, -0.36f, 0.30f, -0.25f };
 static constexpr float kTapDelA1_c = 353.0f;
 static constexpr float kTapDelB1_c = 3627.0f;
 static constexpr float kTapApA2_b = 1228.0f;
@@ -106,6 +110,12 @@ void DattorroReverb::prepare(double sampleRate)
     tankDampA = 0.0f;
     tankDampB = 0.0f;
 
+    // Early reflection tap lengths (scaled to sample rate)
+    for (int i = 0; i < 8; ++i)
+        erTaps[i] = std::max(1, std::min(kERBufferSize - 1,
+            static_cast<int>(kERRef[i] * static_cast<float>(sr) / kRefRate)));
+    erWritePos = 0;
+
     reset();
 }
 
@@ -121,6 +131,22 @@ void DattorroReverb::setDamping(float damping)
     dampingAlpha = 0.05f + damping * 0.9f;
 }
 
+void DattorroReverb::setSize(float s)
+{
+    sizeVal = std::max(0.0f, std::min(1.0f, s));
+    // Size only controls LFO speed and modulation depth — decay is independent
+    lfo1.setFreq(0.4f + sizeVal * 1.2f, static_cast<float>(sr));
+    lfo2.setFreq(0.6f + sizeVal * 1.4f, static_cast<float>(sr));
+    modDepthSamples = (4.0f + sizeVal * 8.0f) * static_cast<float>(sr) / kRefRate;
+}
+
+void DattorroReverb::setPreDelay(float ms)
+{
+    ms = std::max(0.0f, std::min(100.0f, ms));
+    preDelayLength = std::max(1, std::min(kPreDelaySize - 1,
+        static_cast<int>(ms * 0.001f * static_cast<float>(sr))));
+}
+
 void DattorroReverb::setDiffusion(float amount)
 {
     inputDiffusion1 = 0.3f + amount * 0.45f; // 0.3–0.75
@@ -131,6 +157,7 @@ void DattorroReverb::setDiffusion(float amount)
     inDiffD.feedback = inputDiffusion2;
     sideDiffA.feedback = inputDiffusion2;
     sideDiffB.feedback = inputDiffusion2;
+    erLevel = 0.10f + amount * 0.25f; // 0.10–0.35 range
 }
 
 void DattorroReverb::reset()
@@ -153,6 +180,8 @@ void DattorroReverb::reset()
     tankDampB = 0.0f;
     std::memset(preDelayBuffer, 0, sizeof(preDelayBuffer));
     preDelayWritePos = 0;
+    std::memset(erBuffer, 0, sizeof(erBuffer));
+    erWritePos = 0;
 }
 
 void DattorroReverb::processSample(float inL, float inR, float& outL, float& outR)
@@ -164,6 +193,18 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     preDelayBuffer[preDelayWritePos] = inputMid;
     const float preDelayed = preDelayBuffer[(preDelayWritePos - preDelayLength + kPreDelaySize) & (kPreDelaySize - 1)];
     preDelayWritePos = (preDelayWritePos + 1) & (kPreDelaySize - 1);
+
+    // Early reflections: 8 Schroeder-style taps from pre-delayed mono mid
+    // Even-indexed taps → L, odd-indexed taps → R (alternating signs for stereo spread)
+    erBuffer[erWritePos] = preDelayed;
+    float erL = 0.0f, erR = 0.0f;
+    for (int i = 0; i < 8; ++i)
+    {
+        const float tap = erBuffer[(erWritePos - erTaps[i] + kERBufferSize) & (kERBufferSize - 1)];
+        if (i & 1) erR += kERGains[i] * tap;
+        else       erL += kERGains[i] * tap;
+    }
+    erWritePos = (erWritePos + 1) & (kERBufferSize - 1);
 
     // Diffuse mid (4 allpasses) and side (2 allpasses) independently
     float diffusedMid = inDiffA.process(preDelayed);
@@ -226,7 +267,7 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
          - tankApA2.buffer[(tankApA2.writePos - tapA6 + kPoolSize) & (kPoolSize - 1)]
          - tankDelA2.readAt(tapA7);
 
-    // Scale output (0.5 for adequate reverb presence at full space)
-    outL *= 0.5f;
-    outR *= 0.5f;
+    // Mix in early reflections then scale
+    outL = (outL + erLevel * erL) * 0.5f;
+    outR = (outR + erLevel * erR) * 0.5f;
 }
