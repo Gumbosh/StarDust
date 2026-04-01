@@ -179,8 +179,10 @@ void DattorroReverb::reset()
     tankDampA = 0.0f;
     tankDampB = 0.0f;
     std::memset(preDelayBuffer, 0, sizeof(preDelayBuffer));
+    std::memset(preDelaySideBuffer, 0, sizeof(preDelaySideBuffer));
     preDelayWritePos = 0;
     std::memset(erBuffer, 0, sizeof(erBuffer));
+    std::memset(erSideBuffer, 0, sizeof(erSideBuffer));
     erWritePos = 0;
 }
 
@@ -191,18 +193,25 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     const float inputSide = (inL - inR) * 0.5f;
 
     preDelayBuffer[preDelayWritePos] = inputMid;
-    const float preDelayed = preDelayBuffer[(preDelayWritePos - preDelayLength + kPreDelaySize) & (kPreDelaySize - 1)];
+    preDelaySideBuffer[preDelayWritePos] = inputSide;
+    const int preDelayReadPos = (preDelayWritePos - preDelayLength + kPreDelaySize) & (kPreDelaySize - 1);
+    const float preDelayed = preDelayBuffer[preDelayReadPos];
+    const float preDelayedSide = preDelaySideBuffer[preDelayReadPos];
     preDelayWritePos = (preDelayWritePos + 1) & (kPreDelaySize - 1);
 
     // Early reflections: 8 Schroeder-style taps from pre-delayed mono mid
     // Even-indexed taps → L, odd-indexed taps → R (alternating signs for stereo spread)
     erBuffer[erWritePos] = preDelayed;
+    erSideBuffer[erWritePos] = preDelayedSide;
     float erL = 0.0f, erR = 0.0f;
     for (int i = 0; i < 8; ++i)
     {
-        const float tap = erBuffer[(erWritePos - erTaps[i] + kERBufferSize) & (kERBufferSize - 1)];
-        if (i & 1) erR += kERGains[i] * tap;
-        else       erL += kERGains[i] * tap;
+        const int readIdx = (erWritePos - erTaps[i] + kERBufferSize) & (kERBufferSize - 1);
+        const float tapMid  = erBuffer[readIdx];
+        const float tapSide = erSideBuffer[readIdx];
+        // Decode mid/side into L/R so stereo content appears in early reflections
+        if (i & 1) erR += kERGains[i] * (tapMid - tapSide);
+        else       erL += kERGains[i] * (tapMid + tapSide);
     }
     erWritePos = (erWritePos + 1) & (kERBufferSize - 1);
 
@@ -211,7 +220,7 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     diffusedMid = inDiffB.process(diffusedMid);
     diffusedMid = inDiffC.process(diffusedMid);
     diffusedMid = inDiffD.process(diffusedMid);
-    float diffusedSide = sideDiffA.process(inputSide);
+    float diffusedSide = sideDiffA.process(preDelayedSide);
     diffusedSide = sideDiffB.process(diffusedSide);
 
     // LFO modulation via incremental oscillators (zero trig per sample)

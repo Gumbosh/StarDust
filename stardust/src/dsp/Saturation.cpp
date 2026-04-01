@@ -332,7 +332,7 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                 }
                 else if (currentMode == 2) // Hard clip — no soft-knee, abrupt onset is intentional
                 {
-                    s = juce::jlimit(-1.0f, 1.0f, s * scale * 4.0f) * normalization * 0.25f;
+                    s = juce::jlimit(-1.0f, 1.0f, s * scale) * normalization;
                 }
                 else if (currentMode == 1) // Tube: asymmetric knee, softness controlled by asym
                 {
@@ -361,8 +361,9 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                 {
                     const float x = s * scale;
                     // µ decreases as signal level rises — classic Fairchild/Vari-Mu character
+                    // Drive knob controls the ceiling: as x→∞, output → tanh(scale/2)*norm
                     const float mu = 1.0f / (1.0f + std::abs(x) * 2.0f);
-                    s = std::tanh(x * mu * 2.0f) * normalization;
+                    s = std::tanh(x * mu * scale) * normalization;
                 }
                 else // Soft (0): symmetric tanh with bias
                 {

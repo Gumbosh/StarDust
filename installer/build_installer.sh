@@ -3,15 +3,21 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$PROJECT_DIR/stardust/build/Stardust_artefacts/Release"
+PLUGIN_PROJECT_DIR="$PROJECT_DIR/stardust"
+CMAKE_BUILD_DIR="$PLUGIN_PROJECT_DIR/build"
+BUILD_DIR="$CMAKE_BUILD_DIR/Stardust_artefacts/Release"
 STAGING="$SCRIPT_DIR/staging"
 OUTPUT="$SCRIPT_DIR/Stardust-Installer.pkg"
 
 # Plugin version
-VERSION="1.0.0"
+VERSION=$(grep 'project(Stardust VERSION' "$PLUGIN_PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
 
 echo "=== Stardust Installer Builder ==="
 echo "Build dir: $BUILD_DIR"
+
+echo "Building latest plugin artifacts..."
+cmake -B "$CMAKE_BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PLUGIN_PROJECT_DIR"
+cmake --build "$CMAKE_BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
 
 # Verify artifacts exist
 for artifact in "$BUILD_DIR/AU/Stardust.component" "$BUILD_DIR/VST3/Stardust.vst3" "$BUILD_DIR/Standalone/Stardust.app"; do
@@ -61,7 +67,7 @@ pkgbuild --root "$STAGING/app" \
          "$STAGING/Stardust-App.pkg"
 
 # Create distribution XML for productbuild
-cat > "$STAGING/distribution.xml" << 'DIST'
+cat > "$STAGING/distribution.xml" << DIST
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
     <title>Stardust</title>
@@ -81,14 +87,14 @@ cat > "$STAGING/distribution.xml" << 'DIST'
     <choice id="app" title="Standalone App" description="Install Stardust standalone application.">
         <pkg-ref id="com.stardust.app"/>
     </choice>
-    <pkg-ref id="com.stardust.au" version="1.0.0">Stardust-AU.pkg</pkg-ref>
-    <pkg-ref id="com.stardust.vst3" version="1.0.0">Stardust-VST3.pkg</pkg-ref>
-    <pkg-ref id="com.stardust.app" version="1.0.0">Stardust-App.pkg</pkg-ref>
+    <pkg-ref id="com.stardust.au" version="$VERSION">Stardust-AU.pkg</pkg-ref>
+    <pkg-ref id="com.stardust.vst3" version="$VERSION">Stardust-VST3.pkg</pkg-ref>
+    <pkg-ref id="com.stardust.app" version="$VERSION">Stardust-App.pkg</pkg-ref>
 </installer-gui-script>
 DIST
 
 # Create welcome text
-cat > "$STAGING/welcome.txt" << 'WELCOME'
+cat > "$STAGING/welcome.txt" << WELCOME
 Welcome to Stardust
 
 A creative audio processor featuring four DSP sections you can chain,
@@ -108,7 +114,7 @@ This installer will place:
   - VST3 plugin in /Library/Audio/Plug-Ins/VST3/
   - Standalone app in /Applications/
 
-Version 1.0.0
+Version $VERSION
 WELCOME
 
 # Build final product installer

@@ -6,7 +6,7 @@
 #include "Oscillator.h"
 
 // Quarter-inch reel-to-reel tape emulation (Ampex 456, 7.5/15/30 ips):
-// - Hysteresis: Jiles-Atherton with RK4 solver (4x oversampled, 7-tap half-band decimation)
+// - Hysteresis: Jiles-Atherton with RK4 solver (8x MID / 4x LF+HF, 7-tap half-band decimation)
 // - Wow: multi-rate (capstan 0.5Hz + pinch roller 1.3Hz + supply reel 0.08Hz)
 // - Flutter: 2-source (8Hz + 15Hz), independent PRNG per channel
 // - Hiss: Paul Kellet pink noise + 4.5kHz tape character peak, level-dependent
@@ -45,7 +45,7 @@ public:
     void setDrive(float amount);
     void setMix(float amount);
     void setTapeOutputDb(float db);
-    void setWearTone(float amount);
+    void setInputGain(float db);  // pre-tape input level (-12..+12 dB)
     void setHissSpeedIps(float ips);
     void setSpeed(float speedIps);
     void setFormulation(int index);
@@ -67,8 +67,8 @@ private:
     static float fastSinh(float x);
     static float langevin(float x);
     static float langevinDeriv(float x);
-    float hystDMDH(float H, float M, float dH) const;
-    float hystRK4Step(float H, float H_prev, HysteresisState& state) const;
+    float hystDMDH(float H, float M, float dH, float ms, float k) const;
+    float hystRK4Step(float H, HysteresisState& state, float ms, float k) const;
 
     // Extracted process helpers
     float computeModDelay(int ch, float wowAmt, float flutterAmt);
@@ -121,11 +121,12 @@ private:
     juce::SmoothedValue<float> driveGainSmoothed { 1.0f };
     juce::SmoothedValue<float> mixSmoothed { 1.0f };
     juce::SmoothedValue<float> tapeOutGainSmoothed { 1.0f };
-    juce::SmoothedValue<float> wearToneSmoothed { 0.0f };
+    juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     float currentWow = 0.0f, currentFlutter = 0.0f, currentHiss = 0.0f;
     float currentBias = 0.5f, currentDrive = 0.5f, currentMix = 1.0f;
     float currentTapeOutDb = 0.0f;
-    float currentWearTone = 0.0f;
+    float currentInputDb = 0.0f;
+    float cachedInputGain = 1.0f;
 
     // Tape speed (7.5, 15.0, or 30.0 ips) — atomic for thread safety
     std::atomic<float> currentSpeed { 7.5f };
@@ -142,7 +143,6 @@ private:
     static constexpr float kBaseFlutterDepth = 10.0f; // ~5 cents flutter at full wear (clearly characterful)
     static constexpr float kBaseBumpFreq = 90.0f;    // 90Hz for 7.5 ips (was 50Hz — wrong for this speed)
     static constexpr float kBaseNotchFreq = 180.0f;  // 2x bump freq
-    static constexpr float kBaseGapLossFreq = 16000.0f;
     static constexpr float kBaseEmpGainDb = 6.0f;  // NAB HF pre-emphasis at 7.5 ips
     // Base oscillator frequencies at 7.5 ips (scale with speed)
     static constexpr float kBaseCapstanHz = 0.5f;
@@ -151,11 +151,9 @@ private:
     static constexpr float kFlutter1Hz = 8.0f;   // bearing resonance (speed-independent)
     static constexpr float kFlutter2Hz = 15.0f;   // guide friction (speed-independent)
     static constexpr float kBaseDynLpMax = 18000.0f;
-    static constexpr float kBaseDynLpRange = 4000.0f; // narrowed from 8kHz (more accurate tape HF compression)
     float wowDepth = kBaseWowDepth;
     float flutterDepth = kBaseFlutterDepth;
     float dynLpMax = kBaseDynLpMax;
-    float dynLpRange = kBaseDynLpRange;
 
     // Cached per-N-samples values (sqrt/pow computed every kCachedUpdateInterval)
     float cachedWowSqrt = 0.0f;
@@ -165,7 +163,7 @@ private:
     float cachedBiasNorm = 1.05f;  // = 3.0f * hystA — normalises J-A small-signal gain to ~1
     float cachedSatOnset = 0.45f;  // speed-adaptive soft saturation onset threshold
     float hissSpeedIpsStored = 15.0f;
-    float cachedHissSpeedScale = 1.0f;
+    std::atomic<float> cachedHissSpeedScale { 1.0f };
 
     static constexpr int kDelayBufferSize = 8192;
     static_assert((kDelayBufferSize & (kDelayBufferSize - 1)) == 0, "must be power of 2");
@@ -174,17 +172,17 @@ private:
 
     // Print-through simulation: adjacent tape layer magnetization (C1)
     // Wet output is delayed 3ms and added to the future input at -46dB (0.005 linear)
-    static constexpr int kPrintThroughBufSize = 512; // power-of-2; 512/44100 ≈ 11.6ms
+    static constexpr int kPrintThroughBufSize = 1024; // power-of-2; 1024/44100 ≈ 23ms; covers 3ms at up to 192kHz
     static constexpr float kPrintThroughCoeff = 0.005f; // -46dB coupling
     float printThroughBuf[kMaxChannels][kPrintThroughBufSize] = {};
     int printThroughWritePos = 0;
     int printThroughDelaySamples = 132; // ~3ms at 44.1kHz; recomputed in prepare()
-    float printThroughLevel = 1.0f;    // user-controlled 0-1 scale on print-through
+    std::atomic<float> printThroughLevel { 1.0f }; // user-controlled 0-1; written from UI thread
 
     // Motor start/stop ramp (ramps output over ~2s to simulate motor speed-up/down)
-    bool motorEnabled = true;
-    float motorRamp = 1.0f;    // current gain [0-1]; 1=running, 0=stopped
-    float motorRampInc = 0.0f; // per-sample increment (positive=ramping up, negative=down)
+    std::atomic<bool> motorEnabled { true };
+    float motorRamp = 1.0f;    // current gain [0-1]; 1=running, 0=stopped (audio thread only)
+    std::atomic<float> motorRampInc { 0.0f }; // per-sample increment; written by setter, read by process()
 
     static constexpr float kBaseDelay = 80.0f;
 
@@ -209,9 +207,9 @@ private:
     uint32_t noiseState[kMaxChannels] = { 12345, 67890 };
     uint32_t flutterPrngState[kMaxChannels] = { 54321, 98765 };
     uint32_t hissPrngState[kMaxChannels] = { 11111, 22222 };
+    float hissPinkState[kMaxChannels] = {}; // 1-pole pink shaper IIR state (Kellett stage 1)
 
     HysteresisState hystState[kMaxChannels] = {};
-    float prevH[kMaxChannels] = {};  // previous-previous H for Hermite upsampling tangents
 
     static constexpr int kOversample = 8;
 
@@ -255,25 +253,14 @@ private:
     BiquadCoeffs xoverHF5kCoeffs  {};   // LP at 5kHz   (extracts LF+MID band)
     BiquadState  xoverLF500State[kMaxChannels]  {};
     BiquadState  xoverHF5kState[kMaxChannels]   {};
-    // Second filter instance for MID band extraction (parallel path, own state)
-    BiquadState  xoverLF500bState[kMaxChannels] {};
-    BiquadState  xoverHF5kbState[kMaxChannels]  {};
 
     // Per-band J-A states for LF (<500Hz) and HF (>5kHz) bands
     HysteresisState hystStateLF[kMaxChannels] {};
     HysteresisState hystStateHF[kMaxChannels] {};
-    float prevHLF[kMaxChannels] {};   // previous H for LF band oversampling
-    float prevHHF[kMaxChannels] {};   // previous H for HF band oversampling
 
-    BiquadCoeffs dynLpCoeffs[kMaxChannels];
+    BiquadCoeffs dynLpCoeffs;
     BiquadState dynLpBqState[kMaxChannels];
-    float dynLpEnvState[kMaxChannels] = {};
-    float envAlpha = 0.0f;
 
-    BiquadCoeffs wearToneLpCoeffs {};
-    BiquadState wearToneLpState[kMaxChannels] {};
-    // Second pole pair — same coefficients, cascaded to form 4-pole (24 dB/oct) Butterworth
-    BiquadState wearToneLp2State[kMaxChannels] {};
     float glueCohesionEnv[kMaxChannels] = {};
     float glueAttackAlpha = 0.0f, glueReleaseAlpha = 0.0f;
 
@@ -288,8 +275,6 @@ private:
     float dcBlockY1[kMaxChannels] = {};
     float dcBlockCoeff = 0.995f;
 
-    float pinkB0[kMaxChannels] = {}, pinkB1[kMaxChannels] = {}, pinkB2[kMaxChannels] = {};
-    float pinkB3[kMaxChannels] = {}, pinkB4[kMaxChannels] = {};
 
     float wowNoiseAlpha = 0.0f, flutterNoiseAlpha = 0.0f;
 

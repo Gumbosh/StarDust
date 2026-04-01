@@ -18,14 +18,13 @@ jobs:
           cmake --build build --config Release -j$(sysctl -n hw.ncpu)
 
       - name: Package Installer
-        working-directory: stardust
-        run: bash installer/build-macos-installer.sh
+        run: bash installer/build_installer.sh
 
       - name: Upload macOS Installer
         uses: actions/upload-artifact@v4
         with:
           name: Stardust-macOS-Installer
-          path: stardust/build/Stardust-Installer.pkg
+          path: installer/Stardust-Installer.pkg
 
       - name: Upload macOS VST3
         uses: actions/upload-artifact@v4

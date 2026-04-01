@@ -138,6 +138,8 @@ void GranularEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     freezeNoiseAlpha = 1.0f - std::exp(-twoPi * 0.5f / sr); // ~0.5Hz bandwidth for organic drift
     freezeNoiseState = 31337;
 
+    loopbackPrev[0] = loopbackPrev[1] = 0.0f;
+
     dattorro.prepare(sampleRate);
     inputFollower.prepare(sampleRate);
 }
@@ -434,7 +436,7 @@ void GranularEngine::spawnGrains(float readAnchor, float scatter, float basePitc
         // Pitch spread: per-grain random pitch offset ±12 semitones (user-controlled)
         if (pitchSpread > 0.0f)
         {
-            const float spreadSt = fastNoise(noiseState) * pitchSpread * 12.0f;
+            const float spreadSt = fastNoise(spatialNoiseState) * pitchSpread * 12.0f;
             g.playbackRate *= std::pow(2.0f, spreadSt / 12.0f);
         }
 
@@ -683,6 +685,7 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             {
                 const float extIn = buffer.getReadPointer(ch)[i] * writeMix;
                 float in = extIn + feedbackBuffer[ch] * feedback;
+                if (!frozen && loopbackAmount > 0.001f) in += loopbackPrev[ch];
                 in = fastTanh(in);
                 auto& bufSample = (*inputBuffer)[static_cast<size_t>(ch)][static_cast<size_t>(writePos)];
                 if (writeMix > 0.001f)
@@ -825,19 +828,17 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             }
         }
 
-        // Loopback: feed a fraction of grain output back into the input buffer
-        // (injected ahead of write position so grains read it on the next cycle)
-        if (loopbackAmount > 0.001f && !frozen)
+        // Loopback: stage grain output so it is mixed into the write step on the next sample
+        if (!frozen)
         {
-            const int loopbackPos = (writePos + 1) & kInputBufferMask;
-            (*inputBuffer)[0][static_cast<size_t>(loopbackPos)] +=
-                grainOutputL * loopbackAmount * 0.5f;
-            if (isStereo)
-                (*inputBuffer)[1][static_cast<size_t>(loopbackPos)] +=
-                    grainOutputR * loopbackAmount * 0.5f;
-            else
-                (*inputBuffer)[1][static_cast<size_t>(loopbackPos)] +=
-                    grainOutputL * loopbackAmount * 0.5f;
+            loopbackPrev[0] = loopbackAmount > 0.001f ? grainOutputL * loopbackAmount * 0.5f : 0.0f;
+            loopbackPrev[1] = loopbackAmount > 0.001f
+                ? (isStereo ? grainOutputR : grainOutputL) * loopbackAmount * 0.5f
+                : 0.0f;
+        }
+        else
+        {
+            loopbackPrev[0] = loopbackPrev[1] = 0.0f;
         }
 
         // Feedback (LP filtered + cross-channel coupling for stereo evolution)

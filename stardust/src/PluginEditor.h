@@ -200,7 +200,7 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyInKnob, destroyOutKnob, destroyMixKnob;
+    LabeledKnob destroyInKnob, destroyOutKnob;
     LabeledKnob destroyBitsKnob, destroyRateKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
@@ -226,18 +226,16 @@ private:
     juce::Label multiplyVintageLabel;
     LabeledKnob multiplyDriftKnob;
     std::unique_ptr<ButtonAttachment> multiplyTempoSyncAttach;
-    LabeledKnob tapeDriveKnob, tapeWearKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
-    LabeledKnob tapeWowKnob, tapeFlutterKnob;
-    juce::TextButton tapeEQStandardBtn[2];
-    juce::Label tapeEQStandardLabel;
+    LabeledKnob tapeDriveKnob, tapeInputKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
+    LabeledKnob tapeWowKnob;
+
     LabeledKnob distortionDriveKnob, distortionToneKnob, distortionBiasKnob, distortionAsymKnob;
     juce::TextButton distortionModeBtn[6];
     juce::Label distortionModeLabel;
     LabeledKnob reverbMixKnob, reverbSizeKnob, reverbDecayKnob, reverbDampKnob, reverbPreDelayKnob, reverbDiffusionKnob, reverbWidthKnob;
     juce::TextButton tapeNoiseSpeedBtn[3];
     juce::Label tapeNoiseSpeedLabel;
-    juce::TextButton tapeFormulationBtn[5];
-    juce::Label tapeFormulationLabel;
+
     // HAZE section
     LabeledKnob hazeColorKnob;
     juce::TextButton hazeTypeBtn[3];

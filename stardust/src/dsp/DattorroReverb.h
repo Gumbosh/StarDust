@@ -109,6 +109,7 @@ private:
     // Pre-delay buffer (20ms, supports up to 192kHz)
     static constexpr int kPreDelaySize = 8192;
     float preDelayBuffer[kPreDelaySize] = {};
+    float preDelaySideBuffer[kPreDelaySize] = {};
     int preDelayLength = 0;
     int preDelayWritePos = 0;
 
@@ -154,6 +155,7 @@ private:
     // Early reflections: 8 Schroeder-style taps from the pre-delayed mono mid
     static constexpr int kERBufferSize = 8192; // covers largest tap at up to 192kHz
     float erBuffer[kERBufferSize] = {};
+    float erSideBuffer[kERBufferSize] = {};
     int erWritePos = 0;
     int erTaps[8] = {};
     float erLevel = 0.25f; // updated by setDiffusion()

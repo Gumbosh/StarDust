@@ -569,7 +569,8 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
                 ap.coeff += kDriftAlpha * (v.allpassTarget[s] - ap.coeff);
             }
 
-            v.amLfoPhase += juce::MathConstants<float>::twoPi * v.amLfoRate * speedMul * lfoInc;
+            const float amRate = tempoSyncEnabled ? tempoSyncedRate : v.amLfoRate * speedMul;
+            v.amLfoPhase += juce::MathConstants<float>::twoPi * amRate * lfoInc;
             if (v.amLfoPhase >= juce::MathConstants<float>::twoPi)
                 v.amLfoPhase -= juce::MathConstants<float>::twoPi;
         }
@@ -586,13 +587,13 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
         const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
         auto* dataL = buffer.getWritePointer(0);
         dataL[i] = dataL[i] * dryGain + outL * wetGain;
-        feedbackState[0] = std::tanh(outL * 1.1f) * 0.91f;  // soft saturation: warmth + prevents runaway
+        feedbackState[0] = std::tanh(outL * 1.1f) * 1.2492f;  // soft saturation: warmth + prevents runaway
 
         if (isStereo)
         {
             auto* dataR = buffer.getWritePointer(1);
             dataR[i] = dataR[i] * dryGain + outR * wetGain;
-            feedbackState[1] = std::tanh(outR * 1.1f) * 0.91f;
+            feedbackState[1] = std::tanh(outR * 1.1f) * 1.2492f;
         }
         else
         {

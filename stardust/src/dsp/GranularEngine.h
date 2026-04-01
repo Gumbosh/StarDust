@@ -175,6 +175,9 @@ private:
     float feedbackLpState[kMaxChannels] = {};
     float feedbackLpAlpha = 0.0f;
 
+    // Loopback: grain output staged here, mixed into the write step on the next sample
+    float loopbackPrev[2] = {};
+
     float normSmoothed = 1.0f;
 
     // Internal modulation LFOs (shared IncrementalOscillator — zero trig per sample)
