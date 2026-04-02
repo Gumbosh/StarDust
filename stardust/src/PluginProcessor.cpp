@@ -228,17 +228,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("distortionTone", 1), "Distortion Tone",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("distortionBias", 1), "Distortion Bias",
-        juce::NormalisableRange<float>(-0.5f, 0.5f, 0.01f), 0.0f));
-
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID("distortionMode", 1), "Distortion Mode",
-        juce::StringArray{"Soft", "Tube", "Hard", "Trans", "Satin", "Vari-Mu"}, 0));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("distortionAsym", 1), "Distortion Asym",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+        juce::StringArray{"Soft", "Tube", "Hard", "Satin"}, 0));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
@@ -662,36 +654,26 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 tapeEngine.process(buffer);
                 break;
             }
-            case 5: // DISTORTION (saturation + tone filter, 2x oversampled)
+            case 5: // DISTORTION — Saturation handles its own 8× internal oversampling
             {
                 if (!(*apvts.getRawParameterValue("distortionEnabled") >= 0.5f)) break;
-                if (!dryBufferOk) break;
                 const float driveVal = *apvts.getRawParameterValue("distortionDrive");
                 const float toneVal  = *apvts.getRawParameterValue("distortionTone");
 
-                juce::dsp::AudioBlock<float> block(buffer);
-                auto oversampledBlock = oversamplingDist->processSamplesUp(block);
-
-                const auto osNumSamples = static_cast<int>(oversampledBlock.getNumSamples());
-                const auto osNumChannels = static_cast<int>(oversampledBlock.getNumChannels());
-                float* osChannelPtrs[2] = {
-                    oversampledBlock.getChannelPointer(0),
-                    osNumChannels > 1 ? oversampledBlock.getChannelPointer(1) : nullptr
-                };
-                juce::AudioBuffer<float> osBuffer(osChannelPtrs, osNumChannels, osNumSamples);
-
-                saturation.setInputGain(driveVal * 24.0f);
+                // Mode index mapping: UI {0=Soft,1=Tube,2=Hard,3=Satin} → engine {0,1,2,4}
+                static constexpr int kModeMap[] = { 0, 1, 2, 4 };
+                const int uiMode = juce::jlimit(0, 3,
+                    static_cast<int>(*apvts.getRawParameterValue("distortionMode")));
+                saturation.setInputGain(0.0f);
                 saturation.setDrive(driveVal);
-                saturation.setBias(*apvts.getRawParameterValue("distortionBias"));
-                saturation.setMode(static_cast<int>(*apvts.getRawParameterValue("distortionMode")));
-                saturation.setAsym(*apvts.getRawParameterValue("distortionAsym"));
-                saturation.processInput(osBuffer);
+                saturation.setBias(0.0f);
+                saturation.setMode(kModeMap[uiMode]);
+                saturation.setAsym(0.5f);
+                saturation.processInput(buffer);
                 saturation.setTone(toneVal);
-                saturation.processTone(osBuffer);
-                saturation.setOutputGain(-driveVal * 24.0f);
-                saturation.processOutput(osBuffer);
-
-                oversamplingDist->processSamplesDown(block);
+                saturation.processTone(buffer);
+                saturation.setOutputGain(0.0f);
+                saturation.processOutput(buffer);
                 break;
             }
             case 6: // REVERB (standalone Dattorro plate)

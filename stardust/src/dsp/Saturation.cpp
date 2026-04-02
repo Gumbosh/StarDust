@@ -20,9 +20,11 @@ void Saturation::prepare(double newSampleRate, int /*samplesPerBlock*/)
         dcY1[ch] = 0.0f;
         xfmrHPState[ch] = {};
         xfmrLPState[ch] = {};
+        toneHPState[ch] = {};
+        toneLPState[ch] = {};
         prevSample[ch] = 0.0f;
         prevPrevSample[ch] = 0.0f;
-        for (int j = 0; j < 4; ++j)
+        for (int j = 0; j < 8; ++j)
         {
             hb1History[ch][j]  = 0.0f;
             hb2History[ch][j]  = 0.0f;
@@ -127,9 +129,10 @@ void Saturation::setTone(float t)
     const float sr = static_cast<float>(sampleRate);
     const float pi = juce::MathConstants<float>::pi;
 
-    // HP: 80Hz (t=0) → 500Hz (t=1), removes muddiness
+    // HP: 20Hz (t=0) → 500Hz (t=1). At t=0.5 = ~100Hz — centre is transparent, not cutting.
+    // Clamped to 0.48*sr to keep the design stable at all sample rates.
     {
-        const float freq = 80.0f * std::pow(6.25f, t); // 80*6.25^t Hz
+        const float freq = juce::jlimit(20.0f, sr * 0.48f, 20.0f * std::pow(25.0f, t));
         const float w0 = 2.0f * pi * freq / sr;
         const float cosW0 = std::cos(w0);
         const float alpha = std::sin(w0) / (2.0f * 0.707f);
@@ -141,9 +144,9 @@ void Saturation::setTone(float t)
         toneHP[4] = (1.0f - alpha) / a0;            // a2
     }
 
-    // LP: 2kHz (t=0) → 20kHz (t=1), treble roll-off
+    // LP: 2kHz (t=0) → 20kHz (t=1), treble roll-off. Clamped to 0.48*sr for stability.
     {
-        const float freq = 2000.0f * std::pow(10.0f, t); // 2000*10^t Hz
+        const float freq = juce::jlimit(2000.0f, sr * 0.48f, 2000.0f * std::pow(10.0f, t));
         const float w0 = 2.0f * pi * freq / sr;
         const float cosW0 = std::cos(w0);
         const float alpha = std::sin(w0) / (2.0f * 0.707f);
@@ -220,23 +223,25 @@ void Saturation::processOutput(juce::AudioBuffer<float>& buffer)
             buffer.getWritePointer(ch)[i] *= gain;
     }
 
-    // Output transformer stage: 30Hz coupling HP + 18kHz iron-core LP (always active)
-    for (int ch = 0; ch < numChannels; ++ch)
+    // Output transformer stage: 30Hz coupling HP + 18kHz iron-core LP.
+    // Only active in Tube mode (1) — other modes should sound direct, not coloured by a transformer.
+    if (currentMode == 1)
     {
-        auto* data = buffer.getWritePointer(ch);
-        auto& hpSt = xfmrHPState[static_cast<size_t>(ch)];
-        auto& lpSt = xfmrLPState[static_cast<size_t>(ch)];
-        for (int i = 0; i < numSamples; ++i)
+        for (int ch = 0; ch < numChannels; ++ch)
         {
-            // HP coupling capacitor
-            const float hp = xfmrHP[0] * data[i] + hpSt.z1;
-            hpSt.z1 = xfmrHP[1] * data[i] - xfmrHP[3] * hp + hpSt.z2;
-            hpSt.z2 = xfmrHP[2] * data[i] - xfmrHP[4] * hp;
-            // LP iron-core rolloff
-            const float lp = xfmrLP[0] * hp + lpSt.z1;
-            lpSt.z1 = xfmrLP[1] * hp - xfmrLP[3] * lp + lpSt.z2;
-            lpSt.z2 = xfmrLP[2] * hp - xfmrLP[4] * lp;
-            data[i] = lp;
+            auto* data = buffer.getWritePointer(ch);
+            auto& hpSt = xfmrHPState[static_cast<size_t>(ch)];
+            auto& lpSt = xfmrLPState[static_cast<size_t>(ch)];
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float hp = xfmrHP[0] * data[i] + hpSt.z1;
+                hpSt.z1 = xfmrHP[1] * data[i] - xfmrHP[3] * hp + hpSt.z2;
+                hpSt.z2 = xfmrHP[2] * data[i] - xfmrHP[4] * hp;
+                const float lp = xfmrLP[0] * hp + lpSt.z1;
+                lpSt.z1 = xfmrLP[1] * hp - xfmrLP[3] * lp + lpSt.z2;
+                lpSt.z2 = xfmrLP[2] * hp - xfmrLP[4] * lp;
+                data[i] = lp;
+            }
         }
     }
 }
@@ -268,14 +273,22 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
     const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
 
+    // bias and asym are fixed at 0.0/0.5 from the processor — read once outside the loop.
+    // This avoids ticking their smoothers 8× per output sample needlessly.
+    const float bias = biasSmoothed.getNextValue();
+    const float asym = asymSmoothed.getNextValue();
+
     for (int i = 0; i < numSamples; ++i)
     {
         const float gain = gainSmoothed.getNextValue();
         const float drive = drvSmoothed.getNextValue();
-        const float bias = biasSmoothed.getNextValue();
-        const float asym = asymSmoothed.getNextValue();
         const float scale = 1.0f + drive * 4.0f;
-        const float normalization = (scale > 0.01f) ? 1.0f / std::tanh(scale) : 1.0f;
+        const float normFull = 1.0f / std::tanh(scale);
+        // Smooth normalization from 1.0 (drive=0) to normFull (drive>0.01).
+        // Skip the blend multiply once drive is settled — it's always 1.0 above 1%.
+        const float normalization = (drive >= 0.01f)
+            ? normFull
+            : 1.0f + (normFull - 1.0f) * (drive * 100.0f);
         const float biasCancel = std::tanh(bias);
 
         for (int ch = 0; ch < numChannels; ++ch)
@@ -330,9 +343,11 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                     const float h6 = 0.006f * arctan2 * arctan2 * arctan2; // 6th harmonic
                     s = (arctan + h2 + h4 + h6) * normalization * 0.88f;   // -1.1dB makeup
                 }
-                else if (currentMode == 2) // Hard clip — no soft-knee, abrupt onset is intentional
+                else if (currentMode == 2) // Hard clip — ceiling is always ±1, no normalization needed
                 {
-                    s = juce::jlimit(-1.0f, 1.0f, s * scale) * normalization;
+                    // normalization > 1.0 would push clamped output above ±1 — hard clip's ceiling
+                    // is defined by the clamp itself, not by tanh compression. Use unity gain here.
+                    s = juce::jlimit(-1.0f, 1.0f, s * scale);
                 }
                 else if (currentMode == 1) // Tube: asymmetric knee, softness controlled by asym
                 {
@@ -343,17 +358,21 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                     const float tubeOut = s >= 0.0f
                         ? std::tanh(scaledPos + bias) - std::tanh(bias * kPos)
                         : std::tanh(scaledNeg + bias) - std::tanh(bias * kNeg);
-                    const float saturated = tubeOut * normalization;
-                    const float linear = s * normalization;
+                    // Per-branch normalization: kNeg > 1 means the negative half saturates harder
+                    // than tanh(scale), so 1/tanh(scale) would over-compensate and push output > ±1.
+                    const float normPos = 1.0f / std::tanh(scale * kPos);
+                    const float normNeg = 1.0f / std::tanh(scale * kNeg);
+                    const float tubeNorm = s >= 0.0f ? normPos : normNeg;
+                    const float saturated = tubeOut * tubeNorm;
+                    const float linear = s * tubeNorm;
                     s = linear + smoothBlend * (saturated - linear);
                 }
-                else if (currentMode == 4) // Satin: super-soft cubic knee (tape-like, stays linear longest)
+                else if (currentMode == 4) // Satin: tape-like super-soft saturation
                 {
-                    const float x = s * scale;
-                    // Cubic soft-knee: x - x³/3 in [-1,1], hard clamp outside
-                    const float saturated = (std::abs(x) <= 1.0f)
-                        ? (x - x * x * x / 3.0f) * 1.5f * normalization
-                        : (x > 0.0f ? 1.0f : -1.0f) * normalization;
+                    // Standard cubic soft clipper: y = 1.5x - 0.5x³
+                    // Self-limits to exactly ±1 at x=±1 (slope=0 at boundary) — no discontinuity.
+                    const float x = juce::jlimit(-1.0f, 1.0f, s * scale);
+                    const float saturated = (1.5f * x - 0.5f * x * x * x) * normalization;
                     const float linear = s * normalization;
                     s = linear + smoothBlend * (saturated - linear);
                 }

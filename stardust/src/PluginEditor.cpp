@@ -1387,8 +1387,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     setupKnob(distortionDriveKnob, "distortionDrive", "Drive");
     setupKnob(distortionToneKnob, "distortionTone", "Tone");
-    setupKnob(distortionBiasKnob, "distortionBias", "Bias");
-    setupKnob(distortionAsymKnob, "distortionAsym", "Asym");
     setupKnob(reverbMixKnob,       "reverbMix",       "Mix");
     setupKnob(reverbSizeKnob,      "reverbSize",      "Size");
     setupKnob(reverbDecayKnob,     "reverbDecay",     "Decay");
@@ -1437,17 +1435,17 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     // Tape EQ standard buttons: NAB / IEC
 
-    // Distortion mode buttons: Soft / Tube / Hard / Trans / Satin / Vari-Mu
+    // Distortion mode buttons: Soft / Tube / Hard / Satin
     {
-        static const char* kModeLabels[] = { "Soft", "Tube", "Hard", "Trans", "Satin", "V-Mu" };
+        static const char* kModeLabels[] = { "Soft", "Tube", "Hard", "Satin" };
         auto* modeParam = dynamic_cast<juce::AudioParameterChoice*>(
             processorRef.apvts.getParameter("distortionMode"));
         auto updateModeButtons = [this, modeParam]() {
             int sel = modeParam ? modeParam->getIndex() : 0;
-            for (int i = 0; i < 6; ++i)
+            for (int i = 0; i < 4; ++i)
                 distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         };
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 4; ++i)
         {
             distortionModeBtn[i].setButtonText(kModeLabels[i]);
             distortionModeBtn[i].setClickingTogglesState(false);
@@ -1455,7 +1453,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             distortionModeBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
             distortionModeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
             distortionModeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
-            distortionModeBtn[i].setComponentID("tapeNoiseSpeedBtn"); // reuses same look-and-feel style
+            distortionModeBtn[i].setComponentID("tapeNoiseSpeedBtn");
             distortionModeBtn[i].onClick = [this, i, updateModeButtons, modeParam]() {
                 if (modeParam)
                     modeParam->setValueNotifyingHost(
@@ -1750,7 +1748,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             for (auto& b : multiplyLfoBtn) b.setAlpha(alpha);
         };
     }
-    dimSection(distortionToggle, { &distortionDriveKnob, &distortionToneKnob, &distortionBiasKnob, &distortionAsymKnob });
+    dimSection(distortionToggle, { &distortionDriveKnob, &distortionToneKnob });
     {
         auto origOnClick = distortionToggle.onClick;
         distortionToggle.onClick = [this, origOnClick]() {
@@ -2430,7 +2428,7 @@ void StardustEditor::showAddEffectMenu(int row)
     juce::PopupMenu distortionMenu, modulationMenu, granularMenu, reverbMenu, textureMenu;
     distortionMenu.addItem(1, "GRIT",      !usedFx.count(1));
     distortionMenu.addItem(4, "OXIDE-456", !usedFx.count(4));
-    distortionMenu.addItem(5, "FORGE",     !usedFx.count(5));
+    distortionMenu.addItem(5, "DIST",      !usedFx.count(5));
     modulationMenu.addItem(3, "JU-60",     !usedFx.count(3));
     modulationMenu.addItem(8, "MULTIPLY",  !usedFx.count(8));
     granularMenu.addItem(2,   "CLOUD",     !usedFx.count(2));
@@ -2630,23 +2628,23 @@ void StardustEditor::layoutDistortionSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 6;
-    // Drive | Tone | Bias | Asym | [Mode buttons] — 5 of 6 slots
-    const int startX = ox + (availW - kw * 5) / 2;
+    const int kw = availW / 4;
+    // Drive | Tone | [Mode buttons x2 cols]
+    const int startX = ox;
 
-    layoutKnobInBounds(distortionDriveKnob, { startX,          ky, kw, kKnobH });
-    layoutKnobInBounds(distortionToneKnob,  { startX + kw,     ky, kw, kKnobH });
-    layoutKnobInBounds(distortionBiasKnob,  { startX + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(distortionAsymKnob,  { startX + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(distortionDriveKnob, { startX,      ky, kw, kKnobH });
+    layoutKnobInBounds(distortionToneKnob,  { startX + kw, ky, kw, kKnobH });
 
-    // Mode buttons stacked in last column (Soft/Tube/Hard/Trans/Satin/V-Mu — 6 equal buttons)
+    // Mode buttons: Soft/Tube/Hard/Satin stacked in remaining space
+    const int modeX = startX + kw * 2;
+    const int modeW = kw * 2;
     distortionModeLabel.setVisible(true);
-    distortionModeLabel.setBounds(startX + kw * 4, ky, kw, 12);
-    const int bh = (kKnobH - 12) / 6;
-    for (int i = 0; i < 6; ++i)
+    distortionModeLabel.setBounds(modeX, ky, modeW, 12);
+    const int bh = (kKnobH - 12) / 4;
+    for (int i = 0; i < 4; ++i)
     {
         distortionModeBtn[i].setVisible(true);
-        distortionModeBtn[i].setBounds(startX + kw * 4, ky + 12 + i * bh, kw, bh);
+        distortionModeBtn[i].setBounds(modeX, ky + 12 + i * bh, modeW, bh);
     }
 }
 
@@ -2731,7 +2729,7 @@ void StardustEditor::paint(juce::Graphics& g)
     g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
     // ---- Chain strip rows ----
-    static const juce::String kFxNames[9] = { "", "G R I T", "C L O U D", "J U - 6 0", "O X I D E - 4 5 6", "F O R G E", "V O I D", "H A Z E", "M U L T I P L Y" };
+    static const juce::String kFxNames[9] = { "", "G R I T", "C L O U D", "J U - 6 0", "O X I D E - 4 5 6", "D I S T", "V O I D", "H A Z E", "M U L T I P L Y" };
     const auto monoFont10 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold);
     const auto monoFont12 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold);
 
@@ -2742,7 +2740,7 @@ void StardustEditor::paint(juce::Graphics& g)
     static constexpr int kPillH  =  28; // name pill height
 
     // Compact effect names for the pill
-    static const juce::String kPillNames[9] = { "", "GRIT", "CLOUD", "JU-60", "OXIDE-456", "FORGE", "VOID", "HAZE", "MULTIPLY" };
+    static const juce::String kPillNames[9] = { "", "GRIT", "CLOUD", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY" };
 
     for (int row = 0; row < 4; ++row)
     {
@@ -2959,7 +2957,7 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     // Drag ghost for FX chain reorder
     if (dragSourceRow >= 0)
     {
-        static const juce::String kGhostNames[8] = { "", "GRIT", "CLOUD", "JU-60", "OXIDE-456", "FORGE", "VOID", "HAZE" };
+        static const juce::String kGhostNames[8] = { "", "GRIT", "CLOUD", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE" };
         static constexpr int kGhostLeftW = 118;
         static constexpr int kGhostDragW =  30;
         static constexpr int kGhostPillX =  18;
@@ -3034,12 +3032,10 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
     }
     else if (parameterID == "distortionMode")
     {
-        const int sel = juce::jlimit(0, 5, static_cast<int>(std::round(newValue)));
+        const int sel = juce::jlimit(0, 3, static_cast<int>(std::round(newValue)));
         juce::MessageManager::callAsync([this, sel]() {
-            for (int i = 0; i < 6; ++i)
+            for (int i = 0; i < 4; ++i)
                 distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
-            // Asym is only meaningful in Tube mode (1)
-            distortionAsymKnob.setAlpha(sel == 1 ? 1.0f : 0.35f);
         });
     }
     else if (parameterID == "grainShape")
@@ -3394,7 +3390,7 @@ void StardustEditor::resized()
                      &chorusMixKnob,
                      &tapeDriveKnob, &tapeInputKnob, &tapeGlueKnob, &tapeNoiseKnob,
                      &tapeMixKnob, &tapeOutputKnob, &tapeWowKnob,
-                     &distortionDriveKnob, &distortionToneKnob, &distortionBiasKnob, &distortionAsymKnob,
+                     &distortionDriveKnob, &distortionToneKnob,
                      &reverbMixKnob, &reverbSizeKnob, &reverbDecayKnob, &reverbDampKnob, &reverbPreDelayKnob, &reverbDiffusionKnob, &reverbWidthKnob,
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob })
         k->setBounds({0, 0, 0, 0});

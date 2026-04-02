@@ -239,8 +239,8 @@ private:
     LabeledKnob tapeDriveKnob, tapeInputKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
     LabeledKnob tapeWowKnob;
 
-    LabeledKnob distortionDriveKnob, distortionToneKnob, distortionBiasKnob, distortionAsymKnob;
-    juce::TextButton distortionModeBtn[6];
+    LabeledKnob distortionDriveKnob, distortionToneKnob;
+    juce::TextButton distortionModeBtn[4];
     juce::Label distortionModeLabel;
     LabeledKnob reverbMixKnob, reverbSizeKnob, reverbDecayKnob, reverbDampKnob, reverbPreDelayKnob, reverbDiffusionKnob, reverbWidthKnob;
     juce::TextButton tapeNoiseSpeedBtn[3];
