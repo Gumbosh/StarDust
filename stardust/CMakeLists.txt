@@ -35,6 +35,8 @@ target_sources(Stardust PRIVATE
     src/dsp/ButterworthFilter.h
     src/dsp/ChorusEngine.cpp
     src/dsp/ChorusEngine.h
+    src/dsp/MultiplyEngine.cpp
+    src/dsp/MultiplyEngine.h
     src/dsp/DattorroReverb.cpp
     src/dsp/DattorroReverb.h
     src/dsp/GrainEnvelopeLUT.h

@@ -7,6 +7,7 @@
 #include "dsp/DestroyDrive.h"
 #include "dsp/GranularEngine.h"
 #include "dsp/ChorusEngine.h"
+#include "dsp/MultiplyEngine.h"
 #include "dsp/TapeEngine.h"
 #include "dsp/ModulationMatrix.h"
 #include "dsp/Saturation.h"
@@ -96,6 +97,7 @@ private:
     DestroyDrive destroyDrive;
     GranularEngine granularEngine;
     ChorusEngine chorusEngine;
+    MultiplyEngine multiplyEngine;
     TapeEngine tapeEngine;
     Saturation saturation;
     DattorroReverb standaloneReverb;

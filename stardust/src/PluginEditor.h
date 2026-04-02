@@ -145,12 +145,30 @@ private:
 
     struct LabeledKnob : public juce::Component
     {
-        juce::Slider slider;
+        // Slider that forwards right-clicks to the editor so the remove dropdown works
+        struct RightPassSlider : public juce::Slider
+        {
+            void mouseDown(const juce::MouseEvent& e) override
+            {
+                if (e.mods.isPopupMenu())
+                {
+                    // LabeledKnob → StardustEditor
+                    if (auto* p = getParentComponent())
+                        if (auto* gp = p->getParentComponent())
+                            gp->mouseDown(e.getEventRelativeTo(gp));
+                    return;
+                }
+                juce::Slider::mouseDown(e);
+            }
+        };
+
+        RightPassSlider slider;
         juce::Label label;
         std::unique_ptr<SliderAttachment> attachment;
 
         LabeledKnob();
         void resized() override;
+        void mouseDown(const juce::MouseEvent& e) override;
 
     private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LabeledKnob)
@@ -182,6 +200,7 @@ private:
     void layoutHazeSection(juce::Rectangle<int> bounds);
     void layoutGranularSection(juce::Rectangle<int> bounds);
     void layoutMultiplySection(juce::Rectangle<int> bounds);
+    void layoutUnisonSection(juce::Rectangle<int> bounds);
     void layoutTapeSection(juce::Rectangle<int> bounds);
     void layoutDistortionSection(juce::Rectangle<int> bounds);
     void layoutReverbSection(juce::Rectangle<int> bounds);
@@ -200,8 +219,7 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyInKnob, destroyOutKnob;
-    LabeledKnob destroyBitsKnob, destroyRateKnob;
+    LabeledKnob destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
     LabeledKnob grainMixKnob, grainCloudKnob;
@@ -215,17 +233,9 @@ private:
     juce::Label grainShapeLabel;
     juce::TextButton grainQuantBtn[5];
     juce::Label grainQuantLabel;
-    LabeledKnob chorusMixKnob, chorusSpeedKnob;
-    LabeledKnob panOuterKnob, panInnerKnob;
-    LabeledKnob multiplyDepthKnob, multiplyToneKnob;
-    LabeledKnob multiplyFeedbackKnob, multiplyShimmerKnob;
-    juce::TextButton multiplyLfoBtn[3];
+    LabeledKnob chorusMixKnob;
+    juce::TextButton multiplyLfoBtn[3];  // Juno mode buttons: I / II / I+II
     juce::Label multiplyLfoLabel;
-    juce::ToggleButton multiplyTempoSyncBtn;
-    juce::TextButton multiplyVintageBtn[5];
-    juce::Label multiplyVintageLabel;
-    LabeledKnob multiplyDriftKnob;
-    std::unique_ptr<ButtonAttachment> multiplyTempoSyncAttach;
     LabeledKnob tapeDriveKnob, tapeInputKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
     LabeledKnob tapeWowKnob;
 
@@ -243,15 +253,22 @@ private:
     juce::ToggleButton hazeToggle;
     std::unique_ptr<ButtonAttachment> hazeToggleAttach;
 
+    // MULTIPLY (unison) section
+    LabeledKnob unisonSpeedKnob, unisonOuterKnob, unisonInnerKnob;
+    juce::ToggleButton unisonToggle;
+    std::unique_ptr<ButtonAttachment> unisonToggleAttach;
+
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 
     // Sidebar mix sliders (one per section, positioned below name pill)
-    juce::Slider destroyMixStrip, grainMixStrip, multiplyMixStrip, tapeMixStrip, hazeMixStrip;
+    juce::Slider destroyMixStrip, grainMixStrip, multiplyMixStrip, tapeMixStrip, hazeMixStrip, unisonMixStrip;
     std::unique_ptr<SliderAttachment> destroyMixStripAttach, grainMixStripAttach,
-                                      multiplyMixStripAttach, tapeMixStripAttach, hazeMixStripAttach;
+                                      multiplyMixStripAttach, tapeMixStripAttach, hazeMixStripAttach,
+                                      unisonMixStripAttach;
 
     juce::ToggleButton destroyToggle, granularToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
-    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach, tapeToggleAttach, distortionToggleAttach, reverbToggleAttach;
+    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach,
+                                      tapeToggleAttach, distortionToggleAttach, reverbToggleAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 

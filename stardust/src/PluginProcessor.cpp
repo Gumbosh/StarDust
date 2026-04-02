@@ -28,9 +28,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("destroyMix", 1), "Destroy Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("destroyFader", 1), "Destroy Fader",
-        juce::NormalisableRange<float>(250.0f, 96000.0f, 1.0f), 19000.0f));
+    {
+        juce::NormalisableRange<float> rateRange(250.0f, 96000.0f, 1.0f);
+        rateRange.setSkewForCentre(3000.0f); // 3kHz at knob centre, log feel
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID("destroyFader", 1), "Destroy Fader", rateRange, 19000.0f));
+    }
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyBits", 1), "Destroy Bits",
@@ -71,46 +74,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("chorusSpeed", 1), "Chorus Speed",
-        juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f, 0.5f), 1.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyPanOuter", 1), "Multiply Pan Outer",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyPanInner", 1), "Multiply Pan Inner",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyDepth", 1), "Multiply Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.13f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyTone", 1), "Multiply Tone",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.7f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyFeedback", 1), "Multiply Feedback",
-        juce::NormalisableRange<float>(-0.7f, 0.7f, 0.01f), 0.0f));
-
+    // Juno-60 chorus mode: 0=I, 1=II, 2=I+II
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("multiplyLfoShape", 1), "Multiply LFO Shape",
-        juce::StringArray{"Sine", "Tri", "Random"}, 0));
-
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("multiplyTempoSync", 1), "Multiply Tempo Sync", false));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyShimmer", 1), "Multiply Shimmer",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.2f));
-
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("multiplyVintage", 1), "Vintage Mode",
-        juce::StringArray{"Custom", "Juno-60", "Dim-D", "Tri-Cho", "Flanger"}, 0));
+        juce::ParameterID("junoMode", 1), "Chorus Mode",
+        juce::StringArray{"I", "II", "I+II"}, 0));
 
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("grainFreeze", 1), "Grain Freeze", false));
@@ -274,11 +243,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
 
-    // FX chain slot assignments (0=empty, 1=CRUSH, 2=GRANULAR, 3=CHORUS, 4=TAPE, 5=SATURATE, 6=REVERB, 7=HAZE)
+    // FX chain slot assignments (0=empty, 1=CRUSH, 2=GRANULAR, 3=CHORUS, 4=TAPE, 5=SATURATE, 6=REVERB, 7=HAZE, 8=MULTIPLY)
     for (int i = 0; i < 4; ++i)
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID("chainSlot" + juce::String(i), 1),
-            "FX Slot " + juce::String(i + 1), 0, 7, i + 1));
+            "FX Slot " + juce::String(i + 1), 0, 8, i + 1));
 
     // Reverb (standalone Dattorro plate)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -328,10 +297,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("grainLoopback", 1), "Grain Loopback",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
-    // Multiply: drift amount
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("multiplyDrift", 1), "Multiply Drift",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
 
     // HAZE: noise texture injection (slot 7)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -345,6 +310,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("hazeMix", 1), "Haze Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+
+    // MULTIPLY: simple 4-voice unison thickener (slot 8)
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("unisonEnabled", 1), "Multiply Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("unisonMix", 1), "Multiply Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("unisonSpeed", 1), "Multiply Speed",
+        juce::NormalisableRange<float>(0.5f, 2.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("unisonOuter", 1), "Multiply 1+2",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("unisonInner", 1), "Multiply 3+4",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
 
     return { params.begin(), params.end() };
 }
@@ -371,6 +352,7 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // Granular + chorus run at original rate
     granularEngine.prepare(sampleRate, samplesPerBlock);
     chorusEngine.prepare(sampleRate, samplesPerBlock);
+    multiplyEngine.prepare(sampleRate, samplesPerBlock);
     tapeEngine.prepare(sampleRate, samplesPerBlock);
     tapeEngine.setFormulation(0); // Ampex 456 — hardcoded
     tapeEngine.setStandard(0);    // NAB — hardcoded
@@ -641,30 +623,11 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 granularEngine.process(buffer);
                 break;
             }
-            case 3: // MULTIPLY
+            case 3: // CHORUS — Juno-60 ensemble emulation
             {
                 if (!multiplyOn) break;
-                const float panOuter = *apvts.getRawParameterValue("multiplyPanOuter");
-                const float panInner = *apvts.getRawParameterValue("multiplyPanInner");
                 chorusEngine.setMix(chorusMixVal);
-                chorusEngine.setSpeed(*apvts.getRawParameterValue("chorusSpeed"));
-                chorusEngine.setDepth(*apvts.getRawParameterValue("multiplyDepth"));
-                chorusEngine.setTone(*apvts.getRawParameterValue("multiplyTone"));
-                chorusEngine.setFeedback(*apvts.getRawParameterValue("multiplyFeedback"));
-                chorusEngine.setShimmer(*apvts.getRawParameterValue("multiplyShimmer"));
-                chorusEngine.setVintageMode(static_cast<int>(*apvts.getRawParameterValue("multiplyVintage")));
-                chorusEngine.setDrift(*apvts.getRawParameterValue("multiplyDrift"));
-                chorusEngine.setLfoShape(static_cast<int>(*apvts.getRawParameterValue("multiplyLfoShape")));
-                {
-                    const bool syncOn = *apvts.getRawParameterValue("multiplyTempoSync") > 0.5f;
-                    double bpm = 120.0;
-                    if (auto* ph = getPlayHead())
-                        if (auto pos = ph->getPosition(); pos.hasValue())
-                            if (auto bpmOpt = pos->getBpm(); bpmOpt.hasValue())
-                                bpm = *bpmOpt;
-                    chorusEngine.setTempoSync(syncOn, bpm);
-                }
-                chorusEngine.setPans(panOuter, panInner);
+                chorusEngine.setMode(static_cast<int>(*apvts.getRawParameterValue("junoMode")));
                 chorusEngine.process(buffer);
                 break;
             }
@@ -824,6 +787,16 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         data[s] += hazeColorLP[ch] * noiseScale;
                     }
                 }
+                break;
+            }
+            case 8: // MULTIPLY — 4-voice unison thickener
+            {
+                if (!(*apvts.getRawParameterValue("unisonEnabled") >= 0.5f)) break;
+                multiplyEngine.setMix(*apvts.getRawParameterValue("unisonMix"));
+                multiplyEngine.setSpeed(*apvts.getRawParameterValue("unisonSpeed"));
+                multiplyEngine.setPans(*apvts.getRawParameterValue("unisonOuter"),
+                                       *apvts.getRawParameterValue("unisonInner"));
+                multiplyEngine.process(buffer);
                 break;
             }
             default: break; // 0 = empty slot
