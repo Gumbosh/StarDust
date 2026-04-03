@@ -6,9 +6,7 @@
 // Modulation targets — indices into the target parameter array
 enum class ModTarget : int
 {
-    GrainCloud = 0, GrainScatter, GrainReverse, GrainPosition,
-    GrainSpace, GrainMorph, GrainMix,
-    TapeDrive, TapeWear, TapeMix,
+    TapeDrive = 0, TapeWear, TapeMix,
     kNumTargets
 };
 

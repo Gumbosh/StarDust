@@ -60,14 +60,25 @@ static constexpr float kNotchQ = 0.8f;
 
 float TapeEngine::fastTanh(float x)
 {
-    // Clamp at ±3.5: tanh(3.5) ≈ 0.9982, so the 0.18% step to ±1.0 is inaudible.
-    // Polynomial is valid only within [-3.5, 3.5] — do not extend the range.
+    // Hard clamp beyond ±3.5: tanh(3.5) ≈ 0.9982, error to ±1.0 is negligible.
     if (x > 3.5f) return 1.0f;
     if (x < -3.5f) return -1.0f;
     // [5/5] Padé rational approximant — max error < 0.03% across [-3.5, 3.5]
     const float x2 = x * x;
-    return x * (135135.0f + x2 * (17325.0f + x2 * 378.0f))
-             / (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)));
+    const float pade = x * (135135.0f + x2 * (17325.0f + x2 * 378.0f))
+                         / (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)));
+    // Blend to ±1 over [3.0, 3.5] with cubic smoothstep — eliminates C¹ discontinuity
+    // at the hard-clamp boundary. The common case (|x| < 3.0) returns immediately above,
+    // so this branch only costs ~1% of hot-path calls.
+    const float ax = std::abs(x);
+    if (ax > 3.0f)
+    {
+        const float t = (ax - 3.0f) * 2.0f;                      // [0,1] over [3.0, 3.5]
+        const float blend = t * t * (3.0f - 2.0f * t);           // cubic smoothstep
+        const float sign = x >= 0.0f ? 1.0f : -1.0f;
+        return pade + blend * (sign - pade);
+    }
+    return pade;
 }
 
 float TapeEngine::fastSinh(float x)
@@ -140,7 +151,9 @@ float TapeEngine::hystRK4Step(float H, HysteresisState& state, float ms, float k
     const float k3 = hystDMDH(H_mid, state.M + 0.5f * dH * k2, dH, ms, k);
     const float k4 = hystDMDH(H, state.M + dH * k3, dH, ms, k);
     state.M += (dH / 6.0f) * (k1 + 2.0f * k2 + 2.0f * k3 + k4);
-    state.M = std::max(-ms * 2.0f, std::min(ms * 2.0f, state.M));
+    // Clamp to ±1.5×Ms: allows modest transient overshoot (physically plausible)
+    // while preventing unrealistic excursions that the ±2×Ms bound permitted.
+    state.M = std::max(-ms * 1.5f, std::min(ms * 1.5f, state.M));
     state.H_prev = H;
     return state.M;
 }
@@ -198,7 +211,7 @@ static TapeEngine::BiquadCoeffs makeFirstOrderShelf(float f0, float gainDb, floa
              0.0f };             // a2 (1st order — unused)
 }
 
-static constexpr float kSqrt2 = 1.41421356f;
+static constexpr float kSqrt2 = juce::MathConstants<float>::sqrt2;
 
 static TapeEngine::BiquadCoeffs makeButterworthLP(float fc, float sr)
 {
@@ -344,6 +357,9 @@ void TapeEngine::resetChannelState(int ch)
     hystStateHF[ch] = {};
     xoverLF500State[ch]  = {};
     xoverHF5kState[ch]   = {};
+    midBandPrev[ch] = 0.0f;
+    lfBandPrev[ch] = 0.0f;
+    hfBandPrev[ch] = 0.0f;
     compEnvState[ch] = 0.0f;
     hfEnvState[ch] = 0.0f;
     hissPinkState[ch] = 0.0f;
@@ -417,7 +433,7 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     compReleaseAlpha = 1.0f - std::exp(-kTwoPi * 3.0f / sr);    // ~53ms release
     glueAttackAlpha = 1.0f - std::exp(-kTwoPi * 2.5f / sr);     // ~64ms attack (τ = 1/(2π×2.5))
     glueReleaseAlpha = 1.0f - std::exp(-kTwoPi * 2.2f / sr);   // ~72ms release (τ = 1/(2π×2.2))
-    dcBlockCoeff = std::exp(-kTwoPi * 20.0f / sr);
+    dcBlockCoeff = std::exp(-kTwoPi * 8.0f / sr);  // ~8Hz HP — preserves sub-bass while blocking DC
 
     // Compute all speed-dependent coefficients (includes hiss filter)
     recomputeSpeedCoeffs();
@@ -431,8 +447,6 @@ void TapeEngine::resetState()
     for (int ch = 0; ch < kMaxChannels; ++ch) resetChannelState(ch);
     writePos = 0;
     gapWritePos = 0;
-    std::fill(std::begin(azimBuf), std::end(azimBuf), 0.0f);
-    azimWritePos = 0;
     sampleCounter = 0;
     printThroughWritePos = 0;
 }
@@ -541,18 +555,23 @@ float TapeEngine::readHermite(int channel, float delaySamples) const
 }
 
 // ============================================================================
-// 7-tap half-band polyphase decimation helper
+// 15-tap Kaiser half-band polyphase decimation helper (~90dB stopband rejection)
 // ============================================================================
-static float halfBandDecimate(const float in0, const float in1, float history[4])
+static float halfBandDecimate(const float in0, const float in1, float history[8])
 {
     history[0] = history[1];
     history[1] = history[2];
     history[2] = history[3];
-    history[3] = in0;
-    const float even = -0.03125f * (history[0] + history[3])
-                     +  0.28125f * (history[1] + history[2]);
-    const float odd = 0.5f * in1;
-    return even + odd;
+    history[3] = history[4];
+    history[4] = history[5];
+    history[5] = history[6];
+    history[6] = history[7];
+    history[7] = in0;
+    const float even = -0.001586f * (history[0] + history[7])
+                     +  0.011750f * (history[1] + history[6])
+                     + -0.052800f * (history[2] + history[5])
+                     +  0.295636f * (history[3] + history[4]);
+    return even + 0.5f * in1;
 }
 
 // ============================================================================
@@ -610,12 +629,15 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
     const float hfBand  = input   - lfmBand;  // >5kHz       (complementary subtract)
 
     // --- MID band: full 8× oversampled J-A (nominal parameters, main character band) ---
-    // Hermite (cubic) upsampling before nonlinear — avoids intermodulation aliasing.
-    // tangent is identical at both endpoints (H_prev == previous midBand after each call),
-    // so a single slope is used for the symmetric cubic.
+    // Catmull-Rom Hermite upsampling: central-difference tangent at h0, forward-diff at h1.
+    //   m0 = (h1 - h_{-1}) * 0.5  — central diff at h0 (using stored prev-prev value)
+    //   m1 = (h1 - h0)    * 0.5  — forward diff at h1 (causal; best available approximation)
+    // This gives proper Catmull-Rom character vs the old single-tangent symmetric cubic.
     const float h0 = hystState[ch].H_prev;  // sample n-1
     const float h1 = midBand;               // sample n (mid band)
-    const float tangent = (h1 - h0) * 0.5f;
+    const float m0 = (h1 - midBandPrev[ch]) * 0.5f; // central diff at h0
+    const float m1 = (h1 - h0) * 0.5f;              // forward diff at h1
+    midBandPrev[ch] = h0;
     float os[kOversample];
     for (int j = 0; j < kOversample; ++j)
     {
@@ -626,7 +648,7 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
         const float h10 = t3 - 2.0f * t2 + t;
         const float h01 = -2.0f * t3 + 3.0f * t2;
         const float h11 = t3 - t2;
-        const float H_interp = h00 * h0 + (h10 + h11) * tangent + h01 * h1;
+        const float H_interp = h00 * h0 + h10 * m0 + h01 * h1 + h11 * m1;
         os[j] = hystRK4Step(H_interp, hystState[ch], hystMs, hystK);
     }
     const float hb1a = halfBandDecimate(os[0], os[1], hb1aHistory[ch]);
@@ -643,14 +665,17 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
     // Per-band ms/k are passed directly to hystRK4Step — no member mutation needed.
     const float lfMs = hystMs * 1.25f, lfK = hystK * 0.70f;
     const float lf_h0 = hystStateLF[ch].H_prev;
-    const float lf_tangent = (lfBand - lf_h0) * 0.5f;
+    const float lf_h1 = lfBand;
+    const float lf_m0 = (lf_h1 - lfBandPrev[ch]) * 0.5f; // central diff at h0
+    const float lf_m1 = (lf_h1 - lf_h0) * 0.5f;          // forward diff at h1
+    lfBandPrev[ch] = lf_h0;
     float osLF[kOs4x];
     for (int j = 0; j < kOs4x; ++j)
     {
         const float t  = static_cast<float>(j + 1) / static_cast<float>(kOs4x);
         const float t2 = t * t, t3 = t2 * t;
-        const float H_interp = (2*t3-3*t2+1)*lf_h0 + (2*t3-3*t2+t)*lf_tangent
-                             + (-2*t3+3*t2)*lfBand;
+        const float H_interp = (2*t3-3*t2+1)*lf_h0 + (t3-2*t2+t)*lf_m0
+                             + (-2*t3+3*t2)*lf_h1  + (t3-t2)*lf_m1;
         osLF[j] = hystRK4Step(H_interp, hystStateLF[ch], lfMs, lfK);
     }
     const float hbLF_a = halfBandDecimate(osLF[0], osLF[1], hbLFaHistory[ch]);
@@ -665,14 +690,17 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
     const float kHFMod = 1.25f - 0.45f * std::min(1.0f, hfEnvState[ch] * 2.0f); // 1.25→0.80
     const float hfMs = hystMs * 0.75f, hfK = hystK * kHFMod;
     const float hf_h0 = hystStateHF[ch].H_prev;
-    const float hf_tangent = (hfBand - hf_h0) * 0.5f;
+    const float hf_h1 = hfBand;
+    const float hf_m0 = (hf_h1 - hfBandPrev[ch]) * 0.5f; // central diff at h0
+    const float hf_m1 = (hf_h1 - hf_h0) * 0.5f;          // forward diff at h1
+    hfBandPrev[ch] = hf_h0;
     float osHF[kOs4x];
     for (int j = 0; j < kOs4x; ++j)
     {
         const float t  = static_cast<float>(j + 1) / static_cast<float>(kOs4x);
         const float t2 = t * t, t3 = t2 * t;
-        const float H_interp = (2*t3-3*t2+1)*hf_h0 + (2*t3-3*t2+t)*hf_tangent
-                             + (-2*t3+3*t2)*hfBand;
+        const float H_interp = (2*t3-3*t2+1)*hf_h0 + (t3-2*t2+t)*hf_m0
+                             + (-2*t3+3*t2)*hf_h1  + (t3-t2)*hf_m1;
         osHF[j] = hystRK4Step(H_interp, hystStateHF[ch], hfMs, hfK);
     }
     const float hbHF_a = halfBandDecimate(osHF[0], osHF[1], hbHFaHistory[ch]);

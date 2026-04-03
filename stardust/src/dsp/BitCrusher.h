@@ -30,11 +30,14 @@ private:
     // Previous bass-reduced sample for linear interpolation at the S&H sampling instant
     float prevBassReduced[kMaxChannels] = {};
 
-    // Pre-S&H anti-alias: 2-pole Butterworth LP at targetRate/2
+    // Pre-S&H anti-alias: 4-pole Butterworth LP at targetRate/2 (2 cascaded biquads)
     float preAaZ1[kMaxChannels] = {};
     float preAaZ2[kMaxChannels] = {};
-    float preAaB0 = 1.0f, preAaB1 = 0.0f, preAaB2 = 0.0f, preAaA1 = 0.0f, preAaA2 = 0.0f;
-    float preAaLastCutoff = -1.0f;
+    float preAaZ1b[kMaxChannels] = {};  // second biquad stage state
+    float preAaZ2b[kMaxChannels] = {};
+    float preAaB0 = 1.0f, preAaB1 = 0.0f, preAaB2 = 0.0f, preAaA1 = 0.0f, preAaA2 = 0.0f;     // stage 1: Q=0.5412
+    float preAaB0b = 1.0f, preAaB1b = 0.0f, preAaB2b = 0.0f, preAaA1b = 0.0f, preAaA2b = 0.0f; // stage 2: Q=1.3066
+    // preAaLastCutoff removed — coefficients recomputed unconditionally each block
 
     // Post-quantization Nyquist ceiling: 4-pole Butterworth LP tracking targetRate * 0.45
     // (2 cascaded 2-pole stages sharing coefficients, independent state arrays)
@@ -42,8 +45,9 @@ private:
     float nyquistZ2[kMaxChannels] = {};
     float nyquistZ1b[kMaxChannels] = {};
     float nyquistZ2b[kMaxChannels] = {};
-    float nyqB0 = 1.0f, nyqB1 = 0.0f, nyqB2 = 0.0f, nyqA1 = 0.0f, nyqA2 = 0.0f;
-    float nyqLastNormalized = -1.0f;  // normalized cutoff cache, same 1e-3 threshold as preAa
+    float nyqB0 = 1.0f, nyqB1 = 0.0f, nyqB2 = 0.0f, nyqA1 = 0.0f, nyqA2 = 0.0f;     // stage 1: Q=0.5412
+    float nyqB0b = 1.0f, nyqB1b = 0.0f, nyqB2b = 0.0f, nyqA1b = 0.0f, nyqA2b = 0.0f; // stage 2: Q=1.3066
+    // nyqLastNormalized removed — coefficients recomputed unconditionally each block
 
     // Clock jitter — hardware sampler ADC clock model (incremental oscillators, no sin() per sample)
     //   Osc A: 7Hz — power-supply ripple coupling into VCO clock
@@ -74,4 +78,7 @@ private:
 
     // TPDF dither state (one random pair per sample, no noise shaping — matches vintage noise character)
     uint32_t ditherState[kMaxChannels] = {};
+    // Aperture noise state — separate LCG from ditherState so the S&H timing jitter
+    // and the TPDF quantisation dither are drawn from independent sequences.
+    uint32_t apertureState[kMaxChannels] = {};
 };

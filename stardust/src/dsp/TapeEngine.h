@@ -16,7 +16,7 @@
 // - Head-gap loss: 2-pole Butterworth LP, speed-scaled cutoff
 // - Bandwidth: 2-pole (12dB/oct) Butterworth LP, per-channel, level-dependent
 // - Bias control: modulates hysteresis curve shape (K/a parameters)
-// - Drive: input gain staging into tape saturation (0..+12 dB from normalized drive)
+// - Drive: input gain staging into tape saturation (0..+18 dB from normalized drive)
 // - Speed selection: 7.5/15/30 ips (scales bump, gap, emphasis, wow/flutter, hiss)
 class TapeEngine
 {
@@ -128,7 +128,12 @@ private:
     float currentInputDb = 0.0f;
     float cachedInputGain = 1.0f;
 
-    // Tape speed (7.5, 15.0, or 30.0 ips) — atomic for thread safety
+    // Tape speed (7.5, 15.0, or 30.0 ips) — atomic for thread safety.
+    // static_assert below guarantees lock-free access; without it, atomic<float> could
+    // use a mutex internally (undefined by the standard) and cause priority inversion
+    // on the audio thread.
+    static_assert(std::atomic<float>::is_always_lock_free,
+                  "atomic<float> must be lock-free for real-time audio safety");
     std::atomic<float> currentSpeed { 7.5f };
     std::atomic<bool> speedChanged { false };
 
@@ -213,24 +218,24 @@ private:
 
     static constexpr int kOversample = 8;
 
-    // 7-tap half-band polyphase decimation (cascaded: 8x->4x->2x->1x — 3 stages)
+    // 15-tap Kaiser half-band polyphase decimation (~90dB stopband, cascaded: 8x->4x->2x->1x — 3 stages)
     // 3-stage cascade eliminates J-A discretization error above 15kHz at 8× vs 4×
-    float hb1aHistory[kMaxChannels][4] = {};
-    float hb1bHistory[kMaxChannels][4] = {};
-    float hb1cHistory[kMaxChannels][4] = {}; // stage 1 branch C (samples 4-5)
-    float hb1dHistory[kMaxChannels][4] = {}; // stage 1 branch D (samples 6-7)
-    float hb2aHistory[kMaxChannels][4] = {}; // stage 2 branch A (hb1a+hb1b)
-    float hb2bHistory[kMaxChannels][4] = {}; // stage 2 branch B (hb1c+hb1d)
-    float hb3History[kMaxChannels][4] = {};  // stage 3 (hb2a+hb2b → 1x)
+    float hb1aHistory[kMaxChannels][8] = {};
+    float hb1bHistory[kMaxChannels][8] = {};
+    float hb1cHistory[kMaxChannels][8] = {}; // stage 1 branch C (samples 4-5)
+    float hb1dHistory[kMaxChannels][8] = {}; // stage 1 branch D (samples 6-7)
+    float hb2aHistory[kMaxChannels][8] = {}; // stage 2 branch A (hb1a+hb1b)
+    float hb2bHistory[kMaxChannels][8] = {}; // stage 2 branch B (hb1c+hb1d)
+    float hb3History[kMaxChannels][8] = {};  // stage 3 (hb2a+hb2b → 1x)
 
     // Half-band decimation history for LF/HF band oversampling (4× → 2× → 1×, 2 stages each)
     // Each branch (a = samples 0-1, b = samples 2-3) needs independent state (A7 fix)
-    float hbLFaHistory[kMaxChannels][4] = {};  // LF stage 1 branch A: osLF[0,1]
-    float hbLFbHistory[kMaxChannels][4] = {};  // LF stage 1 branch B: osLF[2,3]
-    float hbLFHistory2[kMaxChannels][4] = {};  // LF stage 2: 2× → 1×
-    float hbHFaHistory[kMaxChannels][4] = {};  // HF stage 1 branch A: osHF[0,1]
-    float hbHFbHistory[kMaxChannels][4] = {};  // HF stage 1 branch B: osHF[2,3]
-    float hbHFHistory2[kMaxChannels][4] = {};  // HF stage 2: 2× → 1×
+    float hbLFaHistory[kMaxChannels][8] = {};  // LF stage 1 branch A: osLF[0,1]
+    float hbLFbHistory[kMaxChannels][8] = {};  // LF stage 1 branch B: osLF[2,3]
+    float hbLFHistory2[kMaxChannels][8] = {};  // LF stage 2: 2× → 1×
+    float hbHFaHistory[kMaxChannels][8] = {};  // HF stage 1 branch A: osHF[0,1]
+    float hbHFbHistory[kMaxChannels][8] = {};  // HF stage 1 branch B: osHF[2,3]
+    float hbHFHistory2[kMaxChannels][8] = {};  // HF stage 2: 2× → 1×
 
     BiquadCoeffs headBumpCoeffs, notchCoeffs, preEmpCoeffs, deEmpCoeffs, hissCoeffs;
     // Gap comb filter: sinc multi-null response  y[n] = 0.5*(x[n] + x[n-D])
@@ -258,18 +263,17 @@ private:
     HysteresisState hystStateLF[kMaxChannels] {};
     HysteresisState hystStateHF[kMaxChannels] {};
 
+    // Previous band values for central-difference Hermite tangent at h0:
+    //   m0 = (h1 - h_prev) * 0.5  (central diff)  vs old: (h1 - h0) * 0.5 (forward diff)
+    float midBandPrev[kMaxChannels] {};
+    float lfBandPrev[kMaxChannels] {};
+    float hfBandPrev[kMaxChannels] {};
+
     BiquadCoeffs dynLpCoeffs;
     BiquadState dynLpBqState[kMaxChannels];
 
     float glueCohesionEnv[kMaxChannels] = {};
     float glueAttackAlpha = 0.0f, glueReleaseAlpha = 0.0f;
-
-    // Azimuth misalignment: right channel (ch=1) delayed 0–50µs vs left (worn head tilt)
-    static constexpr float kAzimMaxUs = 50.0f;
-    static constexpr int kAzimBufSize = 16;  // covers 50µs at up to 192kHz
-    static constexpr int kAzimMask = kAzimBufSize - 1;
-    float azimBuf[kAzimBufSize] = {};
-    int azimWritePos = 0;
 
     float dcBlockX1[kMaxChannels] = {};
     float dcBlockY1[kMaxChannels] = {};

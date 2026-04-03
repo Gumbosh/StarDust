@@ -2,7 +2,7 @@
 #include <cmath>
 
 // Shared incremental oscillator: complex-multiply rotation (zero trig per sample)
-// Used by TapeEngine, GranularEngine, and DattorroReverb
+// Used by TapeEngine and DattorroReverb
 struct IncrementalOscillator
 {
     static constexpr float kTwoPi = 6.28318530718f;

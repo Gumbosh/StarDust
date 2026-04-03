@@ -5,11 +5,6 @@
 struct StarfieldParams
 {
     float destroyFader = 1.0f;  // 0=33RPM, 1=45RPM, 2=x2, 3=78RPM (continuous)
-    float grainMix = 0.0f;
-    float grainCloud = 0.3f;
-    float grainDrift = 0.2f;
-    float grainSpace = 0.3f;
-    float grainMorph = 0.5f;
     float filterCutoff = 99.0f;
     float destroyIn = 0.0f;
     float destroyOut = 0.0f;
@@ -27,12 +22,9 @@ struct StarfieldParams
     float masterMix = 1.0f;
     bool tapeEnabled = false;
     bool destroyEnabled = true;
-    bool granularEnabled = true;
     bool multiplyEnabled = true;
     // NEW — previously had no visual representation
     float destroyBits   = 12.0f; // 4..24 bits — controls posterization banding
-    float grainSizeSync = 0.0f;  // 0..10 (choice index) — controls particle radius
-    float grainReverse  = 0.0f;  // 0..1 — fraction of particles flowing inward
     float tapeDrive     = 0.0f;  // 0..1 (pre-scaled by tapeMix) — highlight bloom
     float tapeGlue      = 0.0f;  // 0..1 (pre-scaled by tapeMix) — dynamic range compression
     float tapeMix       = 1.0f;  // 0..1 — scales all tape visual effects
@@ -51,12 +43,6 @@ public:
     void timerCallback() override;
 
     void setExcludeRect(juce::Rectangle<int> rect) { excludeRect = rect; }
-
-    // Grain visualization — call from editor timer at 30Hz
-    struct GrainParticle { float normPos = 0.0f; float phase = 0.0f; bool active = false; };
-    static constexpr int kMaxGrainParticles = 64;
-    void setGrainData(const std::array<GrainParticle, kMaxGrainParticles>& particles, bool isFrozen);
-
 
 private:
     StarfieldParams readParams() const;
@@ -78,8 +64,6 @@ private:
     juce::Image cachedImage;
     juce::Rectangle<int> excludeRect;
     float timeCounter = 0.0f;
-    std::array<GrainParticle, kMaxGrainParticles> grainParticles {};
-    bool grainFrozen = false;
 
     static constexpr int kRenderWidth = 440;
     static constexpr int kRenderHeight = 200;

@@ -28,12 +28,6 @@ void StarfieldBackground::paint(juce::Graphics& g)
 
 void StarfieldBackground::resized() {}
 
-void StarfieldBackground::setGrainData(const std::array<GrainParticle, kMaxGrainParticles>& particles, bool isFrozen)
-{
-    grainParticles = particles;
-    grainFrozen = isFrozen;
-}
-
 void StarfieldBackground::timerCallback()
 {
     const float dt = 1.0f / 30.0f;
@@ -57,23 +51,17 @@ StarfieldParams StarfieldBackground::readParams() const
     const float tapeHissVal    = juce::jlimit(0.0f, 1.0f, noise) * tapeMixV;
 
     // Determine which effects are actually present in the chain slots
-    bool destroyInChain = false, granularInChain = false, multiplyInChain = false, tapeInChain = false;
+    bool destroyInChain = false, multiplyInChain = false, tapeInChain = false;
     for (int i = 0; i < 4; ++i)
     {
         const int slot = static_cast<int>(*apvts.getRawParameterValue("chainSlot" + juce::String(i)));
         if (slot == 1) destroyInChain  = true;
-        if (slot == 2) granularInChain = true;
         if (slot == 3) multiplyInChain = true;
         if (slot == 4) tapeInChain     = true;
     }
 
     return StarfieldParams {
         *apvts.getRawParameterValue("destroyFader"),
-        *apvts.getRawParameterValue("grainMix"),
-        *apvts.getRawParameterValue("grainCloud"),
-        *apvts.getRawParameterValue("grainDrift"),
-        *apvts.getRawParameterValue("grainSpace"),
-        *apvts.getRawParameterValue("grainMorph"),
         *apvts.getRawParameterValue("filterCutoff"),
         *apvts.getRawParameterValue("destroyIn"),
         *apvts.getRawParameterValue("destroyOut"),
@@ -91,12 +79,8 @@ StarfieldParams StarfieldBackground::readParams() const
         *apvts.getRawParameterValue("masterMix"),
         *apvts.getRawParameterValue("tapeEnabled")    >= 0.5f && tapeInChain,
         *apvts.getRawParameterValue("destroyEnabled")  >= 0.5f && destroyInChain,
-        *apvts.getRawParameterValue("granularEnabled") >= 0.5f && granularInChain,
         *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f && multiplyInChain,
-        // NEW fields
         *apvts.getRawParameterValue("destroyBits"),
-        *apvts.getRawParameterValue("grainSizeSync"),
-        *apvts.getRawParameterValue("grainReverse"),
         *apvts.getRawParameterValue("tapeDrive") * tapeMixV,
         *apvts.getRawParameterValue("tapeGlue")  * tapeMixV,
         tapeMixV,
@@ -119,13 +103,6 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     // DESTROY Mix → galaxy opacity (0% mix = dim, 100% = full)
     const float mixFactor = params.destroyEnabled ? params.destroyMix : 0.0f;
     const float galaxyIntensity = 0.3f + mixFactor * 0.7f;
-    const float starIntensity = params.grainMix;
-    const float scatter = params.grainDrift;
-    // Derive visual params from macros (same mappings as DSP)
-    const float derivedDensity = 1.0f + params.grainCloud * 15.0f;
-    const float derivedSize = 80.0f - params.grainCloud * 65.0f;
-    const float derivedWidth = params.grainSpace;
-    const float derivedPitch = (params.grainMorph - 0.5f) * 24.0f;
     // Map fader position to normalized rate (0=slowest, 1=fastest)
     const float rateNorm = juce::jlimit(0.0f, 1.0f, 1.0f - params.destroyFader / 3.0f);
     const int scanlineSpacing = std::max(2, static_cast<int>(2.0f + rateNorm * 6.0f));
@@ -154,14 +131,11 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     const float outBoost = 1.0f + outNorm * 0.6f;
     const float armBrightness = (0.15f + crushAmount * 0.2f) * galaxyIntensity;
 
-    const float densityNorm = std::min(1.0f, (derivedDensity - 1.0f) / 15.0f);
-    const float sizeNorm = std::min(1.0f, (derivedSize - 5.0f) / 75.0f);
-
     auto& pixelData = pixelData_;
     std::fill(pixelData.begin(), pixelData.end(), 0.0f);
 
-    // Ambient glow for MULTIPLY-only mode (when DESTROY + GRANULAR are off)
-    if (params.multiplyEnabled && !params.destroyEnabled && !params.granularEnabled && params.chorusMix > 0.01f)
+    // Ambient glow for MULTIPLY-only mode (when DESTROY is off)
+    if (params.multiplyEnabled && !params.destroyEnabled && params.chorusMix > 0.01f)
     {
         for (int y = 0; y < kRenderHeight; ++y)
             for (int x = 0; x < kRenderWidth; ++x)
@@ -302,327 +276,6 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
             }
     }
   } // end DESTROY
-
-  if (params.granularEnabled && starIntensity > 0.005f)
-  {
-    // ---- Stars: 3 depth layers (GRAIN knobs only) ----
-    // Save galaxy-only pixels so we can blend stars with uniform opacity
-    auto& galaxyOnly = tempBuffer_;
-    std::copy(pixelData.begin(), pixelData.end(), galaxyOnly.begin());
-
-    const float widthSpread = derivedWidth; // WIDTH: brightness spread from center
-    const float densityMul = 1.0f + densityNorm * 2.0f; // DENSITY: just more stars
-
-    struct StarLayer { int count; float brightMul; int spikeLen; float twinkleSpeed; };
-    const StarLayer layers[3] = {
-        { static_cast<int>(150.0f * densityMul), 0.25f, 0, 0.6f },
-        { static_cast<int>(80.0f * densityMul),
-          0.5f, static_cast<int>(1.0f + sizeNorm * 1.5f), 1.2f },
-        { static_cast<int>(30.0f * densityMul),
-          1.0f, static_cast<int>(2.0f + sizeNorm * 3.0f), 2.5f },
-    };
-
-    for (int layer = 0; layer < 3; ++layer)
-    {
-        const auto& sl = layers[layer];
-        const float gridSpacing = std::max(3.0f, fw / std::sqrt(static_cast<float>(sl.count)));
-        const int gridCols = static_cast<int>(fw / gridSpacing) + 1;
-        const int gridRows = static_cast<int>(fh / gridSpacing) + 1;
-        const float layerSeed = static_cast<float>(layer) * 100.0f;
-
-        for (int gy = 0; gy < gridRows; ++gy)
-        {
-            for (int gx = 0; gx < gridCols; ++gx)
-            {
-                if (hash(static_cast<float>(gx) + layerSeed, static_cast<float>(gy) + 0.5f) > 0.5f)
-                    continue;
-
-                const float jx = hash(static_cast<float>(gx) * 1.1f + layerSeed, static_cast<float>(gy) * 2.3f);
-                const float jy = hash(static_cast<float>(gx) * 3.7f + layerSeed, static_cast<float>(gy) * 1.9f);
-                float starX = (static_cast<float>(gx) + jx) * gridSpacing;
-                float starY = (static_cast<float>(gy) + jy) * gridSpacing;
-
-                // PITCH: vertical shift of star layer (-12..+12 → scroll up/down)
-                if (std::abs(derivedPitch) > 0.05f)
-                {
-                    const float pitchShift = derivedPitch * (fh / 24.0f);
-                    starY -= pitchShift;
-                    // Wrap around vertically
-                    starY = std::fmod(starY + fh * 2.0f, fh);
-                }
-
-                // SCATTER: animated wiggle/distortion — stars wobble more as scatter increases
-                if (scatter > 0.01f)
-                {
-                    const float starSeed = hash(static_cast<float>(gx) * 5.3f + layerSeed, static_cast<float>(gy) * 3.1f);
-                    const float wiggleSpeed = 1.5f + starSeed * 3.0f;
-                    const float wiggleAmount = scatter * 8.0f;
-                    starX += std::sin(time * wiggleSpeed + starSeed * 20.0f) * wiggleAmount;
-                    starY += std::cos(time * wiggleSpeed * 0.7f + starSeed * 15.0f) * wiggleAmount;
-                }
-
-                const int sx = static_cast<int>(starX);
-                const int sy = static_cast<int>(starY);
-
-                if (sx < 0 || sx >= kRenderWidth || sy < 0 || sy >= kRenderHeight)
-                    continue;
-
-                // WIDTH: controls brightness spread (0 = bright near center, 1 = bright everywhere)
-                const float starDx = static_cast<float>(sx) - cx;
-                const float starDy = static_cast<float>(sy) - cy;
-                const float starDist = std::sqrt(starDx * starDx + starDy * starDy) / maxDist;
-                const float distFade = widthSpread + (1.0f - widthSpread) * (1.0f - starDist);
-
-                const float twinkle = hash(static_cast<float>(gx) * 7.3f + layerSeed, static_cast<float>(gy) * 5.1f);
-                const float bright = sl.brightMul * distFade
-                    * (0.4f + 0.6f * std::sin(time * (sl.twinkleSpeed + twinkle * 2.0f)));
-
-                // Draw star shape mirroring the grain envelope curve
-                const int shape = static_cast<int>(params.grainMorph * 3.99f);
-                const int radius = sl.spikeLen;
-
-                if (shape == 1) // Gaussian — wide soft bloom, smooth radial falloff
-                {
-                    constexpr int glowR = 1;
-                    for (int dy = -glowR; dy <= glowR; ++dy)
-                    {
-                        for (int dx = -glowR; dx <= glowR; ++dx)
-                        {
-                            const int px = sx + dx;
-                            const int py = sy + dy;
-                            if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
-                            {
-                                const float d2 = static_cast<float>(dx * dx + dy * dy);
-                                constexpr float sigma = 0.75f;
-                                const float glow = bright * std::exp(-d2 / (2.0f * sigma * sigma));
-                                auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
-                                pixel = std::min(1.0f, pixel + glow);
-                            }
-                        }
-                    }
-                }
-                else if (shape == 2) // Triangle — random scatter burst
-                {
-                    // Bright peaked center
-                    auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
-                    centerPx = std::min(1.0f, centerPx + bright);
-
-                    // 2-3 scattered pixels within radius, seeded by position
-                    const int scatterR = std::max(1, radius + 1);
-                    const int numFragments = 2 + (radius > 0 ? 1 : 0);
-                    for (int f = 0; f < numFragments; ++f)
-                    {
-                        const float seed1 = hash(static_cast<float>(sx) * (2.3f + static_cast<float>(f) * 5.7f),
-                                                  static_cast<float>(sy) * (4.1f + static_cast<float>(f) * 3.3f));
-                        const float seed2 = hash(static_cast<float>(sx) * (7.9f + static_cast<float>(f) * 1.1f),
-                                                  static_cast<float>(sy) * (2.7f + static_cast<float>(f) * 8.3f));
-                        const int dx = static_cast<int>((seed1 * 2.0f - 1.0f) * static_cast<float>(scatterR));
-                        const int dy = static_cast<int>((seed2 * 2.0f - 1.0f) * static_cast<float>(scatterR));
-                        const int px = sx + dx;
-                        const int py = sy + dy;
-                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
-                        {
-                            const float dist = std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                            const float fade = bright * (1.0f - dist / (static_cast<float>(scatterR) * 1.5f));
-                            if (fade > 0.0f)
-                            {
-                                auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
-                                pixel = std::min(1.0f, pixel + fade);
-                            }
-                        }
-                    }
-                }
-                else if (shape == 3) // Trapezoid — random tetris block
-                {
-                    // 7 tetromino shapes: I, O, T, S, Z, L, J
-                    // Each defined as 4 pixel offsets from origin
-                    constexpr int kNumShapes = 7;
-                    constexpr int tetrominoes[kNumShapes][4][2] = {
-                        { {0,0}, {1,0}, {2,0}, {3,0} },   // I
-                        { {0,0}, {1,0}, {0,1}, {1,1} },   // O
-                        { {0,0}, {1,0}, {2,0}, {1,1} },   // T
-                        { {0,0}, {1,0}, {1,1}, {2,1} },   // S
-                        { {1,0}, {2,0}, {0,1}, {1,1} },   // Z
-                        { {0,0}, {0,1}, {0,2}, {1,2} },   // L
-                        { {1,0}, {1,1}, {1,2}, {0,2} },   // J
-                    };
-
-                    // Pick shape and rotation by hashing star position
-                    const float shapeSeed = hash(static_cast<float>(sx) * 5.3f, static_cast<float>(sy) * 9.1f);
-                    const int shapeIdx = static_cast<int>(shapeSeed * static_cast<float>(kNumShapes)) % kNumShapes;
-                    const float rotSeed = hash(static_cast<float>(sx) * 2.7f, static_cast<float>(sy) * 6.3f);
-                    const int rotation = static_cast<int>(rotSeed * 4.0f) % 4;
-
-                    for (int p = 0; p < 4; ++p)
-                    {
-                        int dx = tetrominoes[shapeIdx][p][0];
-                        int dy = tetrominoes[shapeIdx][p][1];
-
-                        // Apply rotation (0=none, 1=90°CW, 2=180°, 3=270°CW)
-                        for (int r = 0; r < rotation; ++r)
-                        {
-                            const int tmp = dx;
-                            dx = -dy;
-                            dy = tmp;
-                        }
-
-                        const int px = sx + dx;
-                        const int py = sy + dy;
-                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
-                        {
-                            auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
-                            pixel = std::min(1.0f, pixel + bright * 0.9f);
-                        }
-                    }
-                }
-                else // Hanning — tiny ring: bright center + cardinal neighbors
-                {
-                    // Bright center pixel
-                    auto& centerPx = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
-                    centerPx = std::min(1.0f, centerPx + bright);
-
-                    // Soft ring on 4 cardinal neighbors only (no diagonals = round, not square)
-                    const float ringStr = bright * 0.4f;
-                    const int cardinals[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-                    for (const auto& c : cardinals)
-                    {
-                        const int px = sx + c[0];
-                        const int py = sy + c[1];
-                        if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
-                        {
-                            auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
-                            pixel = std::min(1.0f, pixel + ringStr);
-                        }
-                    }
-
-                    // Subtle axis spikes for larger layers
-                    if (radius > 0)
-                    {
-                        for (int i = 2; i <= radius + 1; ++i)
-                        {
-                            const float fade = bright * 0.25f * (1.0f - static_cast<float>(i) / static_cast<float>(radius + 2));
-                            const int arms[4][2] = { {i, 0}, {-i, 0}, {0, i}, {0, -i} };
-                            for (const auto& a : arms)
-                            {
-                                const int px = sx + a[0];
-                                const int py = sy + a[1];
-                                if (px >= 0 && px < kRenderWidth && py >= 0 && py < kRenderHeight)
-                                {
-                                    auto& pixel = pixelData[static_cast<size_t>(py * kRenderWidth + px)];
-                                    pixel = std::min(1.0f, pixel + fade);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // Static stars fade to background ambience — grain particles are the primary visual
-    for (size_t i = 0; i < pixelData.size(); ++i)
-    {
-        const float starOnly = pixelData[i] - galaxyOnly[i];
-        pixelData[i] = galaxyOnly[i] + starOnly * (starIntensity * 0.25f);
-    }
-  } // end static stars
-
-  // ---- Grain particles: rendered as floating pixels (same star primitive) ----
-  // Each grain slot has a stable angular position. New grains (normPos≈1) sit near
-  // centre; they drift outward as they age and fade with the Hann envelope.
-  // Amount (grainCloud) → brightness. Spread (grainDrift) → radial spread.
-  if (params.granularEnabled)
-  {
-    // Match the star layer's effective brightness: starIntensity * 0.25 * layerBrightMul
-    const float grainBrightScale = starIntensity * 0.25f * (0.5f + params.grainCloud * 0.5f);
-    const float spreadScale = 0.20f + scatter * 0.80f;   // scatter == grainDrift
-    const float maxR        = std::min(fw * 0.46f, fh * 0.46f);
-
-    // grainSizeSync: 0=Free(1px) → 10=1/32(4px) blob radius
-    const float syncNorm   = juce::jlimit(0.0f, 1.0f, params.grainSizeSync / 10.0f);
-    const int   grainRadius = 1 + static_cast<int>(syncNorm * 3.0f); // 1..4
-
-    for (int gi = 0; gi < kMaxGrainParticles; ++gi)
-    {
-        const auto& gp = grainParticles[gi];
-        if (!gp.active) continue;
-
-        const float hann   = std::sin(gp.phase * juce::MathConstants<float>::pi);
-        const float bright = juce::jlimit(0.0f, 1.0f, hann * grainBrightScale);
-        if (bright < 0.005f) continue;
-
-        // Stable angular slot
-        const float angle   = hash(static_cast<float>(gi), 1.7f)
-                              * juce::MathConstants<float>::twoPi;
-        const float ageFrac = juce::jlimit(0.0f, 1.0f, 1.0f - gp.normPos);
-
-        // grainReverse: fraction of grains move inward (toward centre) instead of outward
-        const bool reversed = (hash(static_cast<float>(gi), 5.3f) < params.grainReverse);
-        const float r = (reversed ? (1.0f - ageFrac) : ageFrac) * maxR * spreadScale;
-
-        const int sx = juce::jlimit(0, kRenderWidth  - 1, static_cast<int>(cx + std::cos(angle) * r));
-        const int sy = juce::jlimit(0, kRenderHeight - 1, static_cast<int>(cy + std::sin(angle) * r));
-
-        // Centre pixel
-        auto& centre = pixelData[static_cast<size_t>(sy * kRenderWidth + sx)];
-        centre = std::min(1.0f, centre + bright);
-
-        // Particle body: cardinal ring (default) or circular blob (larger sync)
-        if (grainRadius <= 1)
-        {
-            const float ringStr = bright * 0.4f;
-            static constexpr int kCard[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-            for (const auto& c : kCard)
-            {
-                const int qx = sx + c[0], qy = sy + c[1];
-                if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
-                {
-                    auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
-                    p = std::min(1.0f, p + ringStr);
-                }
-            }
-        }
-        else
-        {
-            for (int dy = -grainRadius; dy <= grainRadius; ++dy)
-                for (int dx = -grainRadius; dx <= grainRadius; ++dx)
-                {
-                    const float d = std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                    if (d > static_cast<float>(grainRadius)) continue;
-                    const float falloff = 1.0f - d / static_cast<float>(grainRadius + 1);
-                    const int qx = sx + dx, qy = sy + dy;
-                    if (qx >= 0 && qx < kRenderWidth && qy >= 0 && qy < kRenderHeight)
-                    {
-                        auto& p = pixelData[static_cast<size_t>(qy * kRenderWidth + qx)];
-                        p = std::min(1.0f, p + bright * falloff);
-                    }
-                }
-        }
-
-        // grainSpace halo: diffuse ring mirrors Dattorro reverb diffusion
-        if (params.grainSpace > 0.05f)
-        {
-            const float haloR     = 3.0f + params.grainSpace * 8.0f;
-            const float haloAlpha = bright * params.grainSpace * 0.3f;
-            if (haloAlpha > 0.005f)
-            {
-                constexpr int kHaloSteps = 8;
-                for (int step = 0; step < kHaloSteps; ++step)
-                {
-                    const float a  = static_cast<float>(step)
-                                     * juce::MathConstants<float>::twoPi
-                                     / static_cast<float>(kHaloSteps);
-                    const int hx = sx + static_cast<int>(std::cos(a) * haloR);
-                    const int hy = sy + static_cast<int>(std::sin(a) * haloR);
-                    if (hx >= 0 && hx < kRenderWidth && hy >= 0 && hy < kRenderHeight)
-                    {
-                        auto& p = pixelData[static_cast<size_t>(hy * kRenderWidth + hx)];
-                        p = std::min(1.0f, p + haloAlpha);
-                    }
-                }
-            }
-        }
-    }
-  } // end GRANULAR
 
     // ---- Tape effects (wow = horizontal drift, flutter = jitter, hiss = noise) ----
     if (params.tapeEnabled)

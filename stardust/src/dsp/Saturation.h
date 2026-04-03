@@ -12,9 +12,7 @@ public:
     void setInputGain(float gainDb);
     void setOutputGain(float gainDb);
     void setDrive(float driveAmount);
-    void setBias(float b);   // [-0.5, 0.5] asymmetric offset → even harmonic character
-    void setMode(int m);     // 0=Soft (tanh), 1=Tube (asymmetric), 2=Hard (clip)
-    void setAsym(float a);   // [0,1]: tube knee softness (0=hard class-A, 1=soft class-AB)
+    void setMode(int m);     // 0=Soft (tanh), 1=Tube (asymmetric), 2=Hard (clip), 3=Satin, 4=Xfmr, 5=Vari-Mu
     void setTone(float t);   // [0,1]: HP 80–500Hz, LP 2kHz–20kHz (presence bandpass)
 
     void processInput(juce::AudioBuffer<float>& buffer);
@@ -31,15 +29,14 @@ private:
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> driveSmoothed { 0.0f };
-    juce::SmoothedValue<float> biasSmoothed { 0.0f };
-    juce::SmoothedValue<float> asymSmoothed { 0.5f };
 
     float currentInputGainDb = 0.0f;
     float currentOutputGainDb = 0.0f;
     float currentDrive = 0.0f;
-    float currentBias = 0.0f;
-    float currentAsym = 0.5f;
-    int currentMode = 0; // 0=Soft, 1=Tube, 2=Hard
+    int currentMode = 0; // 0=Soft, 1=Tube, 2=Hard, 3=Satin, 4=Xfmr, 5=Vari-Mu
+    int pendingMode = -1;        // -1 = no pending change
+    float modeRamp = 1.0f;       // fade amplitude [0..1]
+    float modeRampInc = 0.0f;    // per-sample ramp increment (negative=fade out, positive=fade in)
     float currentTone = -1.0f; // -1 forces initial coefficient calculation
 
     double sampleRate = 44100.0;

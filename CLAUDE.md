@@ -85,5 +85,5 @@ Factory presets are loaded from `presets.txt` (embedded via BinaryData). User pr
 
 - **`TapeEngine`** — most complex module; uses RK4 ODE to solve Jiles-Atherton hysteresis with 4× oversampling, per-channel PRNG for wow/flutter decorrelation, NAB/IEC pre/de-emphasis biquads.
 - **`GranularEngine`** — up to 32 concurrent grains, 2¹⁷-sample circular buffer, optional HQ sinc interpolation, integrated `DattorroReverb` for space.
-- **`BitCrusher`** — sample-rate reduction (piecewise-interpolated from `kRpmRates[6] = {4000, 8000, 19000, 26040, 45000, 52080}`) + bit-depth reduction + jitter. Rate knob param `destroyFader` maps 0→5 to 4kHz→52kHz.
+- **`BitCrusher`** — sample-rate reduction (continuous log-skewed range 250Hz–96kHz via `destroyFader`) + bit-depth reduction + jitter. Pre-S&H 4-pole Butterworth AA, TPDF dither, C10 bass-shelf pair, DC blocker.
 - **`ModulationMatrix`** — 4-slot LFO/envelope→parameter router; incremental oscillators only (no `sin()`/`cos()` per sample).

@@ -198,7 +198,6 @@ private:
 
     void layoutCrushSection(juce::Rectangle<int> bounds);
     void layoutHazeSection(juce::Rectangle<int> bounds);
-    void layoutGranularSection(juce::Rectangle<int> bounds);
     void layoutMultiplySection(juce::Rectangle<int> bounds);
     void layoutUnisonSection(juce::Rectangle<int> bounds);
     void layoutTapeSection(juce::Rectangle<int> bounds);
@@ -219,20 +218,9 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
+    LabeledKnob destroyDriveKnob, destroyColorKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
-    LabeledKnob grainMixKnob, grainCloudKnob;
-    LabeledKnob grainScatterKnob, grainSpaceKnob;
-    LabeledKnob grainReverbSizeKnob;
-    LabeledKnob grainMorphKnob;
-    LabeledKnob grainSizeSyncKnob;
-    LabeledKnob grainRevKnob;
-    LabeledKnob grainFeedbackKnob;
-    juce::TextButton grainShapeBtn[4];
-    juce::Label grainShapeLabel;
-    juce::TextButton grainQuantBtn[5];
-    juce::Label grainQuantLabel;
     LabeledKnob chorusMixKnob;
     juce::TextButton multiplyLfoBtn[3];  // Juno mode buttons: I / II / I+II
     juce::Label multiplyLfoLabel;
@@ -240,11 +228,13 @@ private:
     LabeledKnob tapeWowKnob;
 
     LabeledKnob distortionDriveKnob, distortionToneKnob;
-    juce::TextButton distortionModeBtn[4];
+    juce::TextButton distortionModeBtn[6];
     juce::Label distortionModeLabel;
     LabeledKnob reverbMixKnob, reverbSizeKnob, reverbDecayKnob, reverbDampKnob, reverbPreDelayKnob, reverbDiffusionKnob, reverbWidthKnob;
     juce::TextButton tapeNoiseSpeedBtn[3];
     juce::Label tapeNoiseSpeedLabel;
+    juce::TextButton tapeFormulationBtn[5];
+    juce::Label tapeFormulationLabel;
 
     // HAZE section
     LabeledKnob hazeColorKnob;
@@ -261,13 +251,15 @@ private:
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 
     // Sidebar mix sliders (one per section, positioned below name pill)
-    juce::Slider destroyMixStrip, grainMixStrip, multiplyMixStrip, tapeMixStrip, hazeMixStrip, unisonMixStrip;
-    std::unique_ptr<SliderAttachment> destroyMixStripAttach, grainMixStripAttach,
-                                      multiplyMixStripAttach, tapeMixStripAttach, hazeMixStripAttach,
+    juce::Slider destroyMixStrip, multiplyMixStrip, tapeMixStrip,
+                 distortionMixStrip, hazeMixStrip, unisonMixStrip;
+    std::unique_ptr<SliderAttachment> destroyMixStripAttach,
+                                      multiplyMixStripAttach, tapeMixStripAttach,
+                                      distortionMixStripAttach, hazeMixStripAttach,
                                       unisonMixStripAttach;
 
-    juce::ToggleButton destroyToggle, granularToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
-    std::unique_ptr<ButtonAttachment> destroyToggleAttach, granularToggleAttach, multiplyToggleAttach,
+    juce::ToggleButton destroyToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
+    std::unique_ptr<ButtonAttachment> destroyToggleAttach, multiplyToggleAttach,
                                       tapeToggleAttach, distortionToggleAttach, reverbToggleAttach;
 
     // Meters removed — replaced by signal flow display + knobs

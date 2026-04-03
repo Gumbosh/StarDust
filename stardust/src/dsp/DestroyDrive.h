@@ -12,7 +12,7 @@ public:
 
     void prepare(double sampleRate, int samplesPerBlock);
 
-    void setInputDrive(float gainDb);   // -12.0 to +12.0 dB
+    void setInputDrive(float gainDb);   // 0.0 to +24.0 dB
     void setOutputColor(float gainDb);  // -12.0 to +12.0 dB
 
     void processInput(juce::AudioBuffer<float>& buffer);

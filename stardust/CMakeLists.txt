@@ -29,8 +29,6 @@ target_sources(Stardust PRIVATE
     src/dsp/BitCrusher.h
     src/dsp/DestroyDrive.cpp
     src/dsp/DestroyDrive.h
-    src/dsp/GranularEngine.cpp
-    src/dsp/GranularEngine.h
     src/dsp/ButterworthFilter.cpp
     src/dsp/ButterworthFilter.h
     src/dsp/ChorusEngine.cpp
@@ -39,8 +37,6 @@ target_sources(Stardust PRIVATE
     src/dsp/MultiplyEngine.h
     src/dsp/DattorroReverb.cpp
     src/dsp/DattorroReverb.h
-    src/dsp/GrainEnvelopeLUT.h
-    src/dsp/InputEnvelopeFollower.h
     src/dsp/TapeEngine.cpp
     src/dsp/TapeEngine.h
     src/dsp/Saturation.cpp

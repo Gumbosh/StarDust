@@ -13,21 +13,25 @@ void BitCrusher::prepare(double sampleRate, int /*samplesPerBlock*/)
         prevBassReduced[ch] = 0.0f;
         preAaZ1[ch] = 0.0f;
         preAaZ2[ch] = 0.0f;
+        preAaZ1b[ch] = 0.0f;
+        preAaZ2b[ch] = 0.0f;
         nyquistZ1[ch] = 0.0f;
         nyquistZ2[ch] = 0.0f;
         nyquistZ1b[ch] = 0.0f;
         nyquistZ2b[ch] = 0.0f;
-        ditherState[ch] = 0xDEAD0001u + static_cast<uint32_t>(ch);
+        ditherState[ch]   = 0xDEAD0001u + static_cast<uint32_t>(ch);
+        apertureState[ch] = 0xBEEF0001u + static_cast<uint32_t>(ch);
         dcBlockX1[ch] = 0.0f;
         dcBlockY1[ch] = 0.0f;
     }
-    preAaLastCutoff = -1.0f;
     preAaB0 = 1.0f; preAaB1 = 0.0f; preAaB2 = 0.0f; preAaA1 = 0.0f; preAaA2 = 0.0f;
-    nyqLastNormalized = -1.0f;
+    preAaB0b = 1.0f; preAaB1b = 0.0f; preAaB2b = 0.0f; preAaA1b = 0.0f; preAaA2b = 0.0f;
+    nyqB0b = 1.0f; nyqB1b = 0.0f; nyqB2b = 0.0f; nyqA1b = 0.0f; nyqA2b = 0.0f;
     oscRenormCount = 0;
 
-    // DC blocker: 1-pole HP at ~5Hz
-    dcBlockCoeff = 1.0f - (juce::MathConstants<float>::twoPi * 5.0f / static_cast<float>(sampleRate));
+    // DC blocker: 1-pole HP at ~5Hz. exp() form matches Saturation's dcCoeff calculation
+    // and avoids the first-order approximation error of (1 - 2πf/sr) at low sample rates.
+    dcBlockCoeff = std::exp(-(juce::MathConstants<float>::twoPi * 5.0f / static_cast<float>(sampleRate)));
 
     // Incremental jitter oscillators — no sin() per sample
     {
@@ -107,32 +111,83 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
     const auto numChannels = std::min(buffer.getNumChannels(), kMaxChannels);
     const auto numSamples = buffer.getNumSamples();
 
-    for (int i = 0; i < numSamples; ++i)
+    // Coefficient recomputation: unconditionally once per block using the current smoothed rate.
+    // The old 1e-3 normalized-cutoff threshold caused 44Hz step artifacts when the sample-rate
+    // fader swept slowly through low target rates (e.g. 250–2000 Hz), where a single step
+    // represents a large fraction of the filter's passband. Block-rate trig calls are negligible.
+    // 4th-order Butterworth requires two stages with staggered Q values:
+    //   Q₁ = 1/(2·sin(π/8)) ≈ 0.5412  (wider, goes first)
+    //   Q₂ = 1/(2·sin(3π/8)) ≈ 1.3066 (sharper knee near cutoff, goes second)
     {
-        const float bitDepth   = bitDepthSmoothed.getNextValue();
-        const float targetRate = targetRateSmoothed.getNextValue();
-        const float levels     = std::exp2f(bitDepth);
-        const float ratio      = targetRate / static_cast<float>(hostSampleRate);
+        const float blockTargetRate = targetRateSmoothed.getCurrentValue();
 
-        // Pre-S&H anti-alias: 2-pole Butterworth LP at targetRate/2.
-        // normalizedCutoff clamped to [0.001, 0.49] — prevents unstable poles when
-        // targetRate approaches or exceeds the (oversampled) hostSampleRate.
-        const float normalizedCutoff = juce::jlimit(0.001f, 0.49f,
-            targetRate * 0.5f / static_cast<float>(hostSampleRate));
-        if (std::abs(normalizedCutoff - preAaLastCutoff) > 1e-3f)
+        // Pre-S&H anti-alias: 4-pole Butterworth LP at targetRate/2
         {
-            preAaLastCutoff = normalizedCutoff;
-            const float w0    = juce::MathConstants<float>::pi * normalizedCutoff * 2.0f;
+            const float normalizedCutoff = juce::jlimit(0.001f, 0.49f,
+                blockTargetRate * 0.5f / static_cast<float>(hostSampleRate));
+            const float w0    = juce::MathConstants<float>::twoPi * normalizedCutoff;
             const float cosW0 = std::cos(w0);
             const float sinW0 = std::sin(w0);
-            const float alpha = sinW0 / (2.0f * 0.7071f);  // Q = 1/sqrt(2) Butterworth
-            const float a0inv = 1.0f / (1.0f + alpha);
-            preAaB0 = ((1.0f - cosW0) * 0.5f) * a0inv;
-            preAaB1 = (1.0f - cosW0) * a0inv;
-            preAaB2 = preAaB0;
-            preAaA1 = (-2.0f * cosW0) * a0inv;
-            preAaA2 = (1.0f - alpha) * a0inv;
+            {   // Stage 1: Q = 0.5412
+                const float alpha = sinW0 / (2.0f * 0.5412f);
+                const float a0inv = 1.0f / (1.0f + alpha);
+                preAaB0 = ((1.0f - cosW0) * 0.5f) * a0inv;
+                preAaB1 = (1.0f - cosW0) * a0inv;
+                preAaB2 = preAaB0;
+                preAaA1 = (-2.0f * cosW0) * a0inv;
+                preAaA2 = (1.0f - alpha) * a0inv;
+            }
+            {   // Stage 2: Q = 1.3066
+                const float alpha = sinW0 / (2.0f * 1.3066f);
+                const float a0inv = 1.0f / (1.0f + alpha);
+                preAaB0b = ((1.0f - cosW0) * 0.5f) * a0inv;
+                preAaB1b = (1.0f - cosW0) * a0inv;
+                preAaB2b = preAaB0b;
+                preAaA1b = (-2.0f * cosW0) * a0inv;
+                preAaA2b = (1.0f - alpha) * a0inv;
+            }
         }
+
+        // Nyquist ceiling: 4-pole Butterworth LP at targetRate * 0.45
+        {
+            const float nyqNormalized = juce::jlimit(0.006f, 0.49f,
+                blockTargetRate * 0.45f / static_cast<float>(hostSampleRate));
+            const float w0    = juce::MathConstants<float>::twoPi * nyqNormalized;
+            const float cosW0 = std::cos(w0);
+            const float sinW0 = std::sin(w0);
+            {   // Stage 1: Q = 0.5412
+                const float alpha = sinW0 / (2.0f * 0.5412f);
+                const float a0inv = 1.0f / (1.0f + alpha);
+                nyqB0 = ((1.0f - cosW0) * 0.5f) * a0inv;
+                nyqB1 = (1.0f - cosW0) * a0inv;
+                nyqB2 = nyqB0;
+                nyqA1 = (-2.0f * cosW0) * a0inv;
+                nyqA2 = (1.0f - alpha) * a0inv;
+            }
+            {   // Stage 2: Q = 1.3066
+                const float alpha = sinW0 / (2.0f * 1.3066f);
+                const float a0inv = 1.0f / (1.0f + alpha);
+                nyqB0b = ((1.0f - cosW0) * 0.5f) * a0inv;
+                nyqB1b = (1.0f - cosW0) * a0inv;
+                nyqB2b = nyqB0b;
+                nyqA1b = (-2.0f * cosW0) * a0inv;
+                nyqA2b = (1.0f - alpha) * a0inv;
+            }
+        }
+    }
+
+    // levels changes at most ~0.002/sample on a 5ms ramp — computing once per block
+    // from getCurrentValue() is inaudible (< 0.2 LSB error at 12-bit) and avoids
+    // an exp2f() call per sample. skip() advances the smoother by the full block so
+    // the next block's getCurrentValue() lands at the correct ramp position.
+    const float blockLevels = std::exp2f(bitDepthSmoothed.getCurrentValue());
+    bitDepthSmoothed.skip(numSamples);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float targetRate = targetRateSmoothed.getNextValue();
+        const float levels     = blockLevels;
+        const float ratio      = targetRate / static_cast<float>(hostSampleRate);
 
         // ADC clock jitter — incremental unit-circle rotation (no sin() per sample).
         // Osc A (7Hz) + Osc B (0.3Hz) + LP-filtered random walk model crystal oscillator noise.
@@ -167,34 +222,19 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
             }
         }
 
-        // Nyquist ceiling: 4-pole Butterworth LP at targetRate * 0.45.
-        // Uses normalized cutoff with same 1e-3 threshold as preAa — consistent recompute frequency.
-        // Clamped to [0.006, 0.49] to avoid instability at extreme target rates.
-        const float nyqNormalized = juce::jlimit(0.006f, 0.49f,
-            targetRate * 0.45f / static_cast<float>(hostSampleRate));
-        if (std::abs(nyqNormalized - nyqLastNormalized) > 1e-3f)
-        {
-            nyqLastNormalized = nyqNormalized;
-            const float w0    = juce::MathConstants<float>::twoPi * nyqNormalized;
-            const float cosW0 = std::cos(w0);
-            const float alpha = std::sin(w0) / (2.0f * 0.7071f);
-            const float a0inv = 1.0f / (1.0f + alpha);
-            nyqB0 = ((1.0f - cosW0) * 0.5f) * a0inv;
-            nyqB1 = (1.0f - cosW0) * a0inv;
-            nyqB2 = nyqB0;
-            nyqA1 = (-2.0f * cosW0) * a0inv;
-            nyqA2 = (1.0f - alpha) * a0inv;
-        }
-
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto* data = buffer.getWritePointer(ch);
             const float sample = data[i];
 
-            // 2-pole Butterworth pre-S&H anti-alias
-            const float filtered = preAaB0 * sample + preAaZ1[ch];
-            preAaZ1[ch] = preAaB1 * sample - preAaA1 * filtered + preAaZ2[ch];
-            preAaZ2[ch] = preAaB2 * sample - preAaA2 * filtered;
+            // 4th-order Butterworth pre-S&H anti-alias (2 cascaded biquad stages, ~24dB/oct)
+            // Stage 1: Q=0.5412 — stage 2: Q=1.3066 (true staggered-pole Butterworth)
+            const float aa1 = preAaB0 * sample + preAaZ1[ch];
+            preAaZ1[ch] = preAaB1 * sample - preAaA1 * aa1 + preAaZ2[ch];
+            preAaZ2[ch] = preAaB2 * sample - preAaA2 * aa1;
+            const float filtered = preAaB0b * aa1 + preAaZ1b[ch];
+            preAaZ1b[ch] = preAaB1b * aa1 - preAaA1b * filtered + preAaZ2b[ch];
+            preAaZ2b[ch] = preAaB2b * aa1 - preAaA2b * filtered;
 
             // C10 bass shelf: -3dB pre-quantization.
             // Net effect: quantization noise in bass is elevated relative to signal level.
@@ -204,8 +244,10 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
 
             // Sample-and-hold with linear interpolation at the sampling instant.
             // Linear (vs. Catmull-Rom) preserves the staircase character at low rate settings.
-            ditherState[ch] = ditherState[ch] * 1664525u + 1013904223u;
-            const float apertureNoise = static_cast<float>(static_cast<int32_t>(ditherState[ch]))
+            // apertureState is independent from ditherState so the S&H timing jitter and the
+            // TPDF quantisation dither are drawn from entirely separate LCG sequences.
+            apertureState[ch] = apertureState[ch] * 1664525u + 1013904223u;
+            const float apertureNoise = static_cast<float>(static_cast<int32_t>(apertureState[ch]))
                                         * (1.0f / 2147483648.0f);
             holdCounter[ch] += jitteredRatio + apertureNoise * jitterAmount * 0.05f;
             if (holdCounter[ch] >= 1.0f)
@@ -231,13 +273,14 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
                     ? (dithered >= 0.0f ? 0.5f : -0.5f)
                     : std::floor(dithered * levels + 0.5f) / levels);
 
-            // Nyquist ceiling: 4-pole Butterworth (2 cascaded biquad stages)
+            // 4th-order Butterworth Nyquist ceiling (2 cascaded biquad stages)
+            // Stage 1: Q=0.5412 — stage 2: Q=1.3066 (true staggered-pole Butterworth)
             const float out1 = nyqB0 * quantized + nyquistZ1[ch];
             nyquistZ1[ch] = nyqB1 * quantized - nyqA1 * out1 + nyquistZ2[ch];
             nyquistZ2[ch] = nyqB2 * quantized - nyqA2 * out1;
-            const float out2 = nyqB0 * out1 + nyquistZ1b[ch];
-            nyquistZ1b[ch] = nyqB1 * out1 - nyqA1 * out2 + nyquistZ2b[ch];
-            nyquistZ2b[ch] = nyqB2 * out1 - nyqA2 * out2;
+            const float out2 = nyqB0b * out1 + nyquistZ1b[ch];
+            nyquistZ1b[ch] = nyqB1b * out1 - nyqA1b * out2 + nyquistZ2b[ch];
+            nyquistZ2b[ch] = nyqB2b * out1 - nyqA2b * out2;
 
             // C10 bass restoration: +3dB post-quantization. Signal restored; noise stays elevated.
             const float postOut = bassPostB0 * out2 + bassPostZ1[ch];

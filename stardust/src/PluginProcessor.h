@@ -5,7 +5,6 @@
 #include <mutex>
 #include "dsp/BitCrusher.h"
 #include "dsp/DestroyDrive.h"
-#include "dsp/GranularEngine.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/MultiplyEngine.h"
 #include "dsp/TapeEngine.h"
@@ -41,7 +40,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.1; } // chorus/grain tail
+    double getTailLengthSeconds() const override { return 0.1; } // chorus tail
 
     int getNumPrograms() override { PresetLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     int getCurrentProgram() override { return currentPresetIndex.load(std::memory_order_relaxed); }
@@ -87,15 +86,12 @@ public:
     static std::set<juce::String> loadFavorites();
     static void saveFavorites(const std::set<juce::String>& favs);
 
-    GranularEngine& getGranularEngine() { return granularEngine; }
-
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void initFactoryPresets();
 
     BitCrusher bitCrusher;
     DestroyDrive destroyDrive;
-    GranularEngine granularEngine;
     ChorusEngine chorusEngine;
     MultiplyEngine multiplyEngine;
     TapeEngine tapeEngine;
@@ -112,8 +108,6 @@ private:
 
     // 2x oversampling for destroy section
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
-    // Separate 2x oversampling for distortion section (stateful — cannot share with destroy)
-    std::unique_ptr<juce::dsp::Oversampling<float>> oversamplingDist;
 
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
@@ -125,6 +119,10 @@ private:
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
     ModulationMatrix modMatrix;
     juce::Random random;
+
+    // Cached AudioParameterChoice* pointers — set once in prepareToPlay, used every block
+    juce::AudioParameterChoice* tapeNoiseSpeedParam  = nullptr;
+    juce::AudioParameterChoice* tapeFormulationParam = nullptr;
 
     // Shared pink-noise filter state (used by HAZE slot)
     float noisePinkB[5][2] = {}; // Voss-McCartney pink noise: 5 stages × 2 channels
