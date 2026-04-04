@@ -106,7 +106,7 @@ private:
     void scanUserPresets();
     void rebuildAllPresets();
 
-    // 2x oversampling for destroy section
+    // 2x oversampling for BitCrusher
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
 
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
@@ -114,6 +114,7 @@ private:
     juce::AudioBuffer<float> masterDryBuffer;
 
     bool lastTapeOn = false;
+    bool lastDestroyOn = false;
     juce::SmoothedValue<float> msWidthSmoothed { 1.0f };
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };

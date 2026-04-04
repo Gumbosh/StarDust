@@ -243,10 +243,9 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
     oversampling->initProcessing(static_cast<size_t>(samplesPerBlock));
 
-    // CRUSH DSP modules run at oversampled rate
-    const double oversampledRate = sampleRate * 2.0;
-    bitCrusher.prepare(oversampledRate, samplesPerBlock * 2);
-    destroyDrive.prepare(oversampledRate, samplesPerBlock * 2);
+    // CRUSH DSP modules run at native rate (Degrader-style: no oversampling)
+    bitCrusher.prepare(sampleRate, samplesPerBlock);
+    destroyDrive.prepare(sampleRate, samplesPerBlock);
 
     chorusEngine.prepare(sampleRate, samplesPerBlock);
     multiplyEngine.prepare(sampleRate, samplesPerBlock);
@@ -404,52 +403,44 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const int fx = static_cast<int>(*apvts.getRawParameterValue("chainSlot" + juce::String(slot)));
         switch (fx)
         {
-            case 1: // CRUSH — bit + sample-rate degradation
+            case 1: // CRUSH — Degrader-style: S&H → bit crush → saturation (no oversampling)
             {
-                if (!destroyOn || !dryBufferOk) break;
-                juce::dsp::AudioBlock<float> block(buffer);
-                auto oversampledBlock = oversampling->processSamplesUp(block);
+                if (!destroyOn) break;
 
-                const auto osNumSamples = static_cast<int>(oversampledBlock.getNumSamples());
-                const auto osNumChannels = static_cast<int>(oversampledBlock.getNumChannels());
-                float* channelPtrs[2] = {
-                    oversampledBlock.getChannelPointer(0),
-                    osNumChannels > 1 ? oversampledBlock.getChannelPointer(1) : nullptr
-                };
-                juce::AudioBuffer<float> osBuffer(channelPtrs, osNumChannels, osNumSamples);
+                // Save dry copy for mix blending
+                if (destroyMixVal < 0.999f && dryBufferOk)
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
-                for (int ch = 0; ch < osNumChannels; ++ch)
-                    dryBuffer.copyFrom(ch, 0, osBuffer, ch, 0, osNumSamples);
-
-                // Guard against NaN/Inf from automation glitch — jlimit is not NaN-safe
+                // Guard against NaN/Inf from automation glitch
                 const float safeFaderVal = (std::isfinite(destroyFaderVal)) ? destroyFaderVal : 26040.0f;
                 const float effectiveRate = juce::jlimit(250.0f, 96000.0f, safeFaderVal);
 
-                destroyDrive.setInputDrive(destroyInVal);
-                destroyDrive.processInput(osBuffer);
-
+                // 1. BitCrusher: S&H rate reduction → raw truncation (no dither)
                 bitCrusher.setBitDepth(destroyBitsVal);
                 bitCrusher.setSampleRate(effectiveRate);
                 bitCrusher.setJitter(destroyJitterVal);
-                bitCrusher.process(osBuffer);
+                bitCrusher.process(buffer);
 
+                // 2. Saturation AFTER crush (Degrader order — smooths staircase edges)
+                destroyDrive.setInputDrive(destroyInVal);
+                destroyDrive.processInput(buffer);
                 destroyDrive.setOutputColor(destroyOutVal);
-                destroyDrive.processOutput(osBuffer);
+                destroyDrive.processOutput(buffer);
 
-                if (destroyMixVal < 0.999f)
+                // Dry/wet mix
+                if (destroyMixVal < 0.999f && dryBufferOk)
                 {
                     const float dryGain = std::cos(destroyMixVal * juce::MathConstants<float>::halfPi);
                     const float wetGain = std::sin(destroyMixVal * juce::MathConstants<float>::halfPi);
-                    for (int ch = 0; ch < osNumChannels; ++ch)
+                    for (int ch = 0; ch < numChannels; ++ch)
                     {
-                        auto* wet = osBuffer.getWritePointer(ch);
+                        auto* wet = buffer.getWritePointer(ch);
                         const auto* dry = dryBuffer.getReadPointer(ch);
-                        for (int i = 0; i < osNumSamples; ++i)
+                        for (int i = 0; i < numSamples; ++i)
                             wet[i] = dry[i] * dryGain + wet[i] * wetGain;
                     }
                 }
-
-                oversampling->processSamplesDown(block);
                 break;
             }
             case 3: // CHORUS — Juno-60 ensemble emulation

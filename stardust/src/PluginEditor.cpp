@@ -1199,7 +1199,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
 
 
-    setupKnob(destroyDriveKnob, "destroyIn", "Drive");
+    setupKnob(destroyDriveKnob, "destroyIn", "Saturation");
     setupKnob(destroyColorKnob, "destroyOut", "Output");
     setupKnob(destroyBitsKnob, "destroyBits", "Bits");
     setupKnob(hazeColorKnob, "hazeColor", "Color");
@@ -2291,11 +2291,11 @@ void StardustEditor::layoutCrushSection(juce::Rectangle<int> ap)
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
     const int kw = availW / 5;
 
-    // Drive | Bits | Rate | Jitter | Color
-    layoutKnobInBounds(destroyDriveKnob,   { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(destroyBitsKnob,    { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(destroyRateKnob,    { ox + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(destroyJitterKnob,  { ox + kw * 3, ky, kw, kKnobH });
+    // Jitter | Rate | Bits | Saturation | Output
+    layoutKnobInBounds(destroyJitterKnob,  { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyRateKnob,    { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyBitsKnob,    { ox + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(destroyDriveKnob,   { ox + kw * 3, ky, kw, kKnobH });
     layoutKnobInBounds(destroyColorKnob,   { ox + kw * 4, ky, availW - kw * 4, kKnobH });
 }
 
