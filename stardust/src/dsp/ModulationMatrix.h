@@ -57,7 +57,7 @@ public:
     {
         if (index < 0 || index >= kNumLFOs) return;
         auto& lfo = lfos[index];
-        if (lfo.rate != rate)
+        if (std::abs(lfo.rate - rate) > 1.0e-6f)
         {
             lfo.rate = rate;
             lfo.osc.setFreq(rate, static_cast<float>(sr));

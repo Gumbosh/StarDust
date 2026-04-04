@@ -17,7 +17,7 @@ struct Preset
     juce::String name;
     std::map<juce::String, float> values;
     bool isFactory = false;
-    juce::String bank;  // subfolder name, empty = root USER
+    juce::String bank = {};  // subfolder name, empty = root USER
 };
 
 // RAII guard alias for preset mutex
@@ -122,11 +122,35 @@ private:
 
     // Cached AudioParameterChoice* pointers — set once in prepareToPlay, used every block
     juce::AudioParameterChoice* tapeNoiseSpeedParam  = nullptr;
-    juce::AudioParameterChoice* tapeFormulationParam = nullptr;
 
     // Shared pink-noise filter state (used by HAZE slot)
     float noisePinkB[5][2] = {}; // Voss-McCartney pink noise: 5 stages × 2 channels
     float hazeColorLP[2] = {};   // 1-pole LP state for HAZE color filter
+
+    // H1: Vinyl crackle state
+    float crackleDecay[2] = {};
+    float crackleImpulse[2] = {};
+    // H1: Crackle bandpass state (800Hz-6kHz)
+    float crackleBPState[2] = {};
+
+    // H2: Mains hum oscillator state
+    float humPhase = 0.0f;
+    float humPhaseInc = 0.0f;  // computed in prepareToPlay
+
+    // H3: Sub-bass rumble state
+    float rumbleState[2] = {};
+    float rumbleLFOPhase = 0.0f;
+
+    // H4: Signal envelope for noise riding
+    float hazeSignalEnv[2] = {};
+
+    // H5: Noise color wow LFO
+    float hazeWowPhase = 0.0f;
+
+    // H6: Stereo allpass decorrelation
+    float hazeAllpassBuf[512] = {};
+    int hazeAllpassWritePos = 0;
+    static constexpr int kHazeAllpassDelay = 22;  // ~0.5ms at 44.1kHz
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StardustProcessor)
 };

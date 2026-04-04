@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+if [ "$(id -u)" -eq 0 ]; then
+    echo "ERROR: Do not run this script with sudo."
+    echo "Reason: it creates root-owned build artifacts and breaks later incremental builds."
+    echo "Run as your normal user instead:"
+    echo "  bash build_installer.sh"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PLUGIN_PROJECT_DIR="$PROJECT_DIR/stardust"
@@ -8,6 +16,18 @@ CMAKE_BUILD_DIR="$PLUGIN_PROJECT_DIR/build"
 BUILD_DIR="$CMAKE_BUILD_DIR/Stardust_artefacts/Release"
 STAGING="$SCRIPT_DIR/staging"
 OUTPUT="$SCRIPT_DIR/Stardust-Installer.pkg"
+
+CURRENT_USER="$(id -un)"
+CURRENT_GROUP="$(id -gn)"
+
+if [ -d "$CMAKE_BUILD_DIR" ]; then
+    if find "$CMAKE_BUILD_DIR" \( ! -user "$CURRENT_USER" -o ! -group "$CURRENT_GROUP" \) -print -quit | grep -q .; then
+        echo "ERROR: Build directory contains files not owned by $CURRENT_USER:$CURRENT_GROUP"
+        echo "Fix once, then re-run this script without sudo:"
+        echo "  sudo chown -R $CURRENT_USER:$CURRENT_GROUP \"$CMAKE_BUILD_DIR\""
+        exit 1
+    fi
+fi
 
 # Plugin version
 VERSION=$(grep 'project(Stardust VERSION' "$PLUGIN_PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')

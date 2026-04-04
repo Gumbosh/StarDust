@@ -5,12 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-# Build the plugin (from repo root)
-cd stardust
-cmake --build build --config Release
+# First-time CMake setup (from repo root)
+cd stardust && mkdir -p build && cd build && cmake ..
 
-# First-time CMake setup
-mkdir -p build && cd build && cmake ..
+# Build the plugin (from repo root)
+cd stardust && cmake --build build --config Release
 
 # Build + package the macOS installer (AU + VST3 + Standalone)
 bash installer/build_installer.sh
@@ -24,12 +23,19 @@ Build artifacts land in `stardust/build/Stardust_artefacts/Release/`. There are 
 
 ## Project Overview
 
-Stardust is a JUCE-based audio effects plugin (AU/VST3/Standalone) with four main processing sections:
+Stardust is a JUCE-based audio effects plugin (AU/VST3/Standalone) built with C++17. It has a **slot-based FX chain** with 4 configurable slots, each assignable to one of 8 effects:
 
-- **Destroy** — SP-950 sampler emulation (12-bit BitCrusher + DestroyDrive + Saturation + Butterworth filter)
-- **Granular** — 256-voice granular engine with integrated Dattorro plate reverb
-- **Multiply** — 4-voice ensemble chorus with allpass phase diffusion
-- **Tape** — Jiles-Atherton hysteresis reel-to-reel emulation with wow/flutter/hiss
+| Slot ID | Effect | Description |
+|---------|--------|-------------|
+| 1 | CRUSH | 12-bit BitCrusher (SP-950 emulation) + DestroyDrive saturation |
+| 3 | CHORUS | Roland Juno-60 BBD ensemble (3 modes: I / II / I+II) |
+| 4 | TAPE | Jiles-Atherton hysteresis reel-to-reel (RK4 solver, 5 formulations) |
+| 5 | SATURATE | 6-mode distortion (Soft/Tube/Hard/Satin/Xfmr/Vari-Mu) with 8× oversampling |
+| 6 | REVERB | Dattorro plate reverb (4 input diffusers, 2 feedback tanks, 14 output taps) |
+| 7 | HAZE | Noise texture injection (Pink/White/Vinyl with color LP filter) |
+| 8 | MULTIPLY | 4-voice unison thickener with FM/AM LFO + allpass diffusion |
+
+Plus modulation (2 LFOs + envelope follower → 4 routing slots) and M/S stereo width.
 
 ## Source Structure
 
@@ -38,52 +44,84 @@ stardust/src/
   PluginProcessor.h/cpp   — APVTS parameters, processBlock(), preset system
   PluginEditor.h/cpp      — All UI: StardustLookAndFeel, LabeledKnob, StardustEditor
   dsp/                    — DSP modules (one class per file)
-  gui/                    — StarfieldBackground, PresetLibraryPanel
+    TapeEngine            — Most complex; RK4 hysteresis, wow/flutter/hiss, emphasis, print-through
+    BitCrusher            — Sample-rate + bit-depth reduction, TPDF dither, noise shaping, clock jitter
+    DestroyDrive          — Asymmetric saturation with 4× oversampling
+    Saturation            — 6 distortion modes with 8× oversampling, mode morphing crossfade
+    ChorusEngine          — Juno-60 BBD with NE570 compander emulation
+    MultiplyEngine        — 4-voice unison, Hermite-interpolated delay taps
+    DattorroReverb        — Plate reverb (Griesinger/Dattorro 1997 topology)
+    ModulationMatrix      — LFO/envelope→parameter router, incremental oscillators
+    ButterworthFilter     — 6th-order (3 cascaded biquads) with LFO modulation
+    Oscillator            — Shared incremental oscillator (complex-multiply rotation, zero trig/sample)
+  gui/
+    StarfieldBackground   — Animated parameter-reactive star field (Bayer dithering, 60 FPS)
+    PresetLibraryPanel    — Multi-bank preset browser with search, favorites, import/export
 ```
 
 ## Architecture
 
-### Audio Processing (PluginProcessor)
+### Signal Flow (processBlock)
 
-`processBlock()` runs the chain: InputGain → Destroy (optional) → Granular (optional) → Multiply/Chorus (optional) → Tape (optional) → OutputGain → metering.
+`processBlock()` runs: InputGain → **4-slot FX chain** (each slot dispatched via `chainSlot{0-3}` parameter) → OutputGain → metering.
 
-All parameters are APVTS (`processorRef.apvts`). Use `SliderAttachment`, `ButtonAttachment` etc. to bind UI controls. Parameters are registered in `PluginProcessor::createParameterLayout()`.
+Slots are configured via APVTS choice parameters (`chainSlot0`–`chainSlot3`). Each slot can be empty (0) or assigned to any effect. The chain order is slot 0 → 1 → 2 → 3.
+
+### APVTS Parameter System
+
+All parameters registered in `PluginProcessor::createParameterLayout()` (~47 params). UI binds via `SliderAttachment` / `ButtonAttachment`. Audio thread reads via `getRawParameterValue()`.
 
 Key patterns used throughout:
-- `juce::SmoothedValue<float>` for click-free parameter transitions
-- Atomic mode flags (destroyEnabled, granularEnabled, etc.) for lock-free toggling
-- Power-of-2 circular buffers with bitmask indexing in grain/tape delay lines
-- Incremental oscillators (zero trig per sample) in `Oscillator.h` and throughout DSP modules
+- `juce::SmoothedValue<float>` for click-free parameter transitions (0.01–0.02s ramps)
+- Atomic mode flags for lock-free toggling between audio/GUI threads
+- Power-of-2 circular buffers with bitmask indexing (tape delay, grain buffers)
+- Incremental oscillators (complex-multiply rotation, zero `sin()`/`cos()` per sample) in `Oscillator.h` and throughout DSP
+
+### Adding a New Parameter
+
+1. Add to `createParameterLayout()` in `PluginProcessor.cpp`
+2. Read in `processBlock()` via `*apvts.getRawParameterValue("paramId")`
+3. Wire UI: call `setupKnob(knob, "paramId", "Label")` in the editor
+4. Add to factory presets in `presets.txt`
+
+### Adding a New Effect
+
+1. Create `EffectName.h` in `src/dsp/` — implement `prepare()`, setters, `process()`
+2. Add a new case to the FX chain switch in `processBlock()` (assign a slot ID)
+3. Add parameters + UI knobs in processor/editor
+4. Add source to `target_sources` in `CMakeLists.txt`
 
 ### UI (PluginEditor)
 
-**`LabeledKnob`** (defined in `PluginEditor.h`) is a `juce::Component` subclass containing a `juce::Slider` (rotary) + `juce::Label` (section title) + `juce::TextButton confirmBtn` (shown during value text editing). It is the primary building block for all parameter controls.
+**`LabeledKnob`** — primary building block: `juce::Slider` (rotary) + `juce::Label` (title) + confirm button for inline text editing. Created via `setupKnob()` which sets per-parameter display formats (dB, %, Hz, kHz, st, ms).
 
-**`setupKnob(knob, paramId, labelText)`** — creates APVTS `SliderAttachment`, sets custom `textFromValueFunction` / `valueFromTextFunction` for each param's display format (dB, %, Hz, kHz, st, ms), and wires the `✓` confirm button for inline text editing (double-click on value → type → Enter or ✓).
+**Layout** is a 2×2 grid in `resized()` with a left sidebar for the FX chain (4 rows of effect pills + mix faders + toggles). Grid coordinates: `leftX`, `rightX`, `panelTop`, `topRowBot`, `botRowTop`, `sectionH`.
 
-**`layoutKnobInBounds(knob, bounds)`** — calls `knob.setBounds(bounds)`; `LabeledKnob::resized()` handles the internal 14px label-on-top + slider-below split.
+**`StardustLookAndFeel`** — monochrome palette (black bg `0xFF050505`, white accent). `drawRotarySlider()` special-cases `"destroyFader"` (horizontal linear slider with RPM labels). `drawLinearSlider()` handles vertical dB faders and sidebar mix strips.
 
-**Layout** is a 2×2 equal grid drawn in `resized()`:
-- Top-left: TAPE | Top-right: GRANULAR
-- Bottom-left: DESTROY | Bottom-right: MULTIPLY
-- Vertical divider is drawn only through the top half (bottom row is one unified band)
-- Grid coordinates: `leftX`, `rightX`, `panelTop`, `topRowBot`, `botRowTop`, `sectionH`
+**`dimSection(toggle, {knobs...})`** — wires a toggle to enable/disable + alpha-dim a group of knobs.
 
-**`drawRotarySlider`** in `StardustLookAndFeel` draws all knobs. Special-cased on `slider.getName()`:
-- `"destroyFader"` — no tick marks, direction reversed (CW = higher sample rate)
-- All others — 3 generic tick marks at 0%, 50%, 100% of arc
-
-**`dimSection(toggle, {knobs...})`** — lambda that wires a `ToggleButton` to enable/disable + alpha-dim a group of `LabeledKnob*`.
-
-**`paramToKnob`** — `std::map<String, LabeledKnob*>` used by `updateDoubleClickDefaults()` to set preset values as double-click reset targets.
+**`paramToKnob`** map — used by `updateDoubleClickDefaults()` to set preset values as double-click reset targets.
 
 ### Preset System
 
-Factory presets are loaded from `presets.txt` (embedded via BinaryData). User presets live in `~/Library/Application Support/Stardust/Presets/` (with optional bank subdirectories). Access is guarded by a `juce::RecursiveMutex`. Preset loading uses a "grace period" frame counter to skip dirty-state detection immediately after load.
+Factory presets loaded from `presets.txt` (embedded via BinaryData). User presets in `~/Library/Application Support/Stardust/Presets/` with optional bank subdirectories. Access guarded by `std::recursive_mutex presetLock`. Grace period frame counter (`presetLoadGrace`) skips dirty detection after programmatic load.
 
-### DSP Modules
+### Realtime Safety Conventions
 
-- **`TapeEngine`** — most complex module; uses RK4 ODE to solve Jiles-Atherton hysteresis with 4× oversampling, per-channel PRNG for wow/flutter decorrelation, NAB/IEC pre/de-emphasis biquads.
-- **`GranularEngine`** — up to 32 concurrent grains, 2¹⁷-sample circular buffer, optional HQ sinc interpolation, integrated `DattorroReverb` for space.
-- **`BitCrusher`** — sample-rate reduction (continuous log-skewed range 250Hz–96kHz via `destroyFader`) + bit-depth reduction + jitter. Pre-S&H 4-pole Butterworth AA, TPDF dither, C10 bass-shelf pair, DC blocker.
-- **`ModulationMatrix`** — 4-slot LFO/envelope→parameter router; incremental oscillators only (no `sin()`/`cos()` per sample).
+- `static_assert(std::atomic<float>::is_always_lock_free)` — enforced in TapeEngine
+- Pre-allocated buffers in `prepareToPlay()` (8× declared block size headroom)
+- No heap allocation in `processBlock()`
+- Fast polynomial approximations (`fastTanh`, `fastSinh`, `langevin`) replace slow std:: math
+- Oversampling stages: 2× for CRUSH section, 4× for DestroyDrive, 8× for Saturation — all using cascaded half-band decimation
+
+### Oversampled Processing Pattern
+
+```cpp
+auto oversampledBlock = oversampling->processSamplesUp(block);
+// Process at Nx rate
+effect.process(oversampledBlock);
+oversampling->processSamplesDown(block);
+```
+
+DSP modules that do internal oversampling (DestroyDrive 4×, Saturation 8×) handle their own up/down sampling with Hermite/Catmull-Rom interpolation and multi-stage decimation.

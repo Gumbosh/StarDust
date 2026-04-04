@@ -47,6 +47,49 @@ private:
     float dcY1[kMaxChannels] = {};
     float dcCoeff = 0.995f; // recalculated in prepare() for ~20Hz HPF
 
+    // Vari-Mu envelope follower (D12): attack/release for compressive saturation
+    float variMuEnv[kMaxChannels] = {};
+    float variMuAttack = 0.0f;   // ~15ms attack
+    float variMuRelease = 0.0f;  // ~150ms release
+
+    // S1: 3-band multiband crossover (Linkwitz-Riley 4th-order at 250Hz and 3kHz)
+    struct LR4State {
+        float z1a = 0, z2a = 0;  // first 2nd-order section
+        float z1b = 0, z2b = 0;  // second 2nd-order section
+    };
+    float lr4Lo[5] = {1,0,0,0,0};   // 250Hz LP coefficients (1x rate)
+    float lr4Hi[5] = {1,0,0,0,0};   // 3kHz LP coefficients (1x rate)
+    float lr4Lo8x[5] = {1,0,0,0,0}; // 250Hz LP coefficients (8x rate)
+    float lr4Hi8x[5] = {1,0,0,0,0}; // 3kHz LP coefficients (8x rate)
+    // LR4 states for 8x-rate oversampled crossover (inside the oversampled loop)
+    LR4State lr4LoStateLP8x[kMaxChannels] = {};
+    LR4State lr4LoStateHP8x[kMaxChannels] = {};
+    LR4State lr4HiStateLP8x[kMaxChannels] = {};
+    LR4State lr4HiStateHP8x[kMaxChannels] = {};
+    // Original 1x-rate states kept for any external use
+    LR4State lr4LoStateLP[kMaxChannels] = {};
+    LR4State lr4LoStateHP[kMaxChannels] = {};
+    LR4State lr4HiStateLP[kMaxChannels] = {};
+    LR4State lr4HiStateHP[kMaxChannels] = {};
+
+    // S2: Per-mode character EQ (applied post-saturation)
+    float modeEQ1[5] = {1,0,0,0,0};  // low shelf or peak
+    float modeEQ2[5] = {1,0,0,0,0};  // high shelf or peak
+    struct BiquadState2 { float z1 = 0.0f, z2 = 0.0f; };
+    BiquadState2 modeEQ1State[kMaxChannels] = {};
+    BiquadState2 modeEQ2State[kMaxChannels] = {};
+    void computeModeEQ();
+
+    // S4: Program-dependent dynamics envelope
+    float progEnv[kMaxChannels] = {};
+    float progAttack = 0.0f;   // ~50ms
+    float progRelease = 0.0f;  // ~500ms
+
+    // Mode transition: dual-mode curve morphing (D14)
+    // When transitioning, run BOTH old and new modes and crossfade
+    int prevMode = 0;            // mode before transition started
+    bool isMorphing = false;     // true during crossfade period
+
     // 2-pole presence EQ (HP + LP biquad) for tone control
     struct BiquadState { float z1 = 0.0f, z2 = 0.0f; };
     std::array<BiquadState, kMaxChannels> toneHPState {}, toneLPState {};

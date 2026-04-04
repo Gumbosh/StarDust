@@ -31,7 +31,7 @@ PresetLibraryPanel::PresetLibraryPanel()
     searchField.setColour(juce::TextEditor::outlineColourId, kFgGhost.withAlpha(0.5f));
     searchField.setColour(juce::TextEditor::focusedOutlineColourId, kFgDim);
     searchField.setColour(juce::CaretComponent::caretColourId, kFg);
-    searchField.setFont(juce::Font(11.0f));
+    searchField.setFont(juce::FontOptions(11.0f));
     searchField.setJustification(juce::Justification::centredLeft);
     searchField.setIndents(4, 0);
     searchField.onTextChange = [this] {
@@ -85,7 +85,7 @@ void PresetLibraryPanel::paint(juce::Graphics& g)
 
     // Header title
     g.setColour(kAccent);
-    g.setFont(juce::Font(12.0f).boldened());
+    g.setFont(juce::FontOptions(12.0f).withStyle("Bold"));
     g.drawText("PRESETS", headerBounds.withLeft(12.0f), juce::Justification::centredLeft);
 
     // Header divider
@@ -289,7 +289,7 @@ void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
         }
 
         g.setColour(isSelected ? kAccent : (isHovered ? kFg : kFgDim));
-        g.setFont(juce::Font(10.0f).boldened());
+        g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
 
         if (i == 0)
         {
@@ -334,7 +334,7 @@ void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
             }
 
             g.setColour(isSelected ? kAccent : (isHovered ? kFg : kFgDim));
-            g.setFont(juce::Font(10.0f).boldened());
+            g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
             g.drawText(owner.bankNames[static_cast<size_t>(i)].toUpperCase(),
                         rowBounds.withLeft(14.0f), juce::Justification::centredLeft);
         }
@@ -438,7 +438,7 @@ void PresetLibraryPanel::PresetList::paint(juce::Graphics& g)
     if (filtered.empty())
     {
         g.setColour(kFgGhost);
-        g.setFont(juce::Font(11.0f).italicised());
+        g.setFont(juce::FontOptions(11.0f).withStyle("Italic"));
         const auto msg = owner.searchQuery.isNotEmpty() ? "No matches" : "No presets";
         g.drawText(msg, getLocalBounds().withTrimmedTop(8).withTrimmedLeft(12),
                    juce::Justification::topLeft);
@@ -473,7 +473,7 @@ void PresetLibraryPanel::PresetList::paint(juce::Graphics& g)
 
         // Preset name
         g.setColour(isActive ? kAccent : (isHovered ? kFg : kFgDim));
-        g.setFont(isActive ? juce::Font(11.0f).boldened() : juce::Font(11.0f));
+        g.setFont(isActive ? juce::FontOptions(11.0f).withStyle("Bold") : juce::FontOptions(11.0f));
         g.drawText(item.name,
                    rowBounds.withLeft(14.0f).withRight(rowBounds.getRight() - kStarW - 4.0f),
                    juce::Justification::centredLeft);
@@ -481,7 +481,7 @@ void PresetLibraryPanel::PresetList::paint(juce::Graphics& g)
         // Star icon (right side)
         auto starBounds = rowBounds.withLeft(rowBounds.getRight() - kStarW);
         g.setColour(item.isFavorite ? kAccent : kFgDim);
-        g.setFont(juce::Font(13.0f));
+        g.setFont(juce::FontOptions(13.0f));
         g.drawText(item.isFavorite ? juce::String::charToString(0x2605)    // filled
                                    : juce::String::charToString(0x2606),   // outline
                    starBounds, juce::Justification::centred);

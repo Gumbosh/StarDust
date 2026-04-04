@@ -1,5 +1,35 @@
 #include "MultiplyEngine.h"
 
+float MultiplyEngine::processAllpass(float input, AllpassState& state)
+{
+    const int readPos = (state.writePos - state.delaySamples + AllpassState::kAllpassBufSize) & AllpassState::kAllpassBufMask;
+    const float delayed = state.buffer[readPos];
+    const float output = delayed - kAllpassFeedback * input;
+    state.buffer[state.writePos] = input + kAllpassFeedback * output;
+    state.writePos = (state.writePos + 1) & AllpassState::kAllpassBufMask;
+    return output;
+}
+
+float MultiplyEngine::readHermite(int channel, float delaySamples) const
+{
+    const float readPos = static_cast<float>(writePos) - delaySamples;
+    const float readFloor = std::floor(readPos);
+    const int idx1 = static_cast<int>(readFloor) & kDelayMask;
+    const int idx0 = (idx1 - 1 + kDelayBufferSize) & kDelayMask;
+    const int idx2 = (idx1 + 1) & kDelayMask;
+    const int idx3 = (idx1 + 2) & kDelayMask;
+    const float frac = readPos - readFloor;
+    const auto& buf = delayBuffer[static_cast<size_t>(channel)];
+    const float y0 = buf[static_cast<size_t>(idx0)];
+    const float y1 = buf[static_cast<size_t>(idx1)];
+    const float y2 = buf[static_cast<size_t>(idx2)];
+    const float y3 = buf[static_cast<size_t>(idx3)];
+    const float c1 = 0.5f * (y2 - y0);
+    const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+    const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+    return ((c3 * frac + c2) * frac + c1) * frac + y1;
+}
+
 void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
 {
     sampleRate = newSampleRate;
@@ -9,44 +39,109 @@ void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     for (auto& ch : delayBuffer)
         ch.fill(0.0f);
     writePos = 0;
+    sampleCounter = 0;
 
     const float sr = static_cast<float>(sampleRate);
 
     // Acon Digital Multiply-style:
-    //   4 voices, 0ms pre-delay (very short base), FM depth ~1ms @ 1Hz ≈ ±10 cents.
-    //   No allpass chains — pure FM/AM unison, no phase smearing.
-    //   FM: delay = fmDepth * (1 + sin(phase)), oscillates 0 → 2*depth, never negative.
-    //   AM depth 50% — Acon default.
-    const float fmDepthMs  = 1.0f;   // ≈ ±10 cents at 1Hz
-    const float baseMs     = 0.05f;  // tiny offset so delay never hits 0
-    const float defaultPans[kNumVoices] = { 0.0f, 1.0f, 0.33f, 0.67f };
+    //   4 voices, very short base delays and shallow FM for subtle detune/widening.
+    //   Keep group delay low to avoid a chorusy/predelayed sensation.
+    //   FM: delay = base + depth * (1 + sin(phase)), oscillates 0 -> 2*depth, never negative.
+    //   No AM, no granular pitch shifting — detuning from FM delay modulation only.
+    const float fmDepthMs = 0.45f;
+
+    // Sub-3ms base delays keep the effect immediate and reduce perceived predelay.
+    const float baseDelaysMs[kNumVoices] = { 1.35f, 1.95f, 1.60f, 2.25f };
+    const float defaultPans[kNumVoices]  = { 0.0f, 1.0f, 0.33f, 0.67f };
+
+    // Staggered low FM rates for movement without obvious chorus wobble.
+    const float fmRates[kNumVoices] = { 0.43f, 0.56f, 0.71f, 0.89f };
+
+    // Per-channel phase offsets: ch1 gets a small irrational offset from ch0
+    // so L/R modulation never correlates perfectly
+    const float channelPhaseOffset = 0.37f * IncrementalOscillator::kTwoPi; // ~133 degrees
+
+    // Micro-allpass lengths (in samples): enough decorrelation without audible delay bloom.
+    const int allpassDelays[kNumAllpasses] = {
+        static_cast<int>(0.72f * 0.001f * sr),
+        static_cast<int>(1.08f * 0.001f * sr),
+        static_cast<int>(1.46f * 0.001f * sr),
+    };
 
     for (int i = 0; i < kNumVoices; ++i)
     {
         auto& v = voices[static_cast<size_t>(i)];
-        const float fi          = static_cast<float>(i);
+        const float fi = static_cast<float>(i);
         const float phaseOffset = fi / static_cast<float>(kNumVoices)
-                                  * juce::MathConstants<float>::twoPi;
+                                  * IncrementalOscillator::kTwoPi;
 
-        v.baseDelaySamples = baseMs * 0.001f * sr;
+        v.baseDelaySamples = baseDelaysMs[i] * 0.001f * sr;
         v.pan              = defaultPans[i];
         v.panTarget        = defaultPans[i];
+        v.fmDepthSamples   = fmDepthMs * 0.001f * sr;
+        v.fmBaseRate       = fmRates[i];
 
-        // FM Rate ~1Hz, slight per-voice detuning for organic movement
-        v.fmLfoRate      = 1.0f + (fi - 1.5f) * 0.08f; // 0.88, 0.96, 1.04, 1.12 Hz
-        v.fmLfoPhase     = phaseOffset;
-        v.fmDepthSamples = fmDepthMs * 0.001f * sr;
+        // Initialize per-channel FM oscillators with different starting phases
+        // Ch0 gets the base phase, Ch1 gets an irrational offset
+        v.fmOsc[0].init(fmRates[i], sr);
+        // Rotate ch0 to the voice's phase offset
+        {
+            const float c = std::cos(phaseOffset);
+            const float s = std::sin(phaseOffset);
+            v.fmOsc[0].cosVal = c;
+            v.fmOsc[0].sinVal = s;
+        }
 
-        // AM Rate ~1Hz, offset from FM
-        v.amLfoRate  = 1.0f + (fi - 1.5f) * 0.1f;
-        v.amLfoPhase = phaseOffset + juce::MathConstants<float>::halfPi;
-        v.amDepth    = 0.5f; // Acon default 50%
+        v.fmOsc[1].init(fmRates[i], sr);
+        // Rotate ch1 to a different phase (base + channel offset)
+        {
+            const float totalPhase = phaseOffset + channelPhaseOffset;
+            const float c = std::cos(totalPhase);
+            const float s = std::sin(totalPhase);
+            v.fmOsc[1].cosVal = c;
+            v.fmOsc[1].sinVal = s;
+        }
+
+        // Reset ITD state
+        v.itdDelaySamples = 0.0f;
+
+        // Initialize allpass diffusion chains per voice per channel
+        for (int ch = 0; ch < kMaxChannels; ++ch)
+        {
+            for (int ap = 0; ap < kNumAllpasses; ++ap)
+            {
+                auto& state = v.allpass[ch][ap];
+                std::fill(std::begin(state.buffer), std::end(state.buffer), 0.0f);
+                state.writePos = 0;
+                state.delaySamples = juce::jmax(1, std::min(AllpassState::kAllpassBufSize - 1, allpassDelays[ap]));
+            }
+        }
+    }
+
+    // M4: Bass mono crossover — 2-pole Butterworth LP at 200Hz
+    {
+        const float fc   = 200.0f;
+        const float w0   = juce::MathConstants<float>::twoPi * fc / sr;
+        const float cosW = std::cos(w0);
+        const float sinW = std::sin(w0);
+        const float alpha = sinW / (2.0f * 0.7071f);
+        const float a0   = 1.0f + alpha;
+        bassCrossB0 = ((1.0f - cosW) * 0.5f) / a0;
+        bassCrossB1 = (1.0f - cosW) / a0;
+        bassCrossB2 = bassCrossB0;
+        bassCrossA1 = (-2.0f * cosW) / a0;
+        bassCrossA2 = (1.0f - alpha) / a0;
+        for (int ch = 0; ch < kMaxChannels; ++ch)
+        {
+            bassCrossZ1[ch] = 0.0f;
+            bassCrossZ2[ch] = 0.0f;
+        }
     }
 }
 
 void MultiplyEngine::setMix(float mix)
 {
-    if (currentMix != mix)
+    if (std::abs(currentMix - mix) > 1.0e-6f)
     {
         currentMix = mix;
         mixSmoothed.setTargetValue(mix);
@@ -55,7 +150,7 @@ void MultiplyEngine::setMix(float mix)
 
 void MultiplyEngine::setSpeed(float speed)
 {
-    if (currentSpeed != speed)
+    if (std::abs(currentSpeed - speed) > 1.0e-6f)
     {
         currentSpeed = speed;
         speedSmoothed.setTargetValue(speed);
@@ -70,37 +165,41 @@ void MultiplyEngine::setPans(float outer, float inner)
     voices[3].panTarget = 0.5f + inner * 0.5f;
 }
 
-float MultiplyEngine::readInterpolated(int channel, float delaySamples) const
-{
-    const float readPos = static_cast<float>(writePos) - delaySamples;
-    const int   pos0    = (static_cast<int>(std::floor(readPos)) % kDelayBufferSize + kDelayBufferSize) % kDelayBufferSize;
-    const int   pos1    = (pos0 + 1) % kDelayBufferSize;
-    const float frac    = readPos - std::floor(readPos);
-    return delayBuffer[static_cast<size_t>(channel)][static_cast<size_t>(pos0)] * (1.0f - frac)
-         + delayBuffer[static_cast<size_t>(channel)][static_cast<size_t>(pos1)] * frac;
-}
-
 void MultiplyEngine::process(juce::AudioBuffer<float>& buffer)
 {
     juce::ScopedNoDenormals noDenormals;
     const int  numChannels = buffer.getNumChannels();
     const int  numSamples  = buffer.getNumSamples();
     const bool isStereo    = numChannels > 1;
-    const float lfoInc     = 1.0f / static_cast<float>(sampleRate);
 
     for (int i = 0; i < numSamples; ++i)
     {
         const float mix      = mixSmoothed.getNextValue();
         const float speedMul = speedSmoothed.getNextValue();
 
-        // Write both channels to delay buffer
+        // M4: Bass crossover storage per channel (bass stays dry/mono)
+        float bassStore[kMaxChannels] = {};
+
+        // Write both channels to delay buffer (raw treble, no feedback)
         for (int ch = 0; ch < numChannels; ++ch)
-            delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)]
-                = buffer.getReadPointer(ch)[i];
+        {
+            const float input = buffer.getReadPointer(ch)[i];
+
+            // M4: Bass crossover — extract bass (stays dry/mono)
+            const float bassLP = bassCrossB0 * input + bassCrossZ1[ch];
+            bassCrossZ1[ch] = bassCrossB1 * input - bassCrossA1 * bassLP + bassCrossZ2[ch];
+            bassCrossZ2[ch] = bassCrossB2 * input - bassCrossA2 * bassLP;
+            bassStore[ch] = bassLP;
+            const float treble = input - bassLP;
+
+            // Write raw treble directly to delay buffer (no feedback injection)
+            delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] = treble;
+        }
 
         if (mix < 0.001f)
         {
-            writePos = (writePos + 1) % kDelayBufferSize;
+            writePos = (writePos + 1) & kDelayMask;
+            ++sampleCounter;
             continue;
         }
 
@@ -114,42 +213,80 @@ void MultiplyEngine::process(juce::AudioBuffer<float>& buffer)
             constexpr float kPanSlew = 0.001f;
             v.pan += kPanSlew * (v.panTarget - v.pan);
 
-            // FM: delay = base + depth * (1 + sin) → always positive, oscillates 0→2*depth
-            const float fmLfo    = std::sin(v.fmLfoPhase);
-            const float delaySmp = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfo);
+            // Per-channel FM modulated delays for independent L/R movement
+            // FM: delay = base + depth * (1 + sin(phase)), oscillates 0 -> 2*depth
+            const float fmLfoL = v.fmOsc[0].sinVal;
+            const float fmLfoR = v.fmOsc[1].sinVal;
+            const float delaySmpL = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoL);
+            const float delaySmpR = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoR);
 
-            // Read L and R separately (preserves stereo content from input)
-            float sampleL = readInterpolated(0, delaySmp);
-            float sampleR = isStereo ? readInterpolated(1, delaySmp) : sampleL;
+            // ITD modeling — very small pan-dependent micro-delay for spatial imaging.
+            // Keep conservative so widening does not translate into a delayed sound.
+            const float itdMs = 0.28f * std::abs(v.pan - 0.5f);  // 0ms at center, 0.14ms at edges
+            v.itdDelaySamples = itdMs * 0.001f * static_cast<float>(sampleRate);
 
-            // AM shimmer (50% depth — Acon default)
-            const float amLfo  = std::sin(v.amLfoPhase);
-            const float ampMod = 1.0f - v.amDepth + v.amDepth * (0.5f + 0.5f * amLfo);
-            sampleL *= ampMod;
-            sampleR *= ampMod;
+            // Read L and R with per-channel modulation + ITD
+            float sampleL, sampleR;
+            if (v.pan < 0.5f)
+            {
+                // Panned left: L is near ear (no ITD), R is far ear (+ ITD)
+                sampleL = readHermite(0, delaySmpL);
+                sampleR = isStereo ? readHermite(1, delaySmpR + v.itdDelaySamples) : sampleL;
+            }
+            else
+            {
+                // Panned right: R is near ear (no ITD), L is far ear (+ ITD)
+                sampleL = readHermite(0, delaySmpL + v.itdDelaySamples);
+                sampleR = isStereo ? readHermite(1, delaySmpR) : sampleL;
+            }
 
-            // Linear stereo placement (1+2 outer, 3+4 inner)
-            outL += sampleL * (1.0f - v.pan);
-            outR += sampleR * v.pan;
+            // Allpass diffusion chain for transparent thickening
+            for (int ap = 0; ap < kNumAllpasses; ++ap)
+            {
+                sampleL = processAllpass(sampleL, v.allpass[0][ap]);
+                if (isStereo)
+                    sampleR = processAllpass(sampleR, v.allpass[1][ap]);
+            }
 
-            // Advance LFOs
-            v.fmLfoPhase += juce::MathConstants<float>::twoPi * v.fmLfoRate * speedMul * lfoInc;
-            if (v.fmLfoPhase >= juce::MathConstants<float>::twoPi)
-                v.fmLfoPhase -= juce::MathConstants<float>::twoPi;
+            // Constant-power pan law avoids level dips and keeps center solidity.
+            const float pan = juce::jlimit(0.0f, 1.0f, v.pan);
+            const float angle = pan * juce::MathConstants<float>::halfPi;
+            const float gL = std::cos(angle);
+            const float gR = std::sin(angle);
+            outL += sampleL * gL;
+            outR += sampleR * gR;
 
-            v.amLfoPhase += juce::MathConstants<float>::twoPi * v.amLfoRate * speedMul * lfoInc;
-            if (v.amLfoPhase >= juce::MathConstants<float>::twoPi)
-                v.amLfoPhase -= juce::MathConstants<float>::twoPi;
+            // Advance FM oscillators with speed scaling (rate-scaled advance)
+            v.fmOsc[0].advance(speedMul);
+            v.fmOsc[1].advance(speedMul);
         }
 
-        // Constant-power crossfade (Acon-style: dry preserved at mix=0)
-        const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);
-        const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
+        // Renormalize oscillators periodically to prevent drift
+        if (++sampleCounter >= kNormalizeInterval)
+        {
+            sampleCounter = 0;
+            for (int vi = 0; vi < kNumVoices; ++vi)
+            {
+                auto& v = voices[static_cast<size_t>(vi)];
+                v.fmOsc[0].normalize();
+                v.fmOsc[1].normalize();
+            }
+        }
 
-        buffer.getWritePointer(0)[i] = buffer.getReadPointer(0)[i] * dryGain + outL * wetGain;
+        // Keep low-mid mix settings drier for "on top of dry" behavior like Multiply.
+        const float wetMix = juce::jlimit(0.0f, 1.0f, mix * 0.72f);
+        const float dryGain = std::cos(wetMix * juce::MathConstants<float>::halfPi);
+        const float wetGain = std::sin(wetMix * juce::MathConstants<float>::halfPi);
+
+        // M4: Recombine bass (dry, mono-safe) with processed treble
+        const float dryTrebleL = buffer.getReadPointer(0)[i] - bassStore[0];
+        buffer.getWritePointer(0)[i] = bassStore[0] + dryTrebleL * dryGain + outL * wetGain;
         if (isStereo)
-            buffer.getWritePointer(1)[i] = buffer.getReadPointer(1)[i] * dryGain + outR * wetGain;
+        {
+            const float dryTrebleR = buffer.getReadPointer(1)[i] - bassStore[1];
+            buffer.getWritePointer(1)[i] = bassStore[1] + dryTrebleR * dryGain + outR * wetGain;
+        }
 
-        writePos = (writePos + 1) % kDelayBufferSize;
+        writePos = (writePos + 1) & kDelayMask;
     }
 }

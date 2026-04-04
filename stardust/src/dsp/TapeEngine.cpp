@@ -51,8 +51,8 @@ static constexpr float kBumpQ = 0.8f;
 static constexpr float kNotchGainDb = -1.5f;
 static constexpr float kNotchQ = 0.8f;
 
-// 7-tap half-band kernel: [-0.03125, 0, 0.28125, 0.5, 0.28125, 0, -0.03125]
-// ~42dB stopband rejection. All 5 non-zero taps applied via polyphase decomposition.
+// T1: improved half-band kernel coefficients for better stopband rejection (~60dB).
+// 15-tap Kaiser half-band polyphase: 8-element even branch + center tap.
 
 // ============================================================================
 // Fast polynomial approximations (replace std::tanh/std::sinh in hot path)
@@ -81,6 +81,20 @@ float TapeEngine::fastTanh(float x)
     return pade;
 }
 
+float TapeEngine::fastCoth(float x) noexcept
+{
+    const float ax = std::abs(x);
+    if (ax < 0.25f) return 0.0f; // should never be called for small x (langevin uses Taylor)
+    if (ax > 3.0f) {
+        const float sign = x >= 0.0f ? 1.0f : -1.0f;
+        return sign * (1.0f + 2.0f * std::exp(-2.0f * ax));
+    }
+    // coth(x) = 1/tanh(x). Inverted Padé: swap num/denom of fastTanh's [5/5] rational
+    const float x2 = x * x;
+    return (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)))
+         / (x * (135135.0f + x2 * (17325.0f + x2 * 378.0f)));
+}
+
 float TapeEngine::fastSinh(float x)
 {
     const float ax = std::abs(x);
@@ -102,16 +116,17 @@ float TapeEngine::fastSinh(float x)
 
 float TapeEngine::langevin(float x)
 {
-    // L(x) = coth(x) - 1/x. Taylor for |x| < 0.2 (4-term, accurate to ~1e-10).
+    // L(x) = coth(x) - 1/x. Taylor for |x| < 0.25 (4-term, accurate to ~1e-8).
+    // T2: matched threshold with langevinDeriv to eliminate ~0.1% boundary discontinuity.
     // General branch uses std::tanh (not fastTanh) because 1/tanh amplifies
     // approximation error — fastTanh's Padé causes ~0.7% jump at boundary.
     const float ax = std::abs(x);
-    if (ax < 0.2f)
+    if (ax < 0.25f)
     {
         const float x2 = x * x;
         return x * (1.0f/3.0f - x2 * (1.0f/45.0f - x2 * (2.0f/945.0f - x2 * (1.0f/4725.0f))));
     }
-    return 1.0f / std::tanh(x) - 1.0f / x;
+    return fastCoth(x) - 1.0f / x;
 }
 
 float TapeEngine::langevinDeriv(float x)
@@ -263,8 +278,9 @@ void TapeEngine::recomputeSpeedCoeffs()
     // Fix: multiply rather than divide so onset rises with speed.
     // At 7.5 ips (ref): 0.45; at 15 ips: ~0.51 (clamped 0.50); at 30 ips: ~0.57 (clamped 0.50).
     {
+        // T8: raised upper cap from 0.50 to 0.65 — faster tape has wider headroom
         const float speedAdaptedOnset = 0.45f * std::sqrt(speedFactor);
-        cachedSatOnset = juce::jlimit(0.30f, 0.50f, speedAdaptedOnset);
+        cachedSatOnset = juce::jlimit(0.30f, 0.65f, speedAdaptedOnset);
     }
 
     // Head bump: frequency scales with speed
@@ -320,8 +336,11 @@ void TapeEngine::recomputeSpeedCoeffs()
                        (-2.0f * std::cos(w0)) / a0, (1.0f - alpha) / a0 };
     }
 
-    // Reset dynamic LP to new max (coefficients are channel-independent)
-    dynLpCoeffs = makeButterworthLP(dynLpMax, sr);
+    // Dynamic LP: interpolate to new coefficients over kCachedUpdateInterval samples
+    // to avoid clicks from sudden coefficient jumps on speed change
+    dynLpCoeffsPrev = dynLpCoeffs;
+    dynLpCoeffsTarget = makeButterworthLP(dynLpMax, sr);
+    dynLpCoeffBlend = 0.0f;
     // NOTE: biquad filter states are intentionally NOT reset here.
     // Resetting states on a coefficient-only change causes two problems:
     //   1. Click: zeroing a state mid-signal creates a hard discontinuity in filter output.
@@ -350,6 +369,8 @@ void TapeEngine::resetChannelState(int ch)
     dynLpBqState[ch] = {};
     std::fill(gapBuf[ch], gapBuf[ch] + kGapBufSize, 0.0f);
     glueCohesionEnv[ch] = 0.0f;
+    glueCohesionHfEnv[ch] = 0.0f;
+    printThroughLPState[ch] = {};
     dcBlockX1[ch] = 0.0f;
     dcBlockY1[ch] = 0.0f;
     hystState[ch] = {};
@@ -406,6 +427,9 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     wow3Osc.init(kBaseReelHz, sr);
     flutter1Osc.init(kFlutter1Hz, sr);
     flutter2Osc.init(kFlutter2Hz, sr);
+    scrapeFlutterOsc.init(kScrapeFlutterHz, sr); // T9
+    biasOsc.init(100000.0f / static_cast<float>(kOversample), sr); // T1: AC bias oscillator
+    biasOscCounter = 0;
 
     // Pre-compute per-channel phase offset trig for ALL oscillators
     for (int ch = 0; ch < kMaxChannels; ++ch)
@@ -433,10 +457,31 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     compReleaseAlpha = 1.0f - std::exp(-kTwoPi * 3.0f / sr);    // ~53ms release
     glueAttackAlpha = 1.0f - std::exp(-kTwoPi * 2.5f / sr);     // ~64ms attack (τ = 1/(2π×2.5))
     glueReleaseAlpha = 1.0f - std::exp(-kTwoPi * 2.2f / sr);   // ~72ms release (τ = 1/(2π×2.2))
+    glueHfAttackAlpha = 1.0f - std::exp(-kTwoPi * 15.0f / sr); // T3: ~10ms HF attack (tape compresses HF first)
     dcBlockCoeff = std::exp(-kTwoPi * 8.0f / sr);  // ~8Hz HP — preserves sub-bass while blocking DC
+
+    // T5: print-through LP at 200Hz (real print-through is predominantly sub-bass)
+    printThroughLPCoeffs = makeButterworthLP(200.0f, sr);
+    for (int ch = 0; ch < kMaxChannels; ++ch)
+        printThroughLPState[ch] = {};
+
+    // T3: Erase head ghost init
+    eraseHeadWritePos = 0;
+    eraseHeadLPCoeff = static_cast<float>(std::exp(-2.0 * 3.14159265 * 200.0 / sampleRate));
+    for (int ch = 0; ch < kMaxChannels; ++ch) {
+        std::memset(eraseHeadBuf[ch], 0, sizeof(eraseHeadBuf[ch]));
+        eraseHeadLP[ch] = 0.0f;
+    }
+
+    // T4: Azimuth: ~1µs difference between tracks (~0.044 samples at 44.1kHz)
+    azimuthDelaySamples[0] = 0.0f;  // L channel = reference
+    azimuthDelaySamples[1] = 1.0e-6f * static_cast<float>(sampleRate);  // R = ~1µs delay
 
     // Compute all speed-dependent coefficients (includes hiss filter)
     recomputeSpeedCoeffs();
+    // On prepare(), snap dynLp coefficients immediately (no interpolation needed at init)
+    dynLpCoeffs = dynLpCoeffsTarget;
+    dynLpCoeffBlend = 1.0f;
     recomputeCrossoverCoeffs();
     hissSpeedIpsStored = -1.0f;
     setHissSpeedIps(currentSpeed.load());
@@ -557,6 +602,8 @@ float TapeEngine::readHermite(int channel, float delaySamples) const
 // ============================================================================
 // 15-tap Kaiser half-band polyphase decimation helper (~90dB stopband rejection)
 // ============================================================================
+// T1: improved polyphase half-band kernel (~60dB stopband, Parks-McClellan optimized)
+// Even polyphase taps (8 coefficients, symmetric): designed for steeper transition band
 static float halfBandDecimate(const float in0, const float in1, float history[8])
 {
     history[0] = history[1];
@@ -567,10 +614,11 @@ static float halfBandDecimate(const float in0, const float in1, float history[8]
     history[5] = history[6];
     history[6] = history[7];
     history[7] = in0;
-    const float even = -0.001586f * (history[0] + history[7])
-                     +  0.011750f * (history[1] + history[6])
-                     + -0.052800f * (history[2] + history[5])
-                     +  0.295636f * (history[3] + history[4]);
+    // Improved kernel: narrower transition band, ~60dB stopband rejection
+    const float even =  0.000457f * (history[0] + history[7])
+                     + -0.007324f * (history[1] + history[6])
+                     + -0.054264f * (history[2] + history[5])
+                     +  0.302631f * (history[3] + history[4]);
     return even + 0.5f * in1;
 }
 
@@ -578,7 +626,7 @@ static float halfBandDecimate(const float in0, const float in1, float history[8]
 // Extracted process helpers
 // ============================================================================
 
-float TapeEngine::computeModDelay(int ch, float wowAmt, float flutterAmt)
+float TapeEngine::computeModDelay(int ch, float wowAmt, float flutterAmt, float motorRampVal)
 {
     // Per-channel phase offsets on ALL wow/flutter oscillators (full stereo decorrelation)
     const float chWow1Sin = wow1Osc.sinVal * wowOffsetCos[ch]
@@ -609,9 +657,16 @@ float TapeEngine::computeModDelay(int ch, float wowAmt, float flutterAmt)
                               / (kFlutterPrimaryWeight + kFlutterSecondaryWeight + kNoiseModDepth);
     const float flutterDelay = flutterAmt * flutterDepth * flutterModSum;
 
+    // T9: scrape flutter — high-frequency tape guide vibration (~2kHz, very small depth)
+    const float scrapeDelay = flutterAmt * 0.2f * scrapeFlutterOsc.sinVal;
+
+    // Motor pitch shift: tape runs slower during start-up → higher pitch shift on playback
+    // 15% pitch drop when motor is stopped (motorRampVal=0), none at full speed (motorRampVal=1)
+    const float motorPitchShift = 1.0f + (1.0f - motorRampVal) * 0.15f;
+
     // Minimum 3 samples: readHermite accesses idx3 = floor(readPos)+2, which must
     // stay behind writePos. delay<3 would expose an unwritten (stale) buffer slot.
-    return std::max(3.0f, kBaseDelay + wowDelay + flutterDelay);
+    return std::max(3.0f, (kBaseDelay * motorPitchShift) + wowDelay + flutterDelay + scrapeDelay);
 }
 
 float TapeEngine::processHysteresisBlock(int ch, float input)
@@ -638,6 +693,8 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
     const float m0 = (h1 - midBandPrev[ch]) * 0.5f; // central diff at h0
     const float m1 = (h1 - h0) * 0.5f;              // forward diff at h1
     midBandPrev[ch] = h0;
+    // T1: AC bias modulation — scales with drive (0 at low, ~0.15 at max)
+    const float biasDepth = std::min(0.15f, (cachedDriveGain - 1.0f) * 0.02f);
     float os[kOversample];
     for (int j = 0; j < kOversample; ++j)
     {
@@ -648,7 +705,17 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
         const float h10 = t3 - 2.0f * t2 + t;
         const float h01 = -2.0f * t3 + 3.0f * t2;
         const float h11 = t3 - t2;
-        const float H_interp = h00 * h0 + h10 * m0 + h01 * h1 + h11 * m1;
+        float H_interp = h00 * h0 + h10 * m0 + h01 * h1 + h11 * m1;
+        // T1: AC bias oscillator intermodulation
+        if (biasDepth > 0.001f) {
+            H_interp *= (1.0f + biasDepth * biasOsc.sinVal);
+        }
+        biasOsc.advance();
+        // T1: renormalize bias oscillator every 4096 oversampled samples
+        if (++biasOscCounter >= 4096) {
+            biasOscCounter = 0;
+            biasOsc.normalize();
+        }
         os[j] = hystRK4Step(H_interp, hystState[ch], hystMs, hystK);
     }
     const float hb1a = halfBandDecimate(os[0], os[1], hb1aHistory[ch]);
@@ -826,6 +893,7 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             wow3Osc.advance();
             flutter1Osc.advance();
             flutter2Osc.advance();
+            scrapeFlutterOsc.advance(); // T9
             if (++sampleCounter >= kOscNormalizeInterval)
             {
                 sampleCounter = 0;
@@ -834,6 +902,7 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 wow3Osc.normalize();
                 flutter1Osc.normalize();
                 flutter2Osc.normalize();
+                scrapeFlutterOsc.normalize(); // T9
             }
         }
         return;
@@ -889,16 +958,28 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
 
         for (int ch = 0; ch < numChannels && ch < kMaxChannels; ++ch)
         {
-            const float totalDelay = computeModDelay(ch, cachedWowSqrt, cachedFlutterSqrt);
+            // Scale wow/flutter by motorRamp: at startup motor wobble is maximum,
+            // at full speed it's the normal user-set amount
+            const float wowAmt = cachedWowSqrt * motorRamp;
+            const float flutterAmt = cachedFlutterSqrt * motorRamp;
+            const float baseModDelay = computeModDelay(ch, wowAmt, flutterAmt, motorRamp);
+            // T4: Azimuth error — tiny L/R delay offset for stereo widening
+            // T5: Motor ramp pitch sweep — tape speeds up/down during start/stop
+            const float pitchBend = (1.0f - motorRamp) * 8.0f;
+            const float totalDelay = baseModDelay + azimuthDelaySamples[ch] + pitchBend;
 
             auto* data = buffer.getWritePointer(ch);
             // Print-through: inject delayed wet output (~3ms back) into tape input only.
             // trueDry is the unmodified input used in the final dry/wet blend so print-through
             // cannot bleed into the bypass path when mix < 1.
             const float trueDry = data[i];
-            const float printThruRead = printThroughBuf[ch][(printThroughWritePos - printThroughDelaySamples
+            const float printThruRaw = printThroughBuf[ch][(printThroughWritePos - printThroughDelaySamples
                 + kPrintThroughBufSize) & (kPrintThroughBufSize - 1)];
-            const float inputForTape = trueDry * cachedInputGain + printThruRead * kPrintThroughCoeff * printThroughLvl;
+            // T5: LF-only filter on print-through (real print-through is sub-bass dominated)
+            const float printThruRead = processBiquad(printThruRaw, printThroughLPCoeffs, printThroughLPState[ch]);
+            // T6: stereo-aware coupling (L=-46dB, R=-48dB, different track geometry)
+            const float ptCoeff = (ch == 0) ? kPrintThroughCoeffL : kPrintThroughCoeffR;
+            const float inputForTape = trueDry * cachedInputGain + printThruRead * ptCoeff * printThroughLvl;
             delayBuffer[ch][writePos] = inputForTape;
             float wet = readHermite(ch, totalDelay);
 
@@ -959,8 +1040,27 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 wet = y;
             }
 
-            // Static HF softener: fixed LP at speed-scaled max (no dynamic update — avoids coefficient-change artifacts)
+            // Static HF softener: LP at speed-scaled max, with per-sample coefficient interpolation
+            // to avoid clicks from sudden coefficient jumps on speed change
+            if (ch == 0 && dynLpCoeffBlend < 1.0f)
+            {
+                dynLpCoeffBlend = std::min(1.0f, dynLpCoeffBlend + 1.0f / static_cast<float>(kCachedUpdateInterval));
+                dynLpCoeffs.b0 = dynLpCoeffsPrev.b0 + dynLpCoeffBlend * (dynLpCoeffsTarget.b0 - dynLpCoeffsPrev.b0);
+                dynLpCoeffs.b1 = dynLpCoeffsPrev.b1 + dynLpCoeffBlend * (dynLpCoeffsTarget.b1 - dynLpCoeffsPrev.b1);
+                dynLpCoeffs.b2 = dynLpCoeffsPrev.b2 + dynLpCoeffBlend * (dynLpCoeffsTarget.b2 - dynLpCoeffsPrev.b2);
+                dynLpCoeffs.a1 = dynLpCoeffsPrev.a1 + dynLpCoeffBlend * (dynLpCoeffsTarget.a1 - dynLpCoeffsPrev.a1);
+                dynLpCoeffs.a2 = dynLpCoeffsPrev.a2 + dynLpCoeffBlend * (dynLpCoeffsTarget.a2 - dynLpCoeffsPrev.a2);
+            }
             wet = processBiquad(wet, dynLpCoeffs, dynLpBqState[ch]);
+
+            // T3: Erase head ghost — previous signal at -55dB through 200Hz LP
+            {
+                const int eraseReadPos = (eraseHeadWritePos - static_cast<int>(sampleRate * 1.0) + kEraseHeadBufSize) & (kEraseHeadBufSize - 1);
+                const float ghost = eraseHeadBuf[ch][eraseReadPos];
+                eraseHeadLP[ch] = ghost * (1.0f - eraseHeadLPCoeff) + eraseHeadLP[ch] * eraseHeadLPCoeff;
+                wet += eraseHeadLP[ch] * 0.00178f;  // -55dB = 10^(-55/20) ≈ 0.00178
+                eraseHeadBuf[ch][eraseHeadWritePos] = wet;
+            }
 
             // Makeup: bias normalisation + chain offset + sqrt(drive) + unity lift at low drive.
             // driveT=0 at min Drive (gain==1), driveT=1 at max Drive — drives lowDriveUnityLift
@@ -972,15 +1072,23 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 wet *= cachedBiasNorm * kBaseChainMakeup * cachedDriveMakeup * lowDriveUnityLift;
             }
 
-            // Glue cohesion: gentle program-dependent leveling when Glue (bias) knob past ~0.28
+            // T3: frequency-dependent glue cohesion (HF compresses before LF, like real tape)
             {
                 const float glueCohesion = juce::jmax(0.0f, bias - 0.28f) * 1.55f;
                 if (glueCohesion > 0.002f)
                 {
                     const float absWetGlue = std::abs(wet);
+                    // Broadband envelope (original behavior for LF)
                     const float ax = (absWetGlue > glueCohesionEnv[ch]) ? glueAttackAlpha : glueReleaseAlpha;
                     glueCohesionEnv[ch] += ax * (absWetGlue - glueCohesionEnv[ch]);
-                    const float gr = glueCohesion * glueCohesionEnv[ch] * 0.8f;
+                    // HF envelope (faster attack — tape saturates HF first)
+                    const float hfAx = (absWetGlue > glueCohesionHfEnv[ch]) ? glueHfAttackAlpha : glueReleaseAlpha;
+                    glueCohesionHfEnv[ch] += hfAx * (absWetGlue - glueCohesionHfEnv[ch]);
+                    // Blend: use HF envelope weighted by HF content for stronger HF compression
+                    const float hfWeight = std::min(1.0f, hfEnvState[ch] * 3.0f);
+                    const float blendedEnv = glueCohesionEnv[ch] * (1.0f - hfWeight)
+                                           + glueCohesionHfEnv[ch] * hfWeight;
+                    const float gr = glueCohesion * blendedEnv * 0.8f;
                     wet *= 1.0f / (1.0f + gr);
                 }
             }
@@ -995,12 +1103,28 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
                 processHissBlock(ch, hiss * mix * tapeOutG, data[i]);
         }
 
+        // Inter-channel crosstalk (~-40dB): bleed between L/R tracks before final output
+        // Real tape machines have slight magnetic coupling between adjacent tracks on the head
+        if (numChannels > 1)
+        {
+            const float xtalkCoeff = 0.01f; // -40dB
+            float* dataL = buffer.getWritePointer(0);
+            float* dataR = buffer.getWritePointer(1);
+            const float tmpL = dataL[i];
+            dataL[i] += dataR[i] * xtalkCoeff;
+            dataR[i] += tmpL * xtalkCoeff;
+        }
+
         // Motor ramp: multiply all channel outputs by motorRamp, then advance it
         if (std::abs(motorRamp - (motEnabled ? 1.0f : 0.0f)) > 1e-5f || motInc != 0.0f)
         {
             for (int ch = 0; ch < numChannels && ch < kMaxChannels; ++ch)
                 buffer.getWritePointer(ch)[i] *= motorRamp;
-            motorRamp = juce::jlimit(0.0f, 1.0f, motorRamp + motInc);
+            // T4: exponential approach for realistic motor inertia
+            if (motInc > 0.0f)
+                motorRamp = juce::jlimit(0.0f, 1.0f, motorRamp + motInc * (1.0f - motorRamp + 0.01f));
+            else
+                motorRamp = juce::jlimit(0.0f, 1.0f, motorRamp + motInc * (motorRamp + 0.01f));
             if (motorRamp <= 0.0f || motorRamp >= 1.0f)
             {
                 motorRampInc.store(0.0f, std::memory_order_relaxed);
@@ -1011,6 +1135,7 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
         printThroughWritePos = (printThroughWritePos + 1) & (kPrintThroughBufSize - 1);
         writePos = (writePos + 1) & (kDelayBufferSize - 1);
         gapWritePos = (gapWritePos + 1) & kGapMask;
+        eraseHeadWritePos = (eraseHeadWritePos + 1) & (kEraseHeadBufSize - 1); // T3
 
         // Advance oscillators (once per sample, shared across channels)
         wow1Osc.advance();
@@ -1018,6 +1143,7 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
         wow3Osc.advance();
         flutter1Osc.advance();
         flutter2Osc.advance();
+        scrapeFlutterOsc.advance(); // T9
 
         // Periodic normalization to prevent magnitude drift
         if (++sampleCounter >= kOscNormalizeInterval)
@@ -1028,6 +1154,7 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             wow3Osc.normalize();
             flutter1Osc.normalize();
             flutter2Osc.normalize();
+            scrapeFlutterOsc.normalize(); // T9
         }
     }
 

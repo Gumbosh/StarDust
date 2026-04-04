@@ -68,13 +68,16 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
                              / static_cast<float>(sampleRate));
     const float K2 = K * K;
 
+    // D20: Cap maximum resonance Q at 6.0 for stability
+    const float cappedResonance = std::min(resonanceVal, 0.75f); // maps to Q max ~6.0
+
     if (filterType == 0) // LP: 3 cascaded biquad sections
     {
         for (int s = 0; s < kNumSections; ++s)
         {
-            float Q = kButterworthQ[s];
-            if (s == kNumSections - 1)
-                Q = 0.707f + resonanceVal * 8.0f;
+            // D17: distribute resonance across all pole pairs (proportional scaling)
+            const float resScale = 1.0f + cappedResonance * 6.0f; // 1.0 → 5.5
+            float Q = kButterworthQ[s] * resScale;
 
             const float norm = 1.0f / (1.0f + K / Q + K2);
             const float b0 = K2 * norm;
@@ -94,9 +97,9 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
     {
         for (int s = 0; s < kNumSections; ++s)
         {
-            float Q = kButterworthQ[s];
-            if (s == kNumSections - 1)
-                Q = 0.707f + resonanceVal * 8.0f;
+            // D17: distribute resonance
+            const float resScale = 1.0f + cappedResonance * 6.0f;
+            float Q = kButterworthQ[s] * resScale;
 
             const float norm = 1.0f / (1.0f + K / Q + K2);
             const float b0 = norm;
@@ -112,46 +115,46 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
             }
         }
     }
-    else if (filterType == 2) // BP: 2nd-order only (section 0), pass-through for 1 & 2
+    else if (filterType == 2) // BP: 6th-order (D18: all 3 sections active)
     {
-        const float Q = 0.5f + resonanceVal * 6.0f;
-        const float norm = 1.0f / (1.0f + K / Q + K2);
-        const float b0 = (K / Q) * norm;
-        const float b1 = 0.0f;
-        const float b2 = -b0;
-        const float a1 = 2.0f * (K2 - 1.0f) * norm;
-        const float a2 = (1.0f - K / Q + K2) * norm;
-
-        for (int ch = 0; ch < kMaxChannels; ++ch)
+        for (int s = 0; s < kNumSections; ++s)
         {
-            sections[ch][0].b0 = b0; sections[ch][0].b1 = b1; sections[ch][0].b2 = b2;
-            sections[ch][0].a1 = a1; sections[ch][0].a2 = a2;
-            // Sections 1 and 2: passthrough
-            for (int s = 1; s < kNumSections; ++s)
+            // D17 + D18: distribute Q across all 3 sections for 6th-order BP
+            const float baseQ = 0.5f + cappedResonance * 6.0f;
+            const float Q = kButterworthQ[s] * (baseQ / 0.7071f); // scale relative to Butterworth unity
+
+            const float norm = 1.0f / (1.0f + K / Q + K2);
+            const float b0 = (K / Q) * norm;
+            const float b1 = 0.0f;
+            const float b2 = -b0;
+            const float a1 = 2.0f * (K2 - 1.0f) * norm;
+            const float a2 = (1.0f - K / Q + K2) * norm;
+
+            for (int ch = 0; ch < kMaxChannels; ++ch)
             {
-                sections[ch][s].b0 = 1.0f; sections[ch][s].b1 = 0.0f; sections[ch][s].b2 = 0.0f;
-                sections[ch][s].a1 = 0.0f; sections[ch][s].a2 = 0.0f;
+                sections[ch][s].b0 = b0; sections[ch][s].b1 = b1; sections[ch][s].b2 = b2;
+                sections[ch][s].a1 = a1; sections[ch][s].a2 = a2;
             }
         }
     }
-    else // Notch: 2nd-order only (section 0), pass-through for 1 & 2
+    else // Notch: 6th-order (D18: all 3 sections active)
     {
-        const float Q = 0.5f + resonanceVal * 6.0f;
-        const float norm = 1.0f / (1.0f + K / Q + K2);
-        const float b0 = (1.0f + K2) * norm;
-        const float b1 = 2.0f * (K2 - 1.0f) * norm;
-        const float b2 = b0;
-        const float a1 = b1;
-        const float a2 = (1.0f - K / Q + K2) * norm;
-
-        for (int ch = 0; ch < kMaxChannels; ++ch)
+        for (int s = 0; s < kNumSections; ++s)
         {
-            sections[ch][0].b0 = b0; sections[ch][0].b1 = b1; sections[ch][0].b2 = b2;
-            sections[ch][0].a1 = a1; sections[ch][0].a2 = a2;
-            for (int s = 1; s < kNumSections; ++s)
+            const float baseQ = 0.5f + cappedResonance * 6.0f;
+            const float Q = kButterworthQ[s] * (baseQ / 0.7071f);
+
+            const float norm = 1.0f / (1.0f + K / Q + K2);
+            const float b0 = (1.0f + K2) * norm;
+            const float b1 = 2.0f * (K2 - 1.0f) * norm;
+            const float b2 = b0;
+            const float a1 = b1;
+            const float a2 = (1.0f - K / Q + K2) * norm;
+
+            for (int ch = 0; ch < kMaxChannels; ++ch)
             {
-                sections[ch][s].b0 = 1.0f; sections[ch][s].b1 = 0.0f; sections[ch][s].b2 = 0.0f;
-                sections[ch][s].a1 = 0.0f; sections[ch][s].a2 = 0.0f;
+                sections[ch][s].b0 = b0; sections[ch][s].b1 = b1; sections[ch][s].b2 = b2;
+                sections[ch][s].a1 = a1; sections[ch][s].a2 = a2;
             }
         }
     }

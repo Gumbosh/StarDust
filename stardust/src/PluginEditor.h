@@ -184,7 +184,7 @@ private:
     int dragSourceRow = -1;
     int dragHoverRow  = -1;
     juce::Point<int> dragPos;
-    std::array<int,4> chainSlots { 1, 2, 3, 4 };
+    int chainSlots[4] { 1, 2, 3, 4 };
     int hoverRow  = -1;
     bool hoverOnX = false;
 
@@ -228,13 +228,12 @@ private:
     LabeledKnob tapeWowKnob;
 
     LabeledKnob distortionDriveKnob, distortionToneKnob;
-    juce::TextButton distortionModeBtn[6];
+    juce::TextButton distortionModeBtn[3];
     juce::Label distortionModeLabel;
-    LabeledKnob reverbMixKnob, reverbSizeKnob, reverbDecayKnob, reverbDampKnob, reverbPreDelayKnob, reverbDiffusionKnob, reverbWidthKnob;
+    LabeledKnob reverbMixKnob, reverbDecayKnob, reverbPreDelayKnob, reverbWidthKnob;
     juce::TextButton tapeNoiseSpeedBtn[3];
     juce::Label tapeNoiseSpeedLabel;
-    juce::TextButton tapeFormulationBtn[5];
-    juce::Label tapeFormulationLabel;
+    // Tape formulation hardcoded to 456 — no UI selector
 
     // HAZE section
     LabeledKnob hazeColorKnob;

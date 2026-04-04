@@ -222,9 +222,7 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
     {
         // Vertical gain fader — rectangle thumb with dB value, hover highlight below
         const float fx = static_cast<float>(x);
-        const float fy = static_cast<float>(y);
         const float fw = static_cast<float>(width);
-        const float fh = static_cast<float>(height);
 
         // Use full component bounds for highlight (not just slider travel range)
         const auto fullBounds = slider.getLocalBounds().toFloat();
@@ -245,7 +243,12 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
         const auto valueText = slider.getTextFromValue(slider.getValue());
         auto font = juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
         g.setFont(font);
-        const float textW = font.getStringWidthFloat(valueText);
+        juce::GlyphArrangement valueGlyphs;
+        valueGlyphs.addLineOfText(font, valueText, 0.0f, 0.0f);
+        const int valueGlyphCount = valueGlyphs.getNumGlyphs();
+        const float textW = valueGlyphCount > 0
+            ? valueGlyphs.getBoundingBox(0, valueGlyphCount, true).getWidth()
+            : 0.0f;
         const float padX = 6.0f;
         const float thumbW = std::max(fw, textW + padX * 2.0f);
         const float thumbX = fx + (fw - thumbW) * 0.5f; // center on slider
@@ -612,7 +615,8 @@ void StardustLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& win
     // Title text
     g.setColour(kAccent);
     g.setFont(juce::FontOptions(14.0f).withStyle("Bold"));
-    g.drawText(window.getName(), bounds.getX() + 14, bounds.getY() + 8, bounds.getWidth() - 28, 20,
+    g.drawText(window.getName(), juce::roundToInt(bounds.getX()) + 14, juce::roundToInt(bounds.getY()) + 8,
+               juce::roundToInt(bounds.getWidth()) - 28, 20,
                juce::Justification::centredLeft);
 
     // Message layout
@@ -673,7 +677,12 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
         g.setFont(font);
         const bool isDirty = box.getName() == "dirty";
         auto displayText = box.getText() + (isDirty ? " *" : "");
-        const float textW = font.getStringWidthFloat(displayText);
+        juce::GlyphArrangement displayGlyphs;
+        displayGlyphs.addLineOfText(font, displayText, 0.0f, 0.0f);
+        const int displayGlyphCount = displayGlyphs.getNumGlyphs();
+        const float textW = displayGlyphCount > 0
+            ? displayGlyphs.getBoundingBox(0, displayGlyphCount, true).getWidth()
+            : 0.0f;
         const float centerX = static_cast<float>(width) * 0.5f;
 
         g.setColour(box.findColour(juce::ComboBox::textColourId));
@@ -701,7 +710,7 @@ juce::Font StardustLookAndFeel::getComboBoxFont(juce::ComboBox& /*box*/)
     return juce::Font(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), 15.0f, juce::Font::bold));
 }
 
-void StardustLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+void StardustLookAndFeel::positionComboBoxText(juce::ComboBox& /*box*/, juce::Label& label)
 {
     // Hide the default label — we draw text ourselves in drawComboBox
     label.setBounds(0, 0, 0, 0);
@@ -1081,7 +1090,8 @@ void SettingsPanel::paint(juce::Graphics& g)
     // Title
     g.setFont(juce::FontOptions(14.0f).withStyle("Bold"));
     g.setColour(StardustLookAndFeel::kAccent);
-    g.drawText("SETTINGS", bounds.getX(), bounds.getY() + 10, bounds.getWidth(), 20,
+    g.drawText("SETTINGS", juce::roundToInt(bounds.getX()), juce::roundToInt(bounds.getY()) + 10,
+               juce::roundToInt(bounds.getWidth()), 20,
                juce::Justification::centred);
 
     // Sidebar divider
@@ -1228,7 +1238,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             hazeTypeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
             hazeTypeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
             hazeTypeBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            hazeTypeBtn[i].onClick = [this, i, updateHazeButtons, hazeTypeParam]() {
+            hazeTypeBtn[i].onClick = [i, updateHazeButtons, hazeTypeParam]() {
                 if (hazeTypeParam)
                     hazeTypeParam->setValueNotifyingHost(hazeTypeParam->convertTo0to1(static_cast<float>(i)));
                 updateHazeButtons();
@@ -1272,7 +1282,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             multiplyLfoBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
             multiplyLfoBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
             multiplyLfoBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            multiplyLfoBtn[i].onClick = [this, i, updateModeButtons, modeParam]() {
+            multiplyLfoBtn[i].onClick = [i, updateModeButtons, modeParam]() {
                 if (modeParam)
                     modeParam->setValueNotifyingHost(
                         modeParam->convertTo0to1(static_cast<float>(i)));
@@ -1304,11 +1314,8 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(distortionDriveKnob, "distortionDrive", "Drive");
     setupKnob(distortionToneKnob, "distortionTone", "Tone");
     setupKnob(reverbMixKnob,       "reverbMix",       "Mix");
-    setupKnob(reverbSizeKnob,      "reverbSize",      "Size");
     setupKnob(reverbDecayKnob,     "reverbDecay",     "Decay");
-    setupKnob(reverbDampKnob,      "reverbDamp",      "Damp");
     setupKnob(reverbPreDelayKnob,  "reverbPreDelay",  "Pre-Dly");
-    setupKnob(reverbDiffusionKnob, "reverbDiffusion", "Diffuse");
     setupKnob(reverbWidthKnob,     "reverbWidth",     "Width");
 
     tapeNoiseSpeedLabel.setText("Noise IPS", juce::dontSendNotification);
@@ -1335,7 +1342,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             tapeNoiseSpeedBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
             tapeNoiseSpeedBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
             tapeNoiseSpeedBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            tapeNoiseSpeedBtn[i].onClick = [this, i, updateNoiseButtons, noiseSpeedParam]() {
+            tapeNoiseSpeedBtn[i].onClick = [i, updateNoiseButtons, noiseSpeedParam]() {
                 if (noiseSpeedParam)
                     noiseSpeedParam->setValueNotifyingHost(
                         noiseSpeedParam->convertTo0to1(static_cast<float>(i)));
@@ -1347,54 +1354,19 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         processorRef.apvts.addParameterListener("tapeNoiseSpeed", this);
     }
 
-    // Tape formulation buttons: 456 / GP9 / SM900 / LH / SM468
-    {
-        static const char* kFormLabels[] = { "456", "GP9", "SM900", "LH", "SM468" };
-        auto* formParam = dynamic_cast<juce::AudioParameterChoice*>(
-            processorRef.apvts.getParameter("tapeFormulation"));
-        auto updateFormButtons = [this, formParam]() {
-            int sel = formParam ? formParam->getIndex() : 0;
-            for (int i = 0; i < 5; ++i)
-                tapeFormulationBtn[i].setToggleState(i == sel, juce::dontSendNotification);
-        };
-        for (int i = 0; i < 5; ++i)
-        {
-            tapeFormulationBtn[i].setButtonText(kFormLabels[i]);
-            tapeFormulationBtn[i].setClickingTogglesState(false);
-            tapeFormulationBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
-            tapeFormulationBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
-            tapeFormulationBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
-            tapeFormulationBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
-            tapeFormulationBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            tapeFormulationBtn[i].onClick = [this, i, updateFormButtons, formParam]() {
-                if (formParam)
-                    formParam->setValueNotifyingHost(
-                        formParam->convertTo0to1(static_cast<float>(i)));
-                updateFormButtons();
-            };
-            addAndMakeVisible(tapeFormulationBtn[i]);
-        }
-        updateFormButtons();
-        processorRef.apvts.addParameterListener("tapeFormulation", this);
+    // Tape formulation hardcoded to 456 — no UI selector
 
-        tapeFormulationLabel.setText("Oxide", juce::dontSendNotification);
-        tapeFormulationLabel.setJustificationType(juce::Justification::centredLeft);
-        tapeFormulationLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
-        tapeFormulationLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-        addAndMakeVisible(tapeFormulationLabel);
-    }
-
-    // Distortion mode buttons: Soft / Tube / Hard / Satin / Xfmr / Vari
+    // Distortion mode buttons: Soft / Tube / Hard
     {
-        static const char* kModeLabels[] = { "Soft", "Tube", "Hard", "Satin", "Xfmr", "Vari" };
+        static const char* kModeLabels[] = { "Soft", "Tube", "Hard" };
         auto* modeParam = dynamic_cast<juce::AudioParameterChoice*>(
             processorRef.apvts.getParameter("distortionMode"));
         auto updateModeButtons = [this, modeParam]() {
             int sel = modeParam ? modeParam->getIndex() : 0;
-            for (int i = 0; i < 6; ++i)
+            for (int i = 0; i < 3; ++i)
                 distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         };
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 3; ++i)
         {
             distortionModeBtn[i].setButtonText(kModeLabels[i]);
             distortionModeBtn[i].setClickingTogglesState(false);
@@ -1403,7 +1375,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             distortionModeBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
             distortionModeBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
             distortionModeBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            distortionModeBtn[i].onClick = [this, i, updateModeButtons, modeParam]() {
+            distortionModeBtn[i].onClick = [i, updateModeButtons, modeParam]() {
                 if (modeParam)
                     modeParam->setValueNotifyingHost(
                         modeParam->convertTo0to1(static_cast<float>(i)));
@@ -1648,8 +1620,8 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(unisonToggle, unisonToggleAttach, "unisonEnabled");
 
     // Disable and dim knobs when their section toggle is off
-    auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobs) {
-        toggle.onClick = [&toggle, knobs = std::vector<LabeledKnob*>(knobs)]() {
+    auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobList) {
+        toggle.onClick = [&toggle, knobs = std::vector<LabeledKnob*>(knobList)]() {
             const bool on = toggle.getToggleState();
             const float alpha = on ? 1.0f : 0.4f;
             for (auto* k : knobs)
@@ -1694,8 +1666,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             const float alpha = on ? 1.0f : 0.4f;
             noiseLbl->setAlpha(alpha);
             for (auto& b : tapeNoiseSpeedBtn) { b.setEnabled(on); b.setAlpha(alpha); }
-            tapeFormulationLabel.setAlpha(alpha);
-            for (auto& b : tapeFormulationBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+            // Tape formulation hardcoded — no UI to dim
         };
     }
 
@@ -1705,7 +1676,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     tapeToggle.onClick();
     distortionToggle.onClick();
 
-    dimSection(reverbToggle, { &reverbMixKnob, &reverbSizeKnob, &reverbDecayKnob, &reverbDampKnob, &reverbPreDelayKnob, &reverbDiffusionKnob, &reverbWidthKnob });
+    dimSection(reverbToggle, { &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob });
     reverbToggle.onClick();
 
     dimSection(hazeToggle, { &hazeColorKnob });
@@ -1963,13 +1934,14 @@ void StardustEditor::refreshPresetList()
         std::map<juce::String, std::vector<PresetListItem>> bankItems;
         for (int i = 0; i < static_cast<int>(presets.size()); ++i)
         {
-            PresetListItem item { presets[i].name, i, presets[i].isFactory, false, presets[i].bank };
-            if (presets[i].isFactory)
+            const auto idx = static_cast<size_t>(i);
+            PresetListItem item { presets[idx].name, i, presets[idx].isFactory, false, presets[idx].bank };
+            if (presets[idx].isFactory)
                 factory.push_back(item);
-            else if (presets[i].bank.isEmpty())
+            else if (presets[idx].bank.isEmpty())
                 user.push_back(item);
             else
-                bankItems[presets[i].bank].push_back(item);
+                bankItems[presets[idx].bank].push_back(item);
         }
         presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
         presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
@@ -2064,13 +2036,14 @@ void StardustEditor::showPresetLibrary()
         const auto& presets = processorRef.getAllPresets();
         for (int i = 0; i < static_cast<int>(presets.size()); ++i)
         {
-            PresetListItem item { presets[i].name, i, presets[i].isFactory, false, presets[i].bank };
-            if (presets[i].isFactory)
+            const auto idx = static_cast<size_t>(i);
+            PresetListItem item { presets[idx].name, i, presets[idx].isFactory, false, presets[idx].bank };
+            if (presets[idx].isFactory)
                 factory.push_back(item);
-            else if (presets[i].bank.isEmpty())
+            else if (presets[idx].bank.isEmpty())
                 user.push_back(item);
             else
-                bankItems[presets[i].bank].push_back(item);
+                bankItems[presets[idx].bank].push_back(item);
         }
     }
     auto favs = StardustProcessor::loadFavorites();
@@ -2412,16 +2385,7 @@ void StardustEditor::layoutTapeSection(juce::Rectangle<int> ap)
         tapeNoiseSpeedBtn[i].setBounds(ox + kw * 6, ky + 12 + i * bh3, kw, bh3);
     }
 
-    // Oxide formulation buttons in col 7 (5 buttons: 456 / GP9 / SM900 / LH / SM468)
-    const int col7W = availW - kw * 7;
-    tapeFormulationLabel.setVisible(true);
-    tapeFormulationLabel.setBounds(ox + kw * 7, ky, col7W, 12);
-    const int bh5 = (kKnobH - 12) / 5;
-    for (int i = 0; i < 5; ++i)
-    {
-        tapeFormulationBtn[i].setVisible(true);
-        tapeFormulationBtn[i].setBounds(ox + kw * 7, ky + 12 + i * bh5, col7W, bh5);
-    }
+    // Tape formulation hardcoded to 456 — no UI buttons
 }
 
 void StardustEditor::layoutDistortionSection(juce::Rectangle<int> ap)
@@ -2438,13 +2402,13 @@ void StardustEditor::layoutDistortionSection(juce::Rectangle<int> ap)
     layoutKnobInBounds(distortionDriveKnob, { startX,      ky, kw, kKnobH });
     layoutKnobInBounds(distortionToneKnob,  { startX + kw, ky, kw, kKnobH });
 
-    // Mode buttons: Soft/Tube/Hard/Satin/Xfmr/Vari stacked in remaining space
+    // Mode buttons: Soft/Tube/Hard stacked in remaining space
     const int modeX = startX + kw * 2;
     const int modeW = kw * 2;
     distortionModeLabel.setVisible(true);
     distortionModeLabel.setBounds(modeX, ky, modeW, 12);
-    const int bh = (kKnobH - 12) / 6;
-    for (int i = 0; i < 6; ++i)
+    const int bh = (kKnobH - 12) / 3;
+    for (int i = 0; i < 3; ++i)
     {
         distortionModeBtn[i].setVisible(true);
         distortionModeBtn[i].setBounds(modeX, ky + 12 + i * bh, modeW, bh);
@@ -2458,17 +2422,14 @@ void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 7;
-    // Mix | Size | Decay | Damp | Pre-Dly | Diffuse | Width
-    const int startX = ox + (availW - kw * 7) / 2;
+    const int kw = availW / 4;
+    // Mix | Decay | Pre-Dly | Width
+    const int startX = ox + (availW - kw * 4) / 2;
 
     layoutKnobInBounds(reverbMixKnob,       { startX,          ky, kw, kKnobH });
-    layoutKnobInBounds(reverbSizeKnob,      { startX + kw,     ky, kw, kKnobH });
-    layoutKnobInBounds(reverbDecayKnob,     { startX + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(reverbDampKnob,      { startX + kw * 3, ky, kw, kKnobH });
-    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw * 4, ky, kw, kKnobH });
-    layoutKnobInBounds(reverbDiffusionKnob, { startX + kw * 5, ky, kw, kKnobH });
-    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 6, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbDecayKnob,     { startX + kw,     ky, kw, kKnobH });
+    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 3, ky, kw, kKnobH });
 }
 
 void StardustEditor::generateBackgroundTexture()
@@ -2501,8 +2462,6 @@ void StardustEditor::paint(juce::Graphics& g)
     if (backgroundTexture.isValid())
     {
         const auto totalBounds = getLocalBounds();
-        const auto screenf = screenBounds.toFloat();
-        const auto bbf = bottomBarBounds.toFloat();
 
         // Dots in the background gaps between sections (not inside panels)
         juce::RectangleList<int> clipRegion(totalBounds);
@@ -2677,18 +2636,21 @@ void StardustEditor::paint(juce::Graphics& g)
 
     if (logoImage.isValid())
     {
-        g.drawImage(logoImage, bbf.getX() + 8, bbf.getY() + 2, static_cast<int>(logoW), static_cast<int>(logoH),
+        g.drawImage(logoImage, juce::roundToInt(bbf.getX()) + 8, juce::roundToInt(bbf.getY()) + 2,
+                    static_cast<int>(logoW), static_cast<int>(logoH),
                     0, 0, logoImage.getWidth(), logoImage.getHeight());
     }
 
     g.setFont(juce::FontOptions(12.0f).withStyle("Bold"));
-    g.drawText("LoudDealers", bbf.getX() + 12 + logoW, bbf.getY(), bbf.getWidth() * 0.5f, bbf.getHeight(),
+    g.drawText("LoudDealers", juce::roundToInt(bbf.getX() + 12.0f + logoW), juce::roundToInt(bbf.getY()),
+               juce::roundToInt(bbf.getWidth() * 0.5f), juce::roundToInt(bbf.getHeight()),
                juce::Justification::centredLeft);
 
     // Version on right
     g.setColour(StardustLookAndFeel::kAccent);
     g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
-    g.drawText("v" STARDUST_VERSION, bbf.getRight() - 60, bbf.getY(), 50, bbf.getHeight(),
+    g.drawText("v" STARDUST_VERSION, juce::roundToInt(bbf.getRight()) - 60, juce::roundToInt(bbf.getY()),
+               50, juce::roundToInt(bbf.getHeight()),
                juce::Justification::centredRight);
 }
 
@@ -2727,7 +2689,6 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
 
     // Draw inner screen border ON TOP of the starfield child component
     const auto screenf = screenBounds.toFloat();
-    const auto gvf = galaxyBounds.toFloat();
 
     if (!libraryVisible)
     {
@@ -2835,18 +2796,10 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
     }
     else if (parameterID == "distortionMode")
     {
-        const int sel = juce::jlimit(0, 5, static_cast<int>(std::round(newValue)));
+        const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
         juce::MessageManager::callAsync([this, sel]() {
-            for (int i = 0; i < 6; ++i)
+            for (int i = 0; i < 3; ++i)
                 distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
-        });
-    }
-    else if (parameterID == "tapeFormulation")
-    {
-        const int sel = juce::jlimit(0, 4, static_cast<int>(std::round(newValue)));
-        juce::MessageManager::callAsync([this, sel]() {
-            for (int i = 0; i < 5; ++i)
-                tapeFormulationBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     else if (parameterID == "junoMode")
@@ -3074,7 +3027,7 @@ void StardustEditor::mouseDrag(const juce::MouseEvent& e)
     repaint();
 }
 
-void StardustEditor::mouseUp(const juce::MouseEvent& e)
+void StardustEditor::mouseUp(const juce::MouseEvent& /*e*/)
 {
     if (dragSourceRow >= 0 && dragHoverRow >= 0)
     {
@@ -3160,7 +3113,6 @@ void StardustEditor::resized()
 
     const int toggleH = 14;
     const int toggleW = 26;
-    const int numStripRows = 4;
 
     // Toggle buttons are kept for APVTS binding but rendered as name-pill in paint()
     juce::ignoreUnused(toggleH, toggleW);
@@ -3174,7 +3126,7 @@ void StardustEditor::resized()
                      &tapeDriveKnob, &tapeInputKnob, &tapeGlueKnob, &tapeNoiseKnob,
                      &tapeMixKnob, &tapeOutputKnob, &tapeWowKnob,
                      &distortionDriveKnob, &distortionToneKnob,
-                     &reverbMixKnob, &reverbSizeKnob, &reverbDecayKnob, &reverbDampKnob, &reverbPreDelayKnob, &reverbDiffusionKnob, &reverbWidthKnob,
+                     &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob,
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob })
         k->setBounds({0, 0, 0, 0});
 
@@ -3187,8 +3139,7 @@ void StardustEditor::resized()
     for (auto& b : hazeTypeBtn) b.setVisible(false);
     tapeNoiseSpeedLabel.setVisible(false);
     for (auto& b : tapeNoiseSpeedBtn) b.setVisible(false);
-    tapeFormulationLabel.setVisible(false);
-    for (auto& b : tapeFormulationBtn) b.setVisible(false);
+    // Tape formulation hardcoded — no UI elements
     distortionModeLabel.setVisible(false);
     for (auto& b : distortionModeBtn) b.setVisible(false);
     multiplyLfoLabel.setVisible(false);

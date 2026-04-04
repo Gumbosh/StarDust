@@ -18,11 +18,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyIn", 1), "Destroy In",
-        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 6.0f));  // +6dB default to engage saturation
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyOut", 1), "Destroy Out",
-        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), -3.0f));  // -3dB compensate for drive boost
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyMix", 1), "Destroy Mix",
@@ -32,16 +32,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float> rateRange(250.0f, 96000.0f, 1.0f);
         rateRange.setSkewForCentre(3000.0f); // 3kHz at knob centre, log feel
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID("destroyFader", 1), "Destroy Fader", rateRange, 19000.0f));
+            juce::ParameterID("destroyFader", 1), "Destroy Fader", rateRange, 26040.0f));  // SP-950 native rate
     }
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyBits", 1), "Destroy Bits",
-        juce::NormalisableRange<float>(1.0f, 24.0f, 0.001f), 12.0f));
+        juce::NormalisableRange<float>(1.0f, 24.0f, 0.001f), 12.0f));  // 12-bit SP-950 authentic
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyJitter", 1), "Destroy Jitter",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));  // slight clock jitter for character
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
@@ -103,9 +103,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("tapeNoiseSpeed", 1), "Tape Noise Speed",
         juce::StringArray{"7.5 ips", "15 ips", "30 ips"}, 1));
 
+    // Tape formulation hardcoded to Ampex 456 (index 0) — no user selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID("tapeFormulation", 1), "Tape Formulation",
-        juce::StringArray{"456", "GP9", "SM900", "LH", "SM468"}, 0));
+        juce::StringArray{"456"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("tapeMix", 1), "Tape Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
@@ -146,7 +147,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID("distortionMode", 1), "Distortion Mode",
-        juce::StringArray{"Soft", "Tube", "Hard", "Satin", "Xfmr", "Vari-Mu"}, 0));
+        juce::StringArray{"Soft", "Tube", "Hard"}, 0));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("distortionMix", 1), "Distortion Mix",
@@ -228,7 +229,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("unisonInner", 1), "Multiply 3+4",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     return { params.begin(), params.end() };
 }
@@ -252,7 +253,7 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     tapeEngine.prepare(sampleRate, samplesPerBlock);
     tapeEngine.setStandard(0);    // NAB — hardcoded
     tapeNoiseSpeedParam  = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeNoiseSpeed"));
-    tapeFormulationParam = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeFormulation"));
+    // tapeFormulation hardcoded to 456 — no runtime selection needed
     saturation.prepare(sampleRate, samplesPerBlock);
     standaloneReverb.prepare(sampleRate);
 
@@ -264,6 +265,30 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     inputGainSmoothed.reset(sampleRate, 0.01);
     outputGainSmoothed.reset(sampleRate, 0.01);
     modMatrix.prepare(sampleRate);
+
+    // H2: Mains hum oscillator
+    humPhaseInc = juce::MathConstants<float>::twoPi * 60.0f / static_cast<float>(currentSampleRate);
+    humPhase = 0.0f;
+
+    // H3: Sub-bass rumble
+    rumbleLFOPhase = 0.0f;
+    std::memset(rumbleState, 0, sizeof(rumbleState));
+
+    // H1: Vinyl crackle
+    std::memset(crackleDecay, 0, sizeof(crackleDecay));
+    std::memset(crackleImpulse, 0, sizeof(crackleImpulse));
+    std::memset(crackleBPState, 0, sizeof(crackleBPState));
+
+    // H4: Signal envelope
+    std::memset(hazeSignalEnv, 0, sizeof(hazeSignalEnv));
+
+    // H5: Wow LFO
+    hazeWowPhase = 0.0f;
+
+    // H6: Allpass decorrelation
+    std::memset(hazeAllpassBuf, 0, sizeof(hazeAllpassBuf));
+    hazeAllpassWritePos = 0;
+
     // Always report max latency (oversampling + tape base delay) to avoid
     // host re-sync glitches when sections toggle on/off (fix 1.5)
     setLatencySamples(static_cast<int>(oversampling->getLatencyInSamples())
@@ -463,8 +488,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                     tapeEngine.setSpeed(ips);
                     tapeEngine.setHissSpeedIps(ips);
                 }
-                const int formIx = tapeFormulationParam ? juce::jlimit(0, 4, tapeFormulationParam->getIndex()) : 0;
-                tapeEngine.setFormulation(formIx);
+                tapeEngine.setFormulation(0); // Ampex 456 hardcoded
                 tapeEngine.process(buffer);
                 break;
             }
@@ -482,8 +506,8 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
                 }
 
-                // Engine modes match APVTS choice order: 0=Soft, 1=Tube, 2=Hard, 3=Satin, 4=Xfmr, 5=Vari-Mu
-                const int mode = juce::jlimit(0, 5,
+                // Engine modes: 0=Soft, 1=Tube, 2=Hard
+                const int mode = juce::jlimit(0, 2,
                     static_cast<int>(*apvts.getRawParameterValue("distortionMode")));
                 saturation.setDrive(driveVal);
                 saturation.setMode(mode);
@@ -510,11 +534,11 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             {
                 if (!(*apvts.getRawParameterValue("reverbEnabled") >= 0.5f)) break;
 
-                standaloneReverb.setSize(*apvts.getRawParameterValue("reverbSize"));
+                standaloneReverb.setSize(0.5f);      // hardcoded medium room
                 standaloneReverb.setDecay(*apvts.getRawParameterValue("reverbDecay"));
-                standaloneReverb.setDamping(*apvts.getRawParameterValue("reverbDamp"));
+                standaloneReverb.setDamping(0.7f);   // hardcoded natural damping
                 standaloneReverb.setPreDelay(*apvts.getRawParameterValue("reverbPreDelay"));
-                standaloneReverb.setDiffusion(*apvts.getRawParameterValue("reverbDiffusion"));
+                standaloneReverb.setDiffusion(0.7f);  // hardcoded smooth diffusion
 
                 const float reverbMixVal = *apvts.getRawParameterValue("reverbMix");
                 const float dryGain = std::cos(reverbMixVal * juce::MathConstants<float>::halfPi);
@@ -554,8 +578,12 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
                 // 1-pole LP coefficient for noise color (hazeColor 0=500Hz, 1=20kHz)
                 const float colorFreq = 500.0f + hazeColor * hazeColor * 19500.0f;
-                const float hazeLP = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * colorFreq
-                                                     / static_cast<float>(currentSampleRate));
+
+                // H5: Slow wow modulation on noise color (~0.5Hz)
+                const float hazeWow = std::sin(hazeWowPhase) * 0.3f;  // ±30% cutoff variation
+                const float modulatedColorFreq = colorFreq * (1.0f + hazeWow);
+                const float hazeLPMod = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * modulatedColorFreq
+                                                         / static_cast<float>(currentSampleRate));
 
                 const float noiseScale = hazeMixVal * 0.012f; // ~-38dBFS at full strip
                 for (int ch = 0; ch < numChannels; ++ch)
@@ -568,7 +596,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         {
                             raw = random.nextFloat() * 2.0f - 1.0f;
                         }
-                        else if (hazeType == 2) // Vinyl: pink + rare crackle impulses
+                        else if (hazeType == 2) // Vinyl: pink + crackle impulses
                         {
                             const float w = random.nextFloat() * 2.0f - 1.0f;
                             noisePinkB[0][ch] = 0.99886f * noisePinkB[0][ch] + w * 0.0555179f;
@@ -579,8 +607,16 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                             raw = (noisePinkB[0][ch] + noisePinkB[1][ch]
                                  + noisePinkB[2][ch] + noisePinkB[3][ch]
                                  + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
-                            if (random.nextFloat() < 0.001f)
-                                raw += (random.nextFloat() * 2.0f - 1.0f) * 3.0f;
+                            // H1: Improved vinyl crackle — Poisson-distributed impulses with bandpass
+                            if (random.nextFloat() < 0.003f) {  // ~130 crackles/sec at 44.1kHz
+                                crackleImpulse[ch] = (random.nextFloat() > 0.5f ? 1.0f : -1.0f) * 2.5f;
+                                crackleDecay[ch] = 1.0f;
+                            }
+                            crackleDecay[ch] *= 0.992f;  // ~5ms exponential decay at 44.1kHz
+                            float crackle = crackleImpulse[ch] * crackleDecay[ch];
+                            // Simple 1-pole BP approximation (800Hz-6kHz character)
+                            crackleBPState[ch] += 0.3f * (crackle - crackleBPState[ch]);
+                            raw += crackleBPState[ch] * 0.4f;
                         }
                         else // Pink (default)
                         {
@@ -594,9 +630,56 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                  + noisePinkB[2][ch] + noisePinkB[3][ch]
                                  + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
                         }
-                        // Apply LP color filter then scale
-                        hazeColorLP[ch] += hazeLP * (raw - hazeColorLP[ch]);
-                        data[s] += hazeColorLP[ch] * noiseScale;
+
+                        // H2: Mains hum (60Hz + harmonics at 120/180/240Hz)
+                        const float hum = std::sin(humPhase) * 1.0f
+                                        + std::sin(humPhase * 2.0f) * 0.5f
+                                        + std::sin(humPhase * 3.0f) * 0.25f
+                                        + std::sin(humPhase * 4.0f) * 0.12f;
+                        raw += hum * 0.03f;  // subtle, ~-30dB relative to noise
+
+                        // H3: Sub-bass rumble (25Hz resonant noise, AM modulated)
+                        const float rumbleNoise = random.nextFloat() * 2.0f - 1.0f;
+                        rumbleState[ch] += 0.004f * (rumbleNoise - rumbleState[ch]);  // ~25Hz LP
+                        const float rumbleLFO = 0.5f + 0.5f * std::sin(rumbleLFOPhase);  // slow AM
+                        raw += rumbleState[ch] * rumbleLFO * 0.15f;
+
+                        // Apply LP color filter (H5: using wow-modulated coefficient)
+                        hazeColorLP[ch] += hazeLPMod * (raw - hazeColorLP[ch]);
+
+                        // H4: Noise riding — noise fades when signal is present
+                        const float signalLevel = std::abs(data[s]);
+                        const float envAlpha = signalLevel > hazeSignalEnv[ch] ? 0.01f : 0.0005f;  // fast attack, slow release
+                        hazeSignalEnv[ch] += envAlpha * (signalLevel - hazeSignalEnv[ch]);
+                        const float noiseRide = std::max(0.1f, 1.0f - hazeSignalEnv[ch] * 5.0f);
+
+                        // H6: Stereo allpass decorrelation for R channel
+                        if (ch == 1) {
+                            const int readPos = (hazeAllpassWritePos - kHazeAllpassDelay + 512) & 511;
+                            const float delayed = hazeAllpassBuf[readPos];
+                            const float allpassOut = delayed - 0.3f * hazeColorLP[ch];
+                            hazeAllpassBuf[hazeAllpassWritePos] = hazeColorLP[ch] + 0.3f * allpassOut;
+                            hazeAllpassWritePos = (hazeAllpassWritePos + 1) & 511;
+                            data[s] += allpassOut * noiseScale * noiseRide;
+                        } else {
+                            data[s] += hazeColorLP[ch] * noiseScale * noiseRide;
+                        }
+
+                        // Advance per-sample phase oscillators on ch==0 only
+                        if (ch == 0) {
+                            // H2: Hum phase
+                            humPhase += humPhaseInc;
+                            if (humPhase >= juce::MathConstants<float>::twoPi)
+                                humPhase -= juce::MathConstants<float>::twoPi;
+                            // H3: Rumble LFO phase (~0.2Hz)
+                            rumbleLFOPhase += juce::MathConstants<float>::twoPi * 0.2f / static_cast<float>(currentSampleRate);
+                            if (rumbleLFOPhase >= juce::MathConstants<float>::twoPi)
+                                rumbleLFOPhase -= juce::MathConstants<float>::twoPi;
+                            // H5: Wow LFO phase (~0.5Hz)
+                            hazeWowPhase += juce::MathConstants<float>::twoPi * 0.5f / static_cast<float>(currentSampleRate);
+                            if (hazeWowPhase >= juce::MathConstants<float>::twoPi)
+                                hazeWowPhase -= juce::MathConstants<float>::twoPi;
+                        }
                     }
                 }
                 break;

@@ -32,11 +32,19 @@ static constexpr float kTapDelB1_b = 187.0f;
 static constexpr float kTapApB2_a = 1066.0f;
 static constexpr float kTapDelB2_a = 1913.0f;
 
-// Early reflection tap delays (at 29761 Hz reference, mutually prime for Schroeder spacing)
-static constexpr float kERRef[8] = { 149.0f, 214.0f, 318.0f, 419.0f, 529.0f, 631.0f, 764.0f, 839.0f };
+// R5: Early reflection tap delays (at 29761 Hz reference, mutually prime for Schroeder spacing)
+// Expanded to 16 taps for denser, smoother early reflections
+static constexpr int kNumERTaps = 16;
+static constexpr float kERRef[16] = {
+    79.0f, 149.0f, 214.0f, 318.0f, 419.0f, 529.0f, 631.0f, 764.0f,
+    839.0f, 953.0f, 1091.0f, 1207.0f, 1361.0f, 1493.0f, 1637.0f, 1783.0f
+};
 
-// Additional taps for stereo decorrelation
-static constexpr float kERGains[8] = { 0.70f, -0.62f, 0.55f, -0.48f, 0.41f, -0.36f, 0.30f, -0.25f };
+// Per-tap gains with alternating signs for stereo decorrelation (energy-decaying)
+static constexpr float kERGains[16] = {
+    0.82f, 0.70f, -0.62f, 0.55f, -0.48f, 0.41f, -0.36f, 0.30f,
+    -0.25f, 0.21f, -0.18f, 0.15f, -0.13f, 0.11f, -0.09f, 0.08f
+};
 static constexpr float kTapDelA1_c = 353.0f;
 static constexpr float kTapDelB1_c = 3627.0f;
 static constexpr float kTapApA2_b = 1228.0f;
@@ -61,6 +69,8 @@ void DattorroReverb::prepare(double sampleRate)
     inDiffD.init(poolInDiffD, scaleDelay(kInDiffD, sr), inputDiffusion2);
     sideDiffA.init(poolSideDiffA, scaleDelay(kInDiffC, sr), inputDiffusion2);
     sideDiffB.init(poolSideDiffB, scaleDelay(kInDiffD, sr), inputDiffusion2);
+    sideDiffC.init(poolSideDiffC, scaleDelay(kInDiffA, sr), inputDiffusion1);
+    sideDiffD.init(poolSideDiffD, scaleDelay(kInDiffB, sr), inputDiffusion1);
 
     // Tank A
     tankApA1.init(poolTankApA1, scaleDelay(kTankApA1Delay, sr), -0.7f);
@@ -105,15 +115,36 @@ void DattorroReverb::prepare(double sampleRate)
     tapB6 = scaleDelay(kTapApB2_b, sr);
     tapB7 = scaleDelay(kTapDelB2_b, sr);
 
-    // Damping filter coefficient
-    dampingAlpha = 0.5f;
+    // R1: Damping filter coefficients
+    dampingHFAlpha = 0.5f;
+    dampingLFMult = 1.0f;
     tankDampA = 0.0f;
     tankDampB = 0.0f;
 
-    // Early reflection tap lengths (scaled to sample rate)
-    for (int i = 0; i < 8; ++i)
+    // R7: Input pre-filter coefficients
+    // HP ~80Hz: removes bass rumble before diffusion
+    inputHPCoeff = static_cast<float>(std::exp(-2.0 * 3.14159265358979 * 80.0 / sampleRate));
+    inputHPState = 0.0f;
+    // LP ~12kHz: prevents sibilance in reverb tail
+    const float lpW = 2.0f * 3.14159265358979f * 12000.0f / static_cast<float>(sampleRate);
+    inputLPCoeff = lpW / (1.0f + lpW); // 1-pole LP approximation
+    inputLPState = 0.0f;
+
+    // Output DC blocker coefficient (~5Hz HP)
+    dcBlockR = static_cast<float>(std::exp(-2.0 * 3.14159265358979 * 5.0 / sampleRate));
+    dcBlockInL = 0.0f; dcBlockInR = 0.0f;
+    dcBlockOutL = 0.0f; dcBlockOutR = 0.0f;
+
+    // R5: Early reflection tap lengths (scaled to sample rate) with per-tap LP coefficients
+    for (int i = 0; i < kNumERTaps; ++i) {
         erTaps[i] = std::max(1, std::min(kERBufferSize - 1,
             static_cast<int>(kERRef[i] * static_cast<float>(sr) / kRefRate)));
+        // Per-tap LP: further taps are darker (simulates wall absorption)
+        const float tapMs = kERRef[i] / kRefRate * 1000.0f;
+        const float cutoff = std::max(2000.0f, 16000.0f - tapMs * 200.0f);
+        erTapLPCoeffs[i] = static_cast<float>(std::exp(-2.0 * 3.14159265 * cutoff / sampleRate));
+        erTapLP[i] = 0.0f;
+    }
     erWritePos = 0;
 
     reset();
@@ -128,7 +159,19 @@ void DattorroReverb::setDamping(float damping)
 {
     // damping 1.0 = no damping (bright), 0.0 = heavy damping (dark)
     // LP coefficient: higher = more HF passed through
-    dampingAlpha = 0.05f + damping * 0.9f;
+    dampingHFAlpha = 0.05f + damping * 0.9f;
+}
+
+void DattorroReverb::setDampingLow(float damping)
+{
+    // R1: 1.0 = no LF damping, 0.0 = heavy LF damping (-6dB per cycle)
+    dampingLFMult = 0.4f + damping * 0.6f; // range: 0.4–1.0
+}
+
+void DattorroReverb::setFreeze(float amount)
+{
+    // R6: 0.0 = normal, 1.0 = infinite sustain
+    freezeAmount = std::max(0.0f, std::min(1.0f, amount));
 }
 
 void DattorroReverb::setSize(float s)
@@ -138,6 +181,13 @@ void DattorroReverb::setSize(float s)
     lfo1.setFreq(0.4f + sizeVal * 1.2f, static_cast<float>(sr));
     lfo2.setFreq(0.6f + sizeVal * 1.4f, static_cast<float>(sr));
     modDepthSamples = (4.0f + sizeVal * 8.0f) * static_cast<float>(sr) / kRefRate;
+
+    // Size-dependent early reflections: scale tap delays
+    const float erScale = 0.5f + sizeVal * 1.0f; // 0.5x at min, 1.5x at max
+    for (int i = 0; i < kNumERTaps; ++i) {
+        erTaps[i] = std::max(1, std::min(kERBufferSize - 1,
+            static_cast<int>(kERRef[i] * erScale * static_cast<float>(sr) / kRefRate)));
+    }
 }
 
 void DattorroReverb::setPreDelay(float ms)
@@ -157,6 +207,8 @@ void DattorroReverb::setDiffusion(float amount)
     inDiffD.feedback = inputDiffusion2;
     sideDiffA.feedback = inputDiffusion2;
     sideDiffB.feedback = inputDiffusion2;
+    sideDiffC.feedback = inputDiffusion1;
+    sideDiffD.feedback = inputDiffusion1;
     erLevel = 0.10f + amount * 0.25f; // 0.10–0.35 range
 }
 
@@ -176,8 +228,14 @@ void DattorroReverb::reset()
     std::memset(poolTankDelB2, 0, sizeof(poolTankDelB2));
     std::memset(poolSideDiffA, 0, sizeof(poolSideDiffA));
     std::memset(poolSideDiffB, 0, sizeof(poolSideDiffB));
+    std::memset(poolSideDiffC, 0, sizeof(poolSideDiffC));
+    std::memset(poolSideDiffD, 0, sizeof(poolSideDiffD));
     tankDampA = 0.0f;
     tankDampB = 0.0f;
+    tankDampA2 = 0.0f;
+    tankDampB2 = 0.0f;
+    dcBlockInL = 0.0f; dcBlockInR = 0.0f;
+    dcBlockOutL = 0.0f; dcBlockOutR = 0.0f;
     std::memset(preDelayBuffer, 0, sizeof(preDelayBuffer));
     std::memset(preDelaySideBuffer, 0, sizeof(preDelaySideBuffer));
     preDelayWritePos = 0;
@@ -199,28 +257,40 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     const float preDelayedSide = preDelaySideBuffer[preDelayReadPos];
     preDelayWritePos = (preDelayWritePos + 1) & (kPreDelaySize - 1);
 
-    // Early reflections: 8 Schroeder-style taps from pre-delayed mono mid
+    // R5: Early reflections: 16 Schroeder-style taps with per-tap LP filtering
     // Even-indexed taps → L, odd-indexed taps → R (alternating signs for stereo spread)
     erBuffer[erWritePos] = preDelayed;
     erSideBuffer[erWritePos] = preDelayedSide;
     float erL = 0.0f, erR = 0.0f;
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < kNumERTaps; ++i)
     {
         const int readIdx = (erWritePos - erTaps[i] + kERBufferSize) & (kERBufferSize - 1);
         const float tapMid  = erBuffer[readIdx];
         const float tapSide = erSideBuffer[readIdx];
+        // Per-tap LP filter (further taps = darker, simulates wall absorption)
+        erTapLP[i] = tapMid * (1.0f - erTapLPCoeffs[i]) + erTapLP[i] * erTapLPCoeffs[i];
+        const float filteredMid = erTapLP[i];
         // Decode mid/side into L/R so stereo content appears in early reflections
-        if (i & 1) erR += kERGains[i] * (tapMid - tapSide);
-        else       erL += kERGains[i] * (tapMid + tapSide);
+        if (i & 1) erR += kERGains[i] * (filteredMid - tapSide);
+        else       erL += kERGains[i] * (filteredMid + tapSide);
     }
     erWritePos = (erWritePos + 1) & (kERBufferSize - 1);
 
+    // R7: Input pre-filtering — HP removes bass rumble, LP removes sibilance
+    const float hpIn = preDelayed;
+    const float hpOut = hpIn - inputHPState;
+    inputHPState += (1.0f - inputHPCoeff) * (hpIn - inputHPState);
+    inputLPState += inputLPCoeff * (hpOut - inputLPState);
+    const float filteredInput = inputLPState;
+
     // Diffuse mid (4 allpasses) and side (2 allpasses) independently
-    float diffusedMid = inDiffA.process(preDelayed);
+    float diffusedMid = inDiffA.process(filteredInput);
     diffusedMid = inDiffB.process(diffusedMid);
     diffusedMid = inDiffC.process(diffusedMid);
     diffusedMid = inDiffD.process(diffusedMid);
-    float diffusedSide = sideDiffA.process(preDelayedSide);
+    float diffusedSide = sideDiffC.process(preDelayedSide);
+    diffusedSide = sideDiffD.process(diffusedSide);
+    diffusedSide = sideDiffA.process(diffusedSide);
     diffusedSide = sideDiffB.process(diffusedSide);
 
     // LFO modulation via incremental oscillators (zero trig per sample)
@@ -235,26 +305,54 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     // Read from end of Tank A (crossed feedback into Tank B)
     const float feedbackB = tankDelA2.read();
 
+    // R6: Freeze modulation — blend input/decay/damping toward infinite sustain
+    const float inputScale = 1.0f - freezeAmount;
+    const float effectiveDecay = decayVal + (1.0f - decayVal) * freezeAmount;
+    const float effectiveHFDamp = dampingHFAlpha + (1.0f - dampingHFAlpha) * freezeAmount;
+    const float effectiveLFMult = dampingLFMult + (1.0f - dampingLFMult) * freezeAmount;
+
     // True stereo: inject diffused mid + diffused side into separate tanks
-    float tankA = diffusedMid + diffusedSide + feedbackA;
+    // R6: Scale new input by inputScale (frozen = no new input, feedback circulates)
+    float tankA = (diffusedMid + diffusedSide) * inputScale + feedbackA;
     tankA = tankApA1.processModulated(tankA, mod1);
     tankDelA1.write(tankA);
     tankA = tankDelA1.read();
-    // Damping LP (1-pole)
-    tankDampA += dampingAlpha * (tankA - tankDampA);
-    tankA = tankDampA * decayVal;
-    tankA = tankApA2.process(tankA);
+    // R1: HF damping LP (2-pole cascaded for steeper -12dB/oct absorption)
+    tankDampA += effectiveHFDamp * (tankA - tankDampA);
+    tankDampA2 += effectiveHFDamp * (tankDampA - tankDampA2);
+    // R1: LF damping — attenuate low frequencies independently
+    const float lfContentA = tankA - tankDampA2;
+    tankA = tankDampA2 + lfContentA * effectiveLFMult;
+    // R2: Gentle feedback saturation — prevents explosion at high decay, adds density
+    // ~1% THD at unity, self-limiting. Models EMT 140 plate driver nonlinearity.
+    {
+        const float driven = tankA * 1.05f;
+        const float x2 = driven * driven;
+        tankA = (driven * (27.0f + x2) / (27.0f + 9.0f * x2)) * (1.0f / 1.05f);
+    }
+    tankA *= effectiveDecay;
+    tankA = tankApA2.processModulated(tankA, lfo2.cosVal * modDepthSamples * 0.5f);
     tankDelA2.write(tankA);
 
     // Tank B processing (mid - side = R-biased)
-    float tankB = diffusedMid - diffusedSide + feedbackB;
+    float tankB = (diffusedMid - diffusedSide) * inputScale + feedbackB;
     tankB = tankApB1.processModulated(tankB, mod2);
     tankDelB1.write(tankB);
     tankB = tankDelB1.read();
-    // Damping LP
-    tankDampB += dampingAlpha * (tankB - tankDampB);
-    tankB = tankDampB * decayVal;
-    tankB = tankApB2.process(tankB);
+    // R1: HF damping LP (2-pole cascaded for steeper -12dB/oct absorption)
+    tankDampB += effectiveHFDamp * (tankB - tankDampB);
+    tankDampB2 += effectiveHFDamp * (tankDampB - tankDampB2);
+    // R1: LF damping — attenuate low frequencies independently
+    const float lfContentB = tankB - tankDampB2;
+    tankB = tankDampB2 + lfContentB * effectiveLFMult;
+    // R2: Feedback saturation (Tank B)
+    {
+        const float driven = tankB * 1.05f;
+        const float x2 = driven * driven;
+        tankB = (driven * (27.0f + x2) / (27.0f + 9.0f * x2)) * (1.0f / 1.05f);
+    }
+    tankB *= effectiveDecay;
+    tankB = tankApB2.processModulated(tankB, lfo1.cosVal * modDepthSamples * 0.5f);
     tankDelB2.write(tankB);
 
     // Output: sum of 14 taps with alternating signs (Dattorro Table 1)
@@ -279,4 +377,17 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     // Mix in early reflections then scale
     outL = (outL + erLevel * erL) * 0.5f;
     outR = (outR + erLevel * erR) * 0.5f;
+
+    // DC blocker: y[n] = x[n] - x[n-1] + R * y[n-1]
+    {
+        const float newL = outL - dcBlockInL + dcBlockR * dcBlockOutL;
+        dcBlockInL = outL;
+        dcBlockOutL = newL;
+        outL = newL;
+
+        const float newR = outR - dcBlockInR + dcBlockR * dcBlockOutR;
+        dcBlockInR = outR;
+        dcBlockOutR = newR;
+        outR = newR;
+    }
 }
