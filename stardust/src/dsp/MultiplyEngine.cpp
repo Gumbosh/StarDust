@@ -48,10 +48,10 @@ void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     //   Keep group delay low to avoid a chorusy/predelayed sensation.
     //   FM: delay = base + depth * (1 + sin(phase)), oscillates 0 -> 2*depth, never negative.
     //   No AM, no granular pitch shifting — detuning from FM delay modulation only.
-    const float fmDepthMs = 0.45f;
+    const float fmDepthMs = 0.25f;  // subtle detuning — Acon Multiply is very clean
 
-    // Sub-3ms base delays keep the effect immediate and reduce perceived predelay.
-    const float baseDelaysMs[kNumVoices] = { 1.35f, 1.95f, 1.60f, 2.25f };
+    // Sub-2ms base delays keep the effect immediate and reduce perceived predelay.
+    const float baseDelaysMs[kNumVoices] = { 0.85f, 1.25f, 1.05f, 1.55f };
     const float defaultPans[kNumVoices]  = { 0.0f, 1.0f, 0.33f, 0.67f };
 
     // Staggered low FM rates for movement without obvious chorus wobble.
@@ -61,11 +61,11 @@ void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     // so L/R modulation never correlates perfectly
     const float channelPhaseOffset = 0.37f * IncrementalOscillator::kTwoPi; // ~133 degrees
 
-    // Micro-allpass lengths (in samples): enough decorrelation without audible delay bloom.
+    // Micro-allpass lengths (in samples): very short for transparent decorrelation.
     const int allpassDelays[kNumAllpasses] = {
-        static_cast<int>(0.72f * 0.001f * sr),
-        static_cast<int>(1.08f * 0.001f * sr),
-        static_cast<int>(1.46f * 0.001f * sr),
+        static_cast<int>(0.35f * 0.001f * sr),
+        static_cast<int>(0.52f * 0.001f * sr),
+        static_cast<int>(0.71f * 0.001f * sr),
     };
 
     for (int i = 0; i < kNumVoices; ++i)
@@ -118,9 +118,10 @@ void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
         }
     }
 
-    // M4: Bass mono crossover — 2-pole Butterworth LP at 200Hz
+    // M4: Bass mono crossover — 2-pole Butterworth LP at 320Hz
+    //     Higher crossover keeps low-mids dry/mono for a tighter, cleaner result.
     {
-        const float fc   = 200.0f;
+        const float fc   = 320.0f;
         const float w0   = juce::MathConstants<float>::twoPi * fc / sr;
         const float cosW = std::cos(w0);
         const float sinW = std::sin(w0);

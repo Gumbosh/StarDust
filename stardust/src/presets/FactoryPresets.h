@@ -20,8 +20,8 @@ inline std::map<juce::String, float> defaultPresetValues()
         {"shiftEnabled", 0.0f}, {"reverserEnabled", 0.0f},
 
         // Destroy
-        {"destroyFader", 26040.0f}, {"destroyBits", 12.0f}, {"destroyIn", 6.0f},
-        {"destroyOut", -3.0f}, {"destroyMix", 1.0f}, {"destroyJitter", 0.15f},
+        {"destroyFader", 22082.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f},
+        {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"destroyJitter", 0.10f},
 
         // Tape
         {"tapeDrive", 0.17f}, {"tapeInput", 0.0f}, {"tapeGlue", 0.48f},
@@ -30,7 +30,7 @@ inline std::map<juce::String, float> defaultPresetValues()
         {"tapeEQStandard", 0.0f}, {"tapeMotorEnabled", 1.0f},
 
         // Chorus
-        {"chorusMix", 0.5f}, {"junoMode", 0.0f},
+        {"chorusMix", 1.0f}, {"junoMode", 0.0f},
 
         // Distortion
         {"distortionDrive", 0.5f}, {"distortionTone", 0.5f},
@@ -46,11 +46,12 @@ inline std::map<juce::String, float> defaultPresetValues()
 
         // Multiply (unison)
         {"unisonMix", 0.5f}, {"unisonSpeed", 1.0f},
-        {"unisonOuter", 1.0f}, {"unisonInner", 1.0f},
+        {"unisonOuter", 1.0f}, {"unisonInner", 0.8f},
 
         // Grain
         {"grainSize", 50.0f}, {"grainDensity", 4.0f}, {"grainPitch", 0.0f},
-        {"grainScatter", 0.5f}, {"grainMix", 0.5f},
+        {"grainScatter", 0.5f}, {"grainReverse", 0.0f}, {"grainSync", 0.0f},
+        {"grainMix", 0.5f},
 
         // Stutter
         {"stutterRate", 125.0f}, {"stutterDecay", 0.8f},

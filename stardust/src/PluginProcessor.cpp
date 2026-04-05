@@ -19,11 +19,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyIn", 1), "Destroy In",
-        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 6.0f));  // +6dB default to engage saturation
+        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyOut", 1), "Destroy Out",
-        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), -3.0f));  // -3dB compensate for drive boost
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyMix", 1), "Destroy Mix",
@@ -33,20 +33,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float> rateRange(250.0f, 96000.0f, 1.0f);
         rateRange.setSkewForCentre(3000.0f); // 3kHz at knob centre, log feel
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID("destroyFader", 1), "Destroy Fader", rateRange, 26040.0f));  // SP-950 native rate
+            juce::ParameterID("destroyFader", 1), "Destroy Fader", rateRange, 22082.0f));
     }
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyBits", 1), "Destroy Bits",
-        juce::NormalisableRange<float>(1.0f, 24.0f, 0.001f), 12.0f));  // 12-bit SP-950 authentic
+        juce::NormalisableRange<float>(3.0f, 24.0f, 0.001f), 12.0f));  // 12-bit SP-950 authentic
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("destroyJitter", 1), "Destroy Jitter",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));  // slight clock jitter for character
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.10f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("chorusMix", 1), "Chorus Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     // Juno-60 chorus mode: 0=I, 1=II, 2=I+II
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -230,7 +230,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("unisonInner", 1), "Multiply 3+4",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
 
     // GRAIN: granular freeze/scatter (slot 9)
     {
@@ -248,6 +248,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("grainScatter", 1), "Grain Scatter",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainReverse", 1), "Grain Reverse",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("grainSync", 1), "Grain Sync",
+        juce::StringArray{"Free", "1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T",
+                          "1/8", "1/4T", "1/4", "1/2T", "1/2", "1 Bar"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("grainEnabled", 1), "Grain Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -783,6 +790,16 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 granularEngine.setDensity(*apvts.getRawParameterValue("grainDensity"));
                 granularEngine.setPitch(*apvts.getRawParameterValue("grainPitch"));
                 granularEngine.setScatter(*apvts.getRawParameterValue("grainScatter"));
+                granularEngine.setReverse(*apvts.getRawParameterValue("grainReverse"));
+                {
+                    const int syncDiv = static_cast<int>(*apvts.getRawParameterValue("grainSync"));
+                    granularEngine.setSyncDivision(syncDiv);
+                    if (syncDiv > 0)
+                        if (auto* playHead = getPlayHead())
+                            if (auto pos = playHead->getPosition())
+                                if (auto bpm = pos->getBpm())
+                                    granularEngine.setHostBpm(*bpm);
+                }
                 granularEngine.setMix(*apvts.getRawParameterValue("grainMix"));
                 granularEngine.process(buffer);
                 break;

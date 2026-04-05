@@ -1264,6 +1264,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(grainDensityKnob, "grainDensity", "Density");
     setupKnob(grainPitchKnob, "grainPitch", "Pitch");
     setupKnob(grainScatterKnob, "grainScatter", "Scatter");
+    setupKnob(grainReverseKnob, "grainReverse", "Reverse");
 
     // STUTTER knobs
     setupKnob(stutterRateKnob, "stutterRate", "Rate");
@@ -1366,7 +1367,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(distortionToneKnob, "distortionTone", "Tone");
     setupKnob(reverbMixKnob,       "reverbMix",       "Mix");
     setupKnob(reverbDecayKnob,     "reverbDecay",     "Decay");
-    setupKnob(reverbPreDelayKnob,  "reverbPreDelay",  "Pre-Dly");
+    setupKnob(reverbPreDelayKnob,  "reverbPreDelay",  "Pre-Delay");
     setupKnob(reverbWidthKnob,     "reverbWidth",     "Width");
 
     tapeNoiseSpeedLabel.setText("Noise IPS", juce::dontSendNotification);
@@ -1468,6 +1469,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupMixStrip(distortionMixStrip,   distortionMixStripAttach,   "distortionMix");
     setupMixStrip(hazeMixStrip,         hazeMixStripAttach,         "hazeMix");
     setupMixStrip(unisonMixStrip,       unisonMixStripAttach,       "unisonMix");
+    setupMixStrip(reverbMixStrip,       reverbMixStripAttach,       "reverbMix");
     setupMixStrip(grainMixStrip,        grainMixStripAttach,        "grainMix");
     setupMixStrip(stutterMixStrip,      stutterMixStripAttach,      "stutterMix");
     setupMixStrip(shiftMixStrip,        shiftMixStripAttach,        "shiftMix");
@@ -1674,6 +1676,27 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(hazeToggle, hazeToggleAttach, "hazeEnabled");
     setupToggle(unisonToggle, unisonToggleAttach, "unisonEnabled");
     setupToggle(grainToggle, grainToggleAttach, "grainEnabled");
+    // Grain sync division dropdown
+    grainSyncCombo.addItemList({"Free", "1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T",
+                                "1/8", "1/4T", "1/4", "1/2T", "1/2", "1 Bar"}, 1);
+    grainSyncCombo.onChange = [this] {
+        const bool isFree = (grainSyncCombo.getSelectedId() == 1); // "Free" = id 1
+        const float alpha = isFree ? 1.0f : 0.4f;
+        grainSizeKnob.slider.setEnabled(isFree);
+        grainSizeKnob.slider.setAlpha(alpha);
+        grainSizeKnob.label.setAlpha(alpha);
+    };
+    grainSyncCombo.setColour(juce::ComboBox::backgroundColourId, StardustLookAndFeel::kBg);
+    grainSyncCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
+    grainSyncCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.3f));
+    addAndMakeVisible(grainSyncCombo);
+    grainSyncAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processorRef.apvts, "grainSync", grainSyncCombo);
+    grainSyncLabel.setText("Sync", juce::dontSendNotification);
+    grainSyncLabel.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
+    grainSyncLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+    grainSyncLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(grainSyncLabel);
     setupToggle(stutterToggle, stutterToggleAttach, "stutterEnabled");
     setupToggle(shiftToggle, shiftToggleAttach, "shiftEnabled");
     setupToggle(reverserToggle, reverserToggleAttach, "reverserEnabled");
@@ -1735,7 +1758,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     tapeToggle.onClick();
     distortionToggle.onClick();
 
-    dimSection(reverbToggle, { &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob });
+    dimSection(reverbToggle, { &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob });
     reverbToggle.onClick();
 
     dimSection(hazeToggle, { &hazeColorKnob });
@@ -1754,7 +1777,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     dimSection(unisonToggle, { &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob });
     unisonToggle.onClick();
 
-    dimSection(grainToggle, { &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob });
+    dimSection(grainToggle, { &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob, &grainReverseKnob });
     grainToggle.onClick();
     dimSection(stutterToggle, { &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob });
     stutterToggle.onClick();
@@ -1871,7 +1894,8 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
              || paramId == "masterMix"
              || paramId == "tapeDrive" || paramId == "tapeInput" || paramId == "tapeGlue"
-             || paramId == "tapeNoise" || paramId == "tapeMix")
+             || paramId == "tapeNoise" || paramId == "tapeMix"
+             || paramId == "grainReverse")
     {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
@@ -1889,6 +1913,17 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
         };
         knob.slider.valueFromTextFunction = [](const juce::String& t) {
             return static_cast<double>(juce::jlimit(1.0f, 24.0f, t.getFloatValue()));
+        };
+    }
+    else if (paramId == "grainPitch")
+    {
+        knob.slider.textFromValueFunction = [](double v) {
+            const int semitones = static_cast<int>(std::round(v));
+            if (semitones > 0) return juce::String("+") + juce::String(semitones) + " st";
+            return juce::String(semitones) + " st";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return t.getDoubleValue();
         };
     }
     // Force text refresh with the new formatter
@@ -1924,7 +1959,7 @@ void StardustEditor::layoutKnobInBounds(LabeledKnob& knob, juce::Rectangle<int> 
 void StardustEditor::showPresetDropdown()
 {
     // Copy preset metadata under lock, then release before file I/O
-    struct PresetInfo { juce::String name; bool isFactory; };
+    struct PresetInfo { juce::String name; bool isFactory; juce::String bank; };
     std::vector<PresetInfo> presetInfos;
     int currentIdx;
     {
@@ -1933,27 +1968,58 @@ void StardustEditor::showPresetDropdown()
         currentIdx = processorRef.getCurrentProgram();
         presetInfos.reserve(presets.size());
         for (const auto& p : presets)
-            presetInfos.push_back({ p.name, p.isFactory });
+            presetInfos.push_back({ p.name, p.isFactory, p.bank });
     }
     auto favs = StardustProcessor::loadFavorites();
 
-    juce::PopupMenu favMenu, factoryMenu, userMenu;
-
+    // Favorites menu
+    juce::PopupMenu favMenu;
     for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
-    {
-        const int itemId = i + 1;
-        const bool ticked = (i == currentIdx);
         if (favs.count(presetInfos[static_cast<size_t>(i)].name) > 0)
-            favMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
-        if (presetInfos[static_cast<size_t>(i)].isFactory)
-            factoryMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
-        else
-            userMenu.addItem(itemId, presetInfos[static_cast<size_t>(i)].name, true, ticked);
+            favMenu.addItem(i + 1, presetInfos[static_cast<size_t>(i)].name, true, i == currentIdx);
+
+    // Factory bank sub-menus (Init stays at top level)
+    juce::PopupMenu factoryMenu;
+    const juce::String factoryBankOrder[] = { "Lo-Fi", "Grains", "Glitch", "Tape", "Atmosphere" };
+    for (const auto& bankName : factoryBankOrder)
+    {
+        juce::PopupMenu bankMenu;
+        for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
+            if (presetInfos[static_cast<size_t>(i)].isFactory && presetInfos[static_cast<size_t>(i)].bank == bankName)
+                bankMenu.addItem(i + 1, presetInfos[static_cast<size_t>(i)].name, true, i == currentIdx);
+        if (bankMenu.getNumItems() > 0)
+            factoryMenu.addSubMenu(bankName, bankMenu);
+    }
+
+    // User presets
+    juce::PopupMenu userMenu;
+    for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
+        if (!presetInfos[static_cast<size_t>(i)].isFactory && presetInfos[static_cast<size_t>(i)].bank.isEmpty())
+            userMenu.addItem(i + 1, presetInfos[static_cast<size_t>(i)].name, true, i == currentIdx);
+
+    // User bank sub-menus
+    std::set<juce::String> userBanks;
+    for (const auto& p : presetInfos)
+        if (!p.isFactory && p.bank.isNotEmpty())
+            userBanks.insert(p.bank);
+    for (const auto& bankName : userBanks)
+    {
+        juce::PopupMenu bankMenu;
+        for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
+            if (!presetInfos[static_cast<size_t>(i)].isFactory && presetInfos[static_cast<size_t>(i)].bank == bankName)
+                bankMenu.addItem(i + 1, presetInfos[static_cast<size_t>(i)].name, true, i == currentIdx);
+        userMenu.addSubMenu(bankName, bankMenu);
     }
 
     juce::PopupMenu menu;
     if (favMenu.getNumItems() > 0)
         menu.addSubMenu(juce::String::charToString(0x2605) + " Favorites", favMenu);
+
+    // Init preset at top level
+    for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
+        if (presetInfos[static_cast<size_t>(i)].isFactory && presetInfos[static_cast<size_t>(i)].bank.isEmpty())
+            menu.addItem(i + 1, presetInfos[static_cast<size_t>(i)].name, true, i == currentIdx);
+
     if (factoryMenu.getNumItems() > 0)
         menu.addSubMenu("Factory", factoryMenu);
     if (userMenu.getNumItems() > 0)
@@ -1961,9 +2027,6 @@ void StardustEditor::showPresetDropdown()
 
     // Apply our look and feel + position below the preset selector
     menu.setLookAndFeel(&lookAndFeel);
-    favMenu.setLookAndFeel(&lookAndFeel);
-    factoryMenu.setLookAndFeel(&lookAndFeel);
-    userMenu.setLookAndFeel(&lookAndFeel);
     auto opts = juce::PopupMenu::Options()
         .withTargetComponent(&presetSelector)
         .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards)
@@ -1988,9 +2051,51 @@ void StardustEditor::refreshPresetList()
     presetSelector.clear(juce::dontSendNotification);
     const auto& presets = processorRef.getAllPresets();
 
-    // Flat list for ComboBox ID mapping (prev/next buttons still use this)
+    // Build hierarchical menu: Init, then factory sub-menus, then user presets
+    auto* rootMenu = presetSelector.getRootMenu();
+
+    // Uncategorized factory presets (Init)
     for (int i = 0; i < static_cast<int>(presets.size()); ++i)
-        presetSelector.addItem(presets[static_cast<size_t>(i)].name, i + 1);
+        if (presets[static_cast<size_t>(i)].isFactory && presets[static_cast<size_t>(i)].bank.isEmpty())
+            rootMenu->addItem(i + 1, presets[static_cast<size_t>(i)].name);
+
+    // Factory banks as sub-menus (curated order)
+    const juce::String factoryBankOrder[] = { "Lo-Fi", "Grains", "Glitch", "Tape", "Atmosphere" };
+    for (const auto& bankName : factoryBankOrder)
+    {
+        juce::PopupMenu subMenu;
+        for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+            if (presets[static_cast<size_t>(i)].isFactory && presets[static_cast<size_t>(i)].bank == bankName)
+                subMenu.addItem(i + 1, presets[static_cast<size_t>(i)].name);
+        if (subMenu.getNumItems() > 0)
+            rootMenu->addSubMenu(bankName, subMenu);
+    }
+
+    // User presets (no bank) — separated from factory
+    bool addedUserSep = false;
+    for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+    {
+        const auto idx = static_cast<size_t>(i);
+        if (!presets[idx].isFactory && presets[idx].bank.isEmpty())
+        {
+            if (!addedUserSep) { rootMenu->addSeparator(); addedUserSep = true; }
+            rootMenu->addItem(i + 1, presets[idx].name);
+        }
+    }
+
+    // User banks as sub-menus
+    std::set<juce::String> userBanks;
+    for (const auto& p : presets)
+        if (!p.isFactory && p.bank.isNotEmpty())
+            userBanks.insert(p.bank);
+    for (const auto& bankName : userBanks)
+    {
+        juce::PopupMenu subMenu;
+        for (int i = 0; i < static_cast<int>(presets.size()); ++i)
+            if (!presets[static_cast<size_t>(i)].isFactory && presets[static_cast<size_t>(i)].bank == bankName)
+                subMenu.addItem(i + 1, presets[static_cast<size_t>(i)].name);
+        rootMenu->addSubMenu(bankName, subMenu);
+    }
 
     presetSelector.setSelectedId(processorRef.getCurrentProgram() + 1, juce::dontSendNotification);
     updateDoubleClickDefaults();
@@ -2460,7 +2565,7 @@ void StardustEditor::layoutTapeSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 8; // Input | Drive | Wobble | Glue | Noise | Output | IPS | Oxide
+    const int kw = availW / 7; // Input | Drive | Wobble | Glue | Noise | Output | IPS
 
     layoutKnobInBounds(tapeInputKnob,  { ox + kw * 0, ky, kw, kKnobH });
     layoutKnobInBounds(tapeDriveKnob,  { ox + kw * 1, ky, kw, kKnobH });
@@ -2516,14 +2621,13 @@ void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 4;
-    // Mix | Decay | Pre-Dly | Width
-    const int startX = ox + (availW - kw * 4) / 2;
+    const int kw = availW / 3;
+    // Decay | Pre-Dly | Width (Mix moved to sidebar strip)
+    const int startX = ox + (availW - kw * 3) / 2;
 
-    layoutKnobInBounds(reverbMixKnob,       { startX,          ky, kw, kKnobH });
-    layoutKnobInBounds(reverbDecayKnob,     { startX + kw,     ky, kw, kKnobH });
-    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(reverbDecayKnob,     { startX,          ky, kw, kKnobH });
+    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw,     ky, kw, kKnobH });
+    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 2, ky, kw, kKnobH });
 }
 
 void StardustEditor::layoutGrainSection(juce::Rectangle<int> ap)
@@ -2533,11 +2637,26 @@ void StardustEditor::layoutGrainSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 4;
+    const int kw = availW / 6; // Size | Density | Pitch | Scatter | Reverse | Sync
     layoutKnobInBounds(grainSizeKnob,    { ox + kw * 0, ky, kw, kKnobH });
     layoutKnobInBounds(grainDensityKnob, { ox + kw * 1, ky, kw, kKnobH });
     layoutKnobInBounds(grainPitchKnob,   { ox + kw * 2, ky, kw, kKnobH });
     layoutKnobInBounds(grainScatterKnob, { ox + kw * 3, ky, kw, kKnobH });
+    layoutKnobInBounds(grainReverseKnob, { ox + kw * 4, ky, kw, kKnobH });
+
+    // Sync dropdown in last column
+    const int syncX = ox + kw * 5;
+    grainSyncLabel.setVisible(true);
+    grainSyncLabel.setBounds(syncX, ky, kw, 14);
+    grainSyncCombo.setVisible(true);
+    grainSyncCombo.setBounds(syncX + 2, ky + 16, kw - 4, 22);
+
+    // Dim size knob when synced to a division
+    const bool isFree = (grainSyncCombo.getSelectedId() <= 1);
+    const float alpha = isFree ? 1.0f : 0.4f;
+    grainSizeKnob.slider.setEnabled(isFree);
+    grainSizeKnob.slider.setAlpha(alpha);
+    grainSizeKnob.label.setAlpha(alpha);
 }
 
 void StardustEditor::layoutStutterSection(juce::Rectangle<int> ap)
@@ -3330,7 +3449,7 @@ void StardustEditor::resized()
                      &distortionDriveKnob, &distortionToneKnob,
                      &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob,
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob,
-                     &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob,
+                     &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob, &grainReverseKnob,
                      &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob,
                      &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
                      &reverserCrossfadeKnob })
@@ -3338,7 +3457,7 @@ void StardustEditor::resized()
 
     // Hide all sidebar mix sliders first
     for (auto* s : { &destroyMixStrip, &multiplyMixStrip, &tapeMixStrip,
-                     &distortionMixStrip, &hazeMixStrip, &unisonMixStrip,
+                     &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
                      &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip })
         s->setBounds({0, 0, 0, 0});
 
@@ -3349,6 +3468,8 @@ void StardustEditor::resized()
     // Tape formulation hardcoded — no UI elements
     distortionModeLabel.setVisible(false);
     for (auto& b : distortionModeBtn) b.setVisible(false);
+    grainSyncCombo.setVisible(false);
+    grainSyncLabel.setVisible(false);
     multiplyLfoLabel.setVisible(false);
     for (auto& b : multiplyLfoBtn) b.setVisible(false);
     reverserRepeatSlider.setVisible(false);
@@ -3360,7 +3481,7 @@ void StardustEditor::resized()
     static constexpr int kSbPillW = 92;
     static constexpr int kSbPillH = 28;
     juce::Slider* mixStripForFx[13] = { nullptr, &destroyMixStrip, nullptr,
-                                        &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, nullptr, &hazeMixStrip, &unisonMixStrip,
+                                        &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
                                         &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip };
 
     // Layout all occupied slots simultaneously

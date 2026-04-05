@@ -29,7 +29,7 @@ private:
     // Allpass diffusion chain: 3 cascaded micro-allpasses per voice.
     // Keep this subtle so the effect stays immediate and does not feel predelayed.
     static constexpr int kNumAllpasses    = 3;
-    static constexpr float kAllpassFeedback = 0.22f;
+    static constexpr float kAllpassFeedback = 0.12f;  // subtle — less phase smearing in low end
 
     // Renormalize incremental oscillators every N samples
     static constexpr int kNormalizeInterval = 512;
@@ -73,7 +73,7 @@ private:
     };
     std::array<Voice, kNumVoices> voices {};
 
-    // M4: Bass mono crossover at 200Hz (2-pole Butterworth LP)
+    // M4: Bass mono crossover at 320Hz (2-pole Butterworth LP)
     float bassCrossB0 = 1.0f, bassCrossB1 = 0.0f, bassCrossB2 = 0.0f;
     float bassCrossA1 = 0.0f, bassCrossA2 = 0.0f;
     float bassCrossZ1[kMaxChannels] = {};

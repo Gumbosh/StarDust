@@ -4,6 +4,7 @@
 
 // Degrader-style bitcrusher: raw S&H + truncation, no dither, no filtering.
 // Intentionally crude — aliasing and quantization noise ARE the character.
+// Uses a short crossfade at S&H boundaries to avoid hard clicks.
 class BitCrusher
 {
 public:
@@ -28,6 +29,11 @@ private:
     static constexpr int kMaxChannels = 2;
     float holdCounter[kMaxChannels] = {};
     float holdSample[kMaxChannels] = {};
+    float prevHoldSample[kMaxChannels] = {};
+
+    // Crossfade state: counts down from crossfade length to 0
+    float crossfadeCounter[kMaxChannels] = {};
+    static constexpr float kCrossfadeSamples = 8.0f; // short crossfade to avoid clicks
 
     // Clock jitter — simple random walk on S&H timing
     float jitterAmount = 0.0f;

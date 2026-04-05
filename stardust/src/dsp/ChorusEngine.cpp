@@ -284,14 +284,6 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
             sR = sR * (1.0f - bbdLPCoeff) + v.bbdLP[1] * bbdLPCoeff;
             v.bbdLP[1] = sR;
 
-            // CH4: BBD clock feedthrough — faint clock tone at instantaneous BBD rate
-            {
-                const float clockLevel = 0.001f; // -60dB
-                const float clockNoise = clockOsc.sinVal * clockLevel;
-                sL += clockNoise;
-                sR += clockNoise;
-            }
-
             // NE570 expander: expand after BBD to restore dynamics (M1)
             // Uses per-channel envelope tracking the wet signal
             {
@@ -304,11 +296,18 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
                 sR *= (1.0f + expandEnvR * 0.5f);
             }
 
-            // BBD noise floor: ~-70dB shaped noise (real MN3009 characteristic)
+            // BBD noise floor — only audible when signal is present
+            // (real hardware: compander noise gate suppresses noise during silence)
+            // Clock feedthrough removed: 50kHz is above Nyquist at 44.1kHz and only
+            // creates aliased artifacts with no authentic analog character.
             {
+                const float signalLevel = compEnvState;
+                const float noiseGate = std::min(1.0f, signalLevel * 20.0f); // smooth gate
+
+                // BBD noise floor: ~-86dB shaped noise (subtle, Juno-60 is a clean chorus)
                 bbdNoisePrng = bbdNoisePrng * 1664525u + 1013904223u;
                 const float noise = static_cast<float>(static_cast<int32_t>(bbdNoisePrng)) * (1.0f / 2147483648.0f);
-                const float noiseLevel = 0.0003f; // ~-70dB
+                const float noiseLevel = 0.00005f * noiseGate;
                 sL += noise * noiseLevel;
                 bbdNoisePrng = bbdNoisePrng * 1664525u + 1013904223u;
                 const float noise2 = static_cast<float>(static_cast<int32_t>(bbdNoisePrng)) * (1.0f / 2147483648.0f);

@@ -274,12 +274,12 @@ std::vector<Preset> getLoFiPresets()
         // --- Extreme Lo-Fi ---
         makePreset("2-Bit Wasteland", bank, {
             {"chainSlot0", 1.0f}, {"destroyEnabled", 1.0f},
-            {"destroyFader", 4000.0f}, {"destroyBits", 2.0f},
+            {"destroyFader", 4000.0f}, {"destroyBits", 3.0f},
             {"destroyIn", 8.0f}, {"destroyOut", -6.0f}, {"destroyJitter", 0.4f}
         }),
         makePreset("1-Bit Square", bank, {
             {"chainSlot0", 1.0f}, {"destroyEnabled", 1.0f},
-            {"destroyFader", 8000.0f}, {"destroyBits", 1.0f},
+            {"destroyFader", 8000.0f}, {"destroyBits", 3.0f},
             {"destroyIn", 4.0f}, {"destroyOut", -6.0f}
         }),
         makePreset("Destroyed Signal", bank, {

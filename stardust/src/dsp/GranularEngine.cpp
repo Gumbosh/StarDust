@@ -14,6 +14,9 @@ void GranularEngine::prepare(double sr, int /*samplesPerBlock*/)
     grainAccumulator = 0.0f;
     nextGrainIndex = 0;
     rngState = 42u;
+    reverseAmount = 0.0f;
+    syncDivision = 0;
+    hostBpm = 120.0;
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
         captureBuffer[ch].fill(0.0f);
@@ -31,7 +34,10 @@ void GranularEngine::setSize(float ms)     { sizeSmoothed.setTargetValue(juce::j
 void GranularEngine::setDensity(float d)   { densitySmoothed.setTargetValue(juce::jlimit(1.0f, 16.0f, d)); }
 void GranularEngine::setPitch(float st)    { pitchSmoothed.setTargetValue(juce::jlimit(-12.0f, 12.0f, st)); }
 void GranularEngine::setScatter(float s)   { scatterSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, s)); }
-void GranularEngine::setMix(float m)       { mixSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, m)); }
+void GranularEngine::setReverse(float r)     { reverseAmount = juce::jlimit(0.0f, 1.0f, r); }
+void GranularEngine::setMix(float m)         { mixSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, m)); }
+void GranularEngine::setSyncDivision(int d)  { syncDivision = d; }
+void GranularEngine::setHostBpm(double b)    { hostBpm = std::max(20.0, b); }
 
 float GranularEngine::nextRandom()
 {
@@ -68,6 +74,31 @@ float GranularEngine::getWindowValue(float phase) const
     return hannWindow[iClamped] + frac * (hannWindow[iClamped + 1] - hannWindow[iClamped]);
 }
 
+float GranularEngine::divisionToMs() const
+{
+    // Division index to beats:
+    // 0=Off, 1=1/64, 2=1/32T, 3=1/32, 4=1/16T, 5=1/16, 6=1/8T,
+    // 7=1/8, 8=1/4T, 9=1/4, 10=1/2T, 11=1/2, 12=1bar
+    static constexpr float divisions[] = {
+        0.0f,          // 0: Off (unused)
+        1.0f / 16.0f,  // 1: 1/64
+        1.0f / 12.0f,  // 2: 1/32T
+        1.0f / 8.0f,   // 3: 1/32
+        1.0f / 6.0f,   // 4: 1/16T
+        1.0f / 4.0f,   // 5: 1/16
+        1.0f / 3.0f,   // 6: 1/8T
+        1.0f / 2.0f,   // 7: 1/8
+        2.0f / 3.0f,   // 8: 1/4T
+        1.0f,          // 9: 1/4
+        4.0f / 3.0f,   // 10: 1/2T
+        2.0f,          // 11: 1/2
+        4.0f,          // 12: 1 bar
+    };
+    const int idx = juce::jlimit(1, 12, syncDivision);
+    const float beatMs = 60000.0f / static_cast<float>(hostBpm);
+    return divisions[idx] * beatMs;
+}
+
 void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pitchRatio)
 {
     auto& g = grains[nextGrainIndex];
@@ -78,11 +109,15 @@ void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pit
                                        static_cast<float>(sampleRate) * 1.5f);
     const int scatterOffset = static_cast<int>(nextRandom() * scatterAmt * std::max(0.0f, maxScatter));
 
+    // Reverse: probabilistic based on reverseAmount knob
+    const bool isReverse = nextRandom() < reverseAmount;
+
     g.active = true;
     g.startPos = (writePos - static_cast<int>(sizeSamples) - scatterOffset + kCaptureSize) & kCaptureMask;
-    g.readPos = 0.0f;
-    g.playbackRate = pitchRatio;
+    g.readPos = isReverse ? sizeSamples : 0.0f;
+    g.playbackRate = isReverse ? -pitchRatio : pitchRatio;
     g.grainLength = static_cast<int>(sizeSamples);
+    g.reverse = isReverse;
 }
 
 void GranularEngine::process(juce::AudioBuffer<float>& buffer)
@@ -99,7 +134,8 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         writePos = (writePos + 1) & kCaptureMask;
 
         // Read smoothed parameters
-        const float sizeSmp = sizeSmoothed.getNextValue() * static_cast<float>(sampleRate) / 1000.0f;
+        const float sizeMs = (syncDivision > 0) ? divisionToMs() : sizeSmoothed.getNextValue();
+        const float sizeSmp = sizeMs * static_cast<float>(sampleRate) / 1000.0f;
         const float density = densitySmoothed.getNextValue();
         const float pitchSt = pitchSmoothed.getNextValue();
         const float pitchRatio = std::pow(2.0f, pitchSt / 12.0f);
@@ -123,8 +159,12 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
         {
             if (!g.active) continue;
 
-            const float phase = g.readPos / std::max(static_cast<float>(g.grainLength), 1.0f);
-            if (phase >= 1.0f)
+            // Phase calculation: 0-1 regardless of direction
+            const float phase = g.reverse
+                ? 1.0f - (g.readPos / std::max(static_cast<float>(g.grainLength), 1.0f))
+                : g.readPos / std::max(static_cast<float>(g.grainLength), 1.0f);
+
+            if (phase >= 1.0f || phase < 0.0f)
             {
                 g.active = false;
                 continue;
@@ -133,8 +173,9 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
             const float window = getWindowValue(phase);
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                const float capturePos = static_cast<float>((g.startPos + static_cast<int>(g.readPos)) & kCaptureMask)
-                                       + (g.readPos - std::floor(g.readPos));
+                const float absReadPos = std::abs(g.readPos);
+                const float capturePos = static_cast<float>((g.startPos + static_cast<int>(absReadPos)) & kCaptureMask)
+                                       + (absReadPos - std::floor(absReadPos));
                 wet[ch] += readHermite(ch, capturePos) * window;
             }
 

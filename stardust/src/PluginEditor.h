@@ -252,9 +252,12 @@ private:
     std::unique_ptr<ButtonAttachment> unisonToggleAttach;
 
     // GRAIN section
-    LabeledKnob grainSizeKnob, grainDensityKnob, grainPitchKnob, grainScatterKnob;
+    LabeledKnob grainSizeKnob, grainDensityKnob, grainPitchKnob, grainScatterKnob, grainReverseKnob;
     juce::ToggleButton grainToggle;
     std::unique_ptr<ButtonAttachment> grainToggleAttach;
+    juce::ComboBox grainSyncCombo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> grainSyncAttach;
+    juce::Label grainSyncLabel;
     juce::Slider grainMixStrip;
     std::unique_ptr<SliderAttachment> grainMixStripAttach;
 
@@ -287,11 +290,11 @@ private:
 
     // Sidebar mix sliders (one per section, positioned below name pill)
     juce::Slider destroyMixStrip, multiplyMixStrip, tapeMixStrip,
-                 distortionMixStrip, hazeMixStrip, unisonMixStrip;
+                 distortionMixStrip, hazeMixStrip, unisonMixStrip, reverbMixStrip;
     std::unique_ptr<SliderAttachment> destroyMixStripAttach,
                                       multiplyMixStripAttach, tapeMixStripAttach,
                                       distortionMixStripAttach, hazeMixStripAttach,
-                                      unisonMixStripAttach;
+                                      unisonMixStripAttach, reverbMixStripAttach;
 
     juce::ToggleButton destroyToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
     std::unique_ptr<ButtonAttachment> destroyToggleAttach, multiplyToggleAttach,

@@ -3,20 +3,22 @@
 void BitCrusher::prepare(double sampleRate, int /*samplesPerBlock*/)
 {
     hostSampleRate = sampleRate;
-    bitDepthSmoothed.reset(sampleRate, 0.005);
-    targetRateSmoothed.reset(sampleRate, 0.005);
+    bitDepthSmoothed.reset(sampleRate, 0.002);   // 2ms — snappy response
+    targetRateSmoothed.reset(sampleRate, 0.002);
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
         holdCounter[ch] = 0.0f;
         holdSample[ch] = 0.0f;
+        prevHoldSample[ch] = 0.0f;
+        crossfadeCounter[ch] = 0.0f;
         jitterState[ch] = 0xDEAD0001u + static_cast<uint32_t>(ch);
     }
 }
 
 void BitCrusher::setBitDepth(float bits)
 {
-    bits = juce::jlimit(1.0f, 24.0f, bits);
+    bits = juce::jlimit(3.0f, 24.0f, bits);
     if (currentBitDepth != bits)
     {
         currentBitDepth = bits;
@@ -75,13 +77,26 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
             if (holdCounter[ch] >= 1.0f)
             {
                 holdCounter[ch] -= 1.0f;
+                prevHoldSample[ch] = holdSample[ch];
                 holdSample[ch] = sample; // ZOH: grab and hold
+                crossfadeCounter[ch] = kCrossfadeSamples;
             }
 
-            // --- Bit depth reduction: raw truncation, no dither ---
-            data[i] = (levels <= 2.0f)
-                ? (holdSample[ch] >= 0.0f ? 0.5f : -0.5f)
-                : std::floor(holdSample[ch] * levels) / levels;
+            // --- Crossfade between old and new held sample ---
+            float held;
+            if (crossfadeCounter[ch] > 0.0f)
+            {
+                const float t = crossfadeCounter[ch] / kCrossfadeSamples;
+                held = holdSample[ch] + t * (prevHoldSample[ch] - holdSample[ch]);
+                crossfadeCounter[ch] -= 1.0f;
+            }
+            else
+            {
+                held = holdSample[ch];
+            }
+
+            // --- Bit depth reduction: raw truncation ---
+            data[i] = std::floor(held * levels) / levels;
         }
     }
 }

@@ -4,7 +4,7 @@
 #include <cmath>
 
 // Granular freeze/scatter engine. Captures audio into a circular buffer
-// and replays overlapping grains with pitch shift, scatter, and Hann windowing.
+// and replays overlapping grains with pitch shift, scatter, reverse, and Hann windowing.
 class GranularEngine
 {
 public:
@@ -16,7 +16,12 @@ public:
     void setDensity(float density);
     void setPitch(float semitones);
     void setScatter(float scatter);
+    void setReverse(float reverseAmount); // 0-1: probability of grain playing backwards
     void setMix(float mix);
+
+    // Tempo sync: 0=off, 1+=musical division index (overrides size knob)
+    void setSyncDivision(int division);
+    void setHostBpm(double bpm);
 
     void process(juce::AudioBuffer<float>& buffer);
 
@@ -40,6 +45,10 @@ private:
     juce::SmoothedValue<float> scatterSmoothed { 0.5f };
     juce::SmoothedValue<float> mixSmoothed { 0.5f };
 
+    float reverseAmount = 0.0f; // 0-1: probability of reverse grain
+    int syncDivision = 0;      // 0=off, 1+=division index
+    double hostBpm = 120.0;
+
     struct Grain
     {
         bool active = false;
@@ -47,6 +56,7 @@ private:
         float readPos = 0.0f;
         float playbackRate = 1.0f;
         int grainLength = 0; // output duration in samples
+        bool reverse = false; // true = play grain backwards
     };
     std::array<Grain, kMaxGrains> grains {};
 
@@ -64,4 +74,7 @@ private:
     float getWindowValue(float phase) const;
     void triggerGrain(float sizeSamples, float scatterAmt, float pitchRatio);
     float nextRandom(); // 0-1 uniform
+
+    // Tempo sync: convert division index to grain size in ms
+    float divisionToMs() const;
 };
