@@ -11,6 +11,10 @@
 #include "dsp/ModulationMatrix.h"
 #include "dsp/Saturation.h"
 #include "dsp/DattorroReverb.h"
+#include "dsp/GranularEngine.h"
+#include "dsp/StutterEngine.h"
+#include "dsp/PitchShifter.h"
+#include "dsp/ReverserEngine.h"
 
 struct Preset
 {
@@ -97,6 +101,10 @@ private:
     TapeEngine tapeEngine;
     Saturation saturation;
     DattorroReverb standaloneReverb;
+    GranularEngine granularEngine;
+    StutterEngine stutterEngine;
+    PitchShifter pitchShifter;
+    ReverserEngine reverserEngine;
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;

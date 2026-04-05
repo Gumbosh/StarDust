@@ -4,31 +4,17 @@
 
 struct StarfieldParams
 {
-    float destroyFader = 1.0f;  // 0=33RPM, 1=45RPM, 2=x2, 3=78RPM (continuous)
-    float filterCutoff = 99.0f;
-    float destroyIn = 0.0f;
-    float destroyOut = 0.0f;
-    float destroyMix = 1.0f;
-    float chorusMix = 0.0f;
-    float chorusSpeed = 1.0f;
-    float panOuter = 1.0f;
-    float panInner = 0.8f;
-    float filterLfo = 0.0f;
-    float tapeWow = 0.0f;
-    float tapeFlutter = 0.0f;
-    float tapeHiss = 0.0f;
-    float inputGain = 0.0f;
-    float outputGain = 0.0f;
-    float masterMix = 1.0f;
-    bool tapeEnabled = false;
-    bool destroyEnabled = true;
-    bool multiplyEnabled = true;
-    // NEW — previously had no visual representation
-    float destroyBits   = 12.0f; // 4..24 bits — controls posterization banding
-    float tapeDrive     = 0.0f;  // 0..1 (pre-scaled by tapeMix) — highlight bloom
-    float tapeGlue      = 0.0f;  // 0..1 (pre-scaled by tapeMix) — dynamic range compression
-    float tapeMix       = 1.0f;  // 0..1 — scales all tape visual effects
-    float tapeOutput    = 0.0f;  // -24..+12 dB — post-tape brightness trim
+    struct Slot
+    {
+        int effectId = 0;    // 0=empty, 1=GRIT, 3=JU-60, 4=OXIDE, etc.
+        float mix    = 0.0f; // 0..1 wet/dry
+        bool enabled = false;
+    };
+    Slot slots[4];
+
+    float inputGain  = 0.0f;  // -24..+12 dB
+    float outputGain = 0.0f;  // -24..+12 dB
+    float masterMix  = 1.0f;  // 0..1
 };
 
 class StarfieldBackground : public juce::Component, public juce::Timer
@@ -47,6 +33,19 @@ public:
 private:
     StarfieldParams readParams() const;
     void renderStarfield(const StarfieldParams& params, float time);
+
+    // Per-effect visual layers (each takes pixelData, mix intensity, and time)
+    void applyGrit       (float mix, float time);
+    void applyJu60       (float mix, float time);
+    void applyOxide      (float mix, float time);
+    void applyDist       (float mix, float time);
+    void applyVoid       (float mix, float time);
+    void applyHaze       (float mix, float time);
+    void applyMultiply   (float mix, float time);
+    void applyGrain      (float mix, float time);
+    void applyStutter    (float mix, float time);
+    void applyShift      (float mix, float time);
+    void applyReverser   (float mix, float time);
 
     static float hash(float x, float y);
 

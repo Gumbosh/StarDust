@@ -10,11 +10,8 @@ void BitCrusher::prepare(double sampleRate, int /*samplesPerBlock*/)
     {
         holdCounter[ch] = 0.0f;
         holdSample[ch] = 0.0f;
-        postZ1[ch] = 0.0f;
-        postZ2[ch] = 0.0f;
         jitterState[ch] = 0xDEAD0001u + static_cast<uint32_t>(ch);
     }
-    postB0 = 1.0f; postB1 = 0.0f; postB2 = 0.0f; postA1 = 0.0f; postA2 = 0.0f;
 }
 
 void BitCrusher::setBitDepth(float bits)
@@ -47,22 +44,6 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
     float cachedLevels = std::exp2f(bitDepthSmoothed.getCurrentValue());
     int bitUpdateCounter = 0;
 
-    // Post-crush LP coefficients (2nd-order Butterworth) — block rate
-    {
-        const float targetRate = targetRateSmoothed.getCurrentValue();
-        const float normCut = juce::jlimit(0.006f, 0.49f, targetRate * 0.45f / sr);
-        const float w0 = juce::MathConstants<float>::twoPi * normCut;
-        const float cosW0 = std::cos(w0);
-        const float sinW0 = std::sin(w0);
-        const float alpha = sinW0 / (2.0f * 0.7071f); // Q = 1/sqrt(2) Butterworth
-        const float a0inv = 1.0f / (1.0f + alpha);
-        postB0 = ((1.0f - cosW0) * 0.5f) * a0inv;
-        postB1 = (1.0f - cosW0) * a0inv;
-        postB2 = postB0;
-        postA1 = (-2.0f * cosW0) * a0inv;
-        postA2 = (1.0f - alpha) * a0inv;
-    }
-
     for (int i = 0; i < numSamples; ++i)
     {
         const float targetRate = targetRateSmoothed.getNextValue();
@@ -81,7 +62,6 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
             const float sample = data[i];
 
             // --- Sample-and-hold with clock jitter ---
-            // Jitter: random offset on S&H clock timing (like cheap ADC clock instability)
             float jitteredRatio = ratio;
             if (jitterAmount > 0.0f)
             {
@@ -99,17 +79,9 @@ void BitCrusher::process(juce::AudioBuffer<float>& buffer)
             }
 
             // --- Bit depth reduction: raw truncation, no dither ---
-            // floor(x * levels) / levels — like vintage samplers
-            const float crushed = (levels <= 2.0f)
+            data[i] = (levels <= 2.0f)
                 ? (holdSample[ch] >= 0.0f ? 0.5f : -0.5f)
                 : std::floor(holdSample[ch] * levels) / levels;
-
-            // --- Post-crush LP filter: tames harshest aliasing ---
-            const float out = postB0 * crushed + postZ1[ch];
-            postZ1[ch] = postB1 * crushed - postA1 * out + postZ2[ch];
-            postZ2[ch] = postB2 * crushed - postA2 * out;
-
-            data[i] = out;
         }
     }
 }

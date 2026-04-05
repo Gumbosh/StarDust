@@ -41,10 +41,25 @@ target_sources(Stardust PRIVATE
     src/dsp/TapeEngine.h
     src/dsp/Saturation.cpp
     src/dsp/Saturation.h
+    src/dsp/GranularEngine.cpp
+    src/dsp/GranularEngine.h
+    src/dsp/StutterEngine.cpp
+    src/dsp/StutterEngine.h
+    src/dsp/PitchShifter.cpp
+    src/dsp/PitchShifter.h
+    src/dsp/ReverserEngine.cpp
+    src/dsp/ReverserEngine.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp
     src/gui/PresetLibraryPanel.h
+    src/presets/FactoryPresets.h
+    src/presets/FactoryPresets.cpp
+    src/presets/LoFiPresets.cpp
+    src/presets/GrainsPresets.cpp
+    src/presets/GlitchPresets.cpp
+    src/presets/TapePresets.cpp
+    src/presets/AtmospherePresets.cpp
 )
 
 juce_add_binary_data(StardustAssets SOURCES

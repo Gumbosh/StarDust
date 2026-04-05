@@ -133,10 +133,12 @@ bool PresetLibraryPanel::keyPressed(const juce::KeyPress& key)
 }
 
 void PresetLibraryPanel::updatePresets(std::vector<PresetListItem> factory,
+                                        std::map<juce::String, std::vector<PresetListItem>> factoryBanks,
                                         std::vector<PresetListItem> user,
                                         std::map<juce::String, std::vector<PresetListItem>> bankItems)
 {
     factoryItems = std::move(factory);
+    factoryBankItemsMap = std::move(factoryBanks);
     userItems = std::move(user);
     bankItemsMap = std::move(bankItems);
 
@@ -147,7 +149,7 @@ void PresetLibraryPanel::updatePresets(std::vector<PresetListItem> factory,
 
     // Clamp selectedBank if banks were removed
     if (bankList.selectedBank >= bankList.totalBankCount())
-        bankList.selectedBank = 2; // fall back to USER
+        bankList.selectedBank = 1; // fall back to first factory bank
 
     rebuildFavorites();
     applyFilter();
@@ -164,9 +166,12 @@ void PresetLibraryPanel::setFavorites(const std::set<juce::String>& favs)
 {
     for (auto& item : factoryItems)
         item.isFavorite = favs.count(item.name) > 0;
+    for (auto& [bk, items] : factoryBankItemsMap)
+        for (auto& item : items)
+            item.isFavorite = favs.count(item.name) > 0;
     for (auto& item : userItems)
         item.isFavorite = favs.count(item.name) > 0;
-    for (auto& [bankName, items] : bankItemsMap)
+    for (auto& [bk, items] : bankItemsMap)
         for (auto& item : items)
             item.isFavorite = favs.count(item.name) > 0;
     rebuildFavorites();
@@ -175,11 +180,27 @@ void PresetLibraryPanel::setFavorites(const std::set<juce::String>& favs)
 
 const std::vector<PresetListItem>& PresetLibraryPanel::activeItems() const
 {
-    if (bankList.selectedBank == 0) return favoriteItems;
-    if (bankList.selectedBank == 1) return factoryItems;
-    if (bankList.selectedBank == 2) return userItems;
+    const int sel = bankList.selectedBank;
 
-    const int bankIdx = bankList.selectedBank - BankList::kFixedBanks;
+    // 0 = FAVORITES
+    if (sel == 0) return favoriteItems;
+
+    // 1..kNumFactoryBanks = factory sub-banks
+    if (sel >= 1 && sel <= kNumFactoryBanks)
+    {
+        const auto& bankName = kFactoryBankOrder[sel - 1];
+        auto it = factoryBankItemsMap.find(bankName);
+        if (it != factoryBankItemsMap.end())
+            return it->second;
+        return factoryItems; // fallback to uncategorized
+    }
+
+    // kNumFactoryBanks+1 = USER
+    const int userIdx = kNumFactoryBanks + 1;
+    if (sel == userIdx) return userItems;
+
+    // kNumFactoryBanks+2+ = dynamic user banks
+    const int bankIdx = sel - BankList::kFixedBanks;
     if (bankIdx >= 0 && bankIdx < static_cast<int>(bankNames.size()))
     {
         auto it = bankItemsMap.find(bankNames[static_cast<size_t>(bankIdx)]);
@@ -217,9 +238,12 @@ void PresetLibraryPanel::rebuildFavorites()
     favoriteItems.clear();
     for (const auto& item : factoryItems)
         if (item.isFavorite) favoriteItems.push_back(item);
+    for (const auto& [bk, items] : factoryBankItemsMap)
+        for (const auto& item : items)
+            if (item.isFavorite) favoriteItems.push_back(item);
     for (const auto& item : userItems)
         if (item.isFavorite) favoriteItems.push_back(item);
-    for (const auto& [bankName, items] : bankItemsMap)
+    for (const auto& [bk, items] : bankItemsMap)
         for (const auto& item : items)
             if (item.isFavorite) favoriteItems.push_back(item);
 }
@@ -244,17 +268,17 @@ int PresetLibraryPanel::BankList::bankAtY(int y) const
     const int rowH = 30;
     if (y < startY) return -1;
 
-    // Fixed banks (0, 1, 2)
+    // Fixed banks: FAVORITES(0), factory banks(1..5), USER(6)
     const int fixedEndY = startY + kFixedBanks * rowH;
     if (y < fixedEndY)
         return (y - startY) / rowH;
 
-    // Separator gap
+    // Separator gap before dynamic user banks
     if (owner.bankNames.empty()) return -1;
     const int dynamicStartY = fixedEndY + kSeparatorH;
     if (y < dynamicStartY) return -1;
 
-    // Dynamic banks
+    // Dynamic user banks
     const int dynIdx = (y - dynamicStartY) / rowH;
     const int bankIdx = kFixedBanks + dynIdx;
     return (bankIdx < totalBankCount()) ? bankIdx : -1;
@@ -262,18 +286,21 @@ int PresetLibraryPanel::BankList::bankAtY(int y) const
 
 void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
 {
-    const juce::String fixedNames[] = { "FAVORITES", "FACTORY", "USER" };
+    // Bank layout: FAVORITES, Lo-Fi, Grains, Glitch, Tape, Atmosphere, USER, [dynamic...]
+    const juce::String fixedNames[] = {
+        "FAVORITES",
+        "LO-FI", "GRAINS", "GLITCH", "TAPE", "ATMOSPHERE",
+        "USER"
+    };
     const int startY = 12;
     const int rowH = 30;
 
-    // Draw fixed banks
-    for (int i = 0; i < kFixedBanks; ++i)
-    {
-        auto rowBounds = juce::Rectangle<float>(0.0f, static_cast<float>(startY + i * rowH),
+    auto drawBankRow = [&](int bankIdx, const juce::String& label, float rowY, bool showStar) {
+        auto rowBounds = juce::Rectangle<float>(0.0f, rowY,
                                                  static_cast<float>(getWidth()), static_cast<float>(rowH));
 
-        const bool isSelected = (i == selectedBank);
-        const bool isHovered = (i == hoveredBank);
+        const bool isSelected = (bankIdx == selectedBank);
+        const bool isHovered = (bankIdx == hoveredBank);
 
         if (isSelected)
         {
@@ -291,18 +318,18 @@ void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
         g.setColour(isSelected ? kAccent : (isHovered ? kFg : kFgDim));
         g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
 
-        if (i == 0)
-        {
-            g.drawText(juce::String::charToString(0x2605) + " " + fixedNames[i],
+        if (showStar)
+            g.drawText(juce::String::charToString(0x2605) + " " + label,
                         rowBounds.withLeft(10.0f), juce::Justification::centredLeft);
-        }
         else
-        {
-            g.drawText(fixedNames[i], rowBounds.withLeft(14.0f), juce::Justification::centredLeft);
-        }
-    }
+            g.drawText(label, rowBounds.withLeft(14.0f), juce::Justification::centredLeft);
+    };
 
-    // Draw separator and dynamic banks
+    // Draw all fixed banks (FAVORITES + 5 factory banks + USER)
+    for (int i = 0; i < kFixedBanks; ++i)
+        drawBankRow(i, fixedNames[i], static_cast<float>(startY + i * rowH), i == 0);
+
+    // Draw separator and dynamic user banks
     if (!owner.bankNames.empty())
     {
         const int sepY = startY + kFixedBanks * rowH + kSeparatorH / 2;
@@ -314,29 +341,9 @@ void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
         for (int i = 0; i < static_cast<int>(owner.bankNames.size()); ++i)
         {
             const int bankIdx = kFixedBanks + i;
-            auto rowBounds = juce::Rectangle<float>(0.0f, static_cast<float>(dynamicStartY + i * rowH),
-                                                     static_cast<float>(getWidth()), static_cast<float>(rowH));
-
-            const bool isSelected = (bankIdx == selectedBank);
-            const bool isHovered = (bankIdx == hoveredBank);
-
-            if (isSelected)
-            {
-                g.setColour(kAccent.withAlpha(0.08f));
-                g.fillRoundedRectangle(rowBounds.reduced(4.0f, 2.0f), 3.0f);
-                g.setColour(kAccent);
-                g.fillRect(0.0f, rowBounds.getY() + 4.0f, 2.0f, rowBounds.getHeight() - 8.0f);
-            }
-            else if (isHovered)
-            {
-                g.setColour(kAccent.withAlpha(0.04f));
-                g.fillRoundedRectangle(rowBounds.reduced(4.0f, 2.0f), 3.0f);
-            }
-
-            g.setColour(isSelected ? kAccent : (isHovered ? kFg : kFgDim));
-            g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
-            g.drawText(owner.bankNames[static_cast<size_t>(i)].toUpperCase(),
-                        rowBounds.withLeft(14.0f), juce::Justification::centredLeft);
+            drawBankRow(bankIdx,
+                        owner.bankNames[static_cast<size_t>(i)].toUpperCase(),
+                        static_cast<float>(dynamicStartY + i * rowH), false);
         }
     }
 }

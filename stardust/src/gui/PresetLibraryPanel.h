@@ -24,6 +24,7 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
     void updatePresets(std::vector<PresetListItem> factory,
+                       std::map<juce::String, std::vector<PresetListItem>> factoryBanks,
                        std::vector<PresetListItem> user,
                        std::map<juce::String, std::vector<PresetListItem>> bankItems);
     void setCurrentPresetIndex(int index);
@@ -38,6 +39,12 @@ public:
     std::function<void(const juce::String&)> onDeleteBank;
     std::function<void(const juce::String&, const juce::String&)> onRenameBank;
 
+    // Factory bank display order (curated, not alphabetical)
+    static constexpr int kNumFactoryBanks = 5;
+    static inline const juce::String kFactoryBankOrder[kNumFactoryBanks] = {
+        "Lo-Fi", "Grains", "Glitch", "Tape", "Atmosphere"
+    };
+
 private:
     // ─── Bank list (left column) ───
     class BankList : public juce::Component
@@ -49,9 +56,14 @@ private:
         void mouseExit(const juce::MouseEvent& e) override;
         void mouseDown(const juce::MouseEvent& e) override;
 
-        int selectedBank = 1; // 0 = FAVORITES, 1 = FACTORY, 2 = USER, 3+ = custom banks
+        // Bank index layout:
+        // 0 = FAVORITES
+        // 1..kNumFactoryBanks = factory sub-banks (Lo-Fi, Grains, Glitch, Tape, Atmosphere)
+        // kNumFactoryBanks+1 = USER
+        // kNumFactoryBanks+2+ = dynamic user banks
+        int selectedBank = 1; // default to first factory bank (Lo-Fi)
         int totalBankCount() const;
-        static constexpr int kFixedBanks = 3;
+        static constexpr int kFixedBanks = 1 + kNumFactoryBanks + 1; // FAV + 5 factory + USER = 7
 
     private:
         PresetLibraryPanel& owner;
@@ -81,7 +93,7 @@ private:
     static constexpr int kHeaderH = 32;
     static constexpr int kSearchH = 28;
     static constexpr int kRowH = 26;
-    static constexpr int kBankW = 100;
+    static constexpr int kBankW = 110;  // slightly wider to fit "ATMOSPHERE"
     static constexpr int kLoadBankBtnH = 26;
 
     juce::TextButton closeBtn;
@@ -92,7 +104,8 @@ private:
     juce::TextButton loadBankBtn;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
-    std::vector<PresetListItem> factoryItems;
+    std::vector<PresetListItem> factoryItems;  // uncategorized factory (Init)
+    std::map<juce::String, std::vector<PresetListItem>> factoryBankItemsMap;
     std::vector<PresetListItem> userItems;
     std::vector<PresetListItem> favoriteItems;
     std::map<juce::String, std::vector<PresetListItem>> bankItemsMap;

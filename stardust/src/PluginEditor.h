@@ -203,6 +203,10 @@ private:
     void layoutTapeSection(juce::Rectangle<int> bounds);
     void layoutDistortionSection(juce::Rectangle<int> bounds);
     void layoutReverbSection(juce::Rectangle<int> bounds);
+    void layoutGrainSection(juce::Rectangle<int> bounds);
+    void layoutStutterSection(juce::Rectangle<int> bounds);
+    void layoutShiftSection(juce::Rectangle<int> bounds);
+    void layoutReverserSection(juce::Rectangle<int> bounds);
 
     StardustProcessor& processorRef;
     StardustLookAndFeel lookAndFeel;
@@ -246,6 +250,38 @@ private:
     LabeledKnob unisonSpeedKnob, unisonOuterKnob, unisonInnerKnob;
     juce::ToggleButton unisonToggle;
     std::unique_ptr<ButtonAttachment> unisonToggleAttach;
+
+    // GRAIN section
+    LabeledKnob grainSizeKnob, grainDensityKnob, grainPitchKnob, grainScatterKnob;
+    juce::ToggleButton grainToggle;
+    std::unique_ptr<ButtonAttachment> grainToggleAttach;
+    juce::Slider grainMixStrip;
+    std::unique_ptr<SliderAttachment> grainMixStripAttach;
+
+    // STUTTER section
+    LabeledKnob stutterRateKnob, stutterDecayKnob, stutterDepthKnob;
+    juce::ToggleButton stutterToggle;
+    std::unique_ptr<ButtonAttachment> stutterToggleAttach;
+    juce::Slider stutterMixStrip;
+    std::unique_ptr<SliderAttachment> stutterMixStripAttach;
+
+    // SHIFT section
+    LabeledKnob shiftPitchKnob, shiftFeedbackKnob, shiftToneKnob;
+    juce::ToggleButton shiftToggle;
+    std::unique_ptr<ButtonAttachment> shiftToggleAttach;
+    juce::Slider shiftMixStrip;
+    std::unique_ptr<SliderAttachment> shiftMixStripAttach;
+
+    // REVERSER section
+    LabeledKnob reverserCrossfadeKnob;
+    juce::Slider reverserRepeatSlider, reverserDivSlider;
+    std::unique_ptr<SliderAttachment> reverserRepeatAttach, reverserDivAttach;
+    juce::Label reverserSlashLabel;
+    juce::Rectangle<int> reverserDisplayBounds; // for border painting
+    juce::ToggleButton reverserToggle;
+    std::unique_ptr<ButtonAttachment> reverserToggleAttach;
+    juce::Slider reverserMixStrip;
+    std::unique_ptr<SliderAttachment> reverserMixStripAttach;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 

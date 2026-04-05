@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "presets/FactoryPresets.h"
 
 StardustProcessor::StardustProcessor()
     : AudioProcessor(BusesProperties()
@@ -156,11 +157,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
 
-    // FX chain slot assignments (0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE, 6=REVERB, 7=HAZE, 8=MULTIPLY)
+    // FX chain slot assignments (0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE, 6=REVERB, 7=HAZE, 8=MULTIPLY, 9=GRAIN, 10=STUTTER, 11=SHIFT)
     for (int i = 0; i < 4; ++i)
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID("chainSlot" + juce::String(i), 1),
-            "FX Slot " + juce::String(i + 1), 0, 8, i + 1));
+            "FX Slot " + juce::String(i + 1), 0, 12, i + 1));
 
     // Reverb (standalone Dattorro plate)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -231,6 +232,81 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("unisonInner", 1), "Multiply 3+4",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
+    // GRAIN: granular freeze/scatter (slot 9)
+    {
+        juce::NormalisableRange<float> sizeRange(5.0f, 200.0f, 0.1f);
+        sizeRange.setSkewForCentre(30.0f);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID("grainSize", 1), "Grain Size", sizeRange, 50.0f));
+    }
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainDensity", 1), "Grain Density",
+        juce::NormalisableRange<float>(1.0f, 16.0f, 0.1f), 4.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainPitch", 1), "Grain Pitch",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainScatter", 1), "Grain Scatter",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("grainEnabled", 1), "Grain Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("grainMix", 1), "Grain Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    // STUTTER: buffer repeat/glitch (slot 10)
+    {
+        juce::NormalisableRange<float> rateRange(10.0f, 1000.0f, 0.1f);
+        rateRange.setSkewForCentre(100.0f);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID("stutterRate", 1), "Stutter Rate", rateRange, 125.0f));
+    }
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterDecay", 1), "Stutter Decay",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterDepth", 1), "Stutter Depth",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("stutterEnabled", 1), "Stutter Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterMix", 1), "Stutter Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+
+    // SHIFT: pitch shifter (slot 11)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("shiftPitch", 1), "Shift Pitch",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("shiftFeedback", 1), "Shift Feedback",
+        juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.0f));
+    {
+        juce::NormalisableRange<float> toneRange(200.0f, 20000.0f, 1.0f);
+        toneRange.setSkewForCentre(2000.0f);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID("shiftTone", 1), "Shift Tone", toneRange, 10000.0f));
+    }
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("shiftEnabled", 1), "Shift Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("shiftMix", 1), "Shift Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    // REVERSER: tempo-synced reverse (slot 12)
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID("reverserRepeat", 1), "Reverser Repeat", 1, 64, 4)); // repeat count (kHs style "4/16")
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("reverserDivision", 1), "Reverser Division",
+        juce::StringArray{"1/64", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4"}, 3)); // default 1/16
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserCrossfade", 1), "Reverser Crossfade",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("reverserEnabled", 1), "Reverser Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserMix", 1), "Reverser Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
     return { params.begin(), params.end() };
 }
 
@@ -255,6 +331,10 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // tapeFormulation hardcoded to 456 — no runtime selection needed
     saturation.prepare(sampleRate, samplesPerBlock);
     standaloneReverb.prepare(sampleRate);
+    granularEngine.prepare(sampleRate, samplesPerBlock);
+    stutterEngine.prepare(sampleRate, samplesPerBlock);
+    pitchShifter.prepare(sampleRate, samplesPerBlock);
+    reverserEngine.prepare(sampleRate, samplesPerBlock);
 
     // Pre-allocate with generous headroom for oversampled data
     // Use 8x to handle hosts that exceed the declared block size
@@ -422,11 +502,22 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 bitCrusher.setJitter(destroyJitterVal);
                 bitCrusher.process(buffer);
 
-                // 2. Saturation AFTER crush (Degrader order — smooths staircase edges)
-                destroyDrive.setInputDrive(destroyInVal);
-                destroyDrive.processInput(buffer);
-                destroyDrive.setOutputColor(destroyOutVal);
-                destroyDrive.processOutput(buffer);
+                // 2. Simple tanh saturation AFTER crush (Degrader-style soft clip)
+                //    destroyIn (0–24 dB) drives into saturation, destroyOut adjusts output level
+                if (destroyInVal > 0.1f)
+                {
+                    const float driveGain = std::pow(10.0f, destroyInVal / 20.0f);
+                    const float outGain   = std::pow(10.0f, destroyOutVal / 20.0f);
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        auto* data = buffer.getWritePointer(ch);
+                        for (int i = 0; i < numSamples; ++i)
+                        {
+                            const float x = data[i] * driveGain;
+                            data[i] = std::tanh(x) * outGain;
+                        }
+                    }
+                }
 
                 // Dry/wet mix
                 if (destroyMixVal < 0.999f && dryBufferOk)
@@ -683,6 +774,54 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 multiplyEngine.setPans(*apvts.getRawParameterValue("unisonOuter"),
                                        *apvts.getRawParameterValue("unisonInner"));
                 multiplyEngine.process(buffer);
+                break;
+            }
+            case 9: // GRAIN — granular freeze/scatter
+            {
+                if (!(*apvts.getRawParameterValue("grainEnabled") >= 0.5f)) break;
+                granularEngine.setSize(*apvts.getRawParameterValue("grainSize"));
+                granularEngine.setDensity(*apvts.getRawParameterValue("grainDensity"));
+                granularEngine.setPitch(*apvts.getRawParameterValue("grainPitch"));
+                granularEngine.setScatter(*apvts.getRawParameterValue("grainScatter"));
+                granularEngine.setMix(*apvts.getRawParameterValue("grainMix"));
+                granularEngine.process(buffer);
+                break;
+            }
+            case 10: // STUTTER — buffer repeat/glitch
+            {
+                if (!(*apvts.getRawParameterValue("stutterEnabled") >= 0.5f)) break;
+                stutterEngine.setRate(*apvts.getRawParameterValue("stutterRate"));
+                stutterEngine.setDecay(*apvts.getRawParameterValue("stutterDecay"));
+                stutterEngine.setDepth(*apvts.getRawParameterValue("stutterDepth"));
+                stutterEngine.setMix(*apvts.getRawParameterValue("stutterMix"));
+                stutterEngine.process(buffer);
+                break;
+            }
+            case 11: // SHIFT — pitch shifter
+            {
+                if (!(*apvts.getRawParameterValue("shiftEnabled") >= 0.5f)) break;
+                pitchShifter.setPitch(*apvts.getRawParameterValue("shiftPitch"));
+                pitchShifter.setFeedback(*apvts.getRawParameterValue("shiftFeedback"));
+                pitchShifter.setTone(*apvts.getRawParameterValue("shiftTone"));
+                pitchShifter.setMix(*apvts.getRawParameterValue("shiftMix"));
+                pitchShifter.process(buffer);
+                break;
+            }
+            case 12: // REVERSER — tempo-synced reverse
+            {
+                if (!(*apvts.getRawParameterValue("reverserEnabled") >= 0.5f)) break;
+                // Read BPM from host (default 120 if unavailable)
+                double hostBPM = 120.0;
+                if (auto* playHead = getPlayHead())
+                    if (auto pos = playHead->getPosition())
+                        if (auto bpm = pos->getBpm())
+                            hostBPM = *bpm;
+                reverserEngine.setBPM(hostBPM);
+                reverserEngine.setRepeatCount(static_cast<int>(*apvts.getRawParameterValue("reverserRepeat")));
+                reverserEngine.setDivision(static_cast<int>(*apvts.getRawParameterValue("reverserDivision")));
+                reverserEngine.setCrossfade(*apvts.getRawParameterValue("reverserCrossfade"));
+                reverserEngine.setMix(*apvts.getRawParameterValue("reverserMix"));
+                reverserEngine.process(buffer);
                 break;
             }
             default: break; // 0 = empty slot
@@ -980,7 +1119,7 @@ void StardustProcessor::rebuildAllPresets()
     allPresets.clear();
     for (const auto& fp : factoryPresets)
     {
-        Preset p = { fp.name, fp.values, true };
+        Preset p = { fp.name, fp.values, true, fp.bank };
         allPresets.push_back(std::move(p));
     }
     scanUserPresets();
@@ -1121,9 +1260,12 @@ juce::AudioProcessorEditor* StardustProcessor::createEditor()
 
 void StardustProcessor::initFactoryPresets()
 {
-    // Helper macro: default values used in every preset unless overridden
-    // chain: all slots explicitly set; enabled flags match which slots are occupied
-    factoryPresets = {
+    factoryPresets = getAllFactoryPresets();
+}
+
+#if 0 // Old factory presets removed — now in src/presets/ bank files
+static void oldPresets() {
+    std::vector<Preset> old = {
         { "Init", {
             {"chainSlot0", 0.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f}, {"destroyEnabled", 0.0f}, {"granularEnabled", 0.0f}, {"multiplyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"destroyFader", 19000.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f}, {"destroyOut", 0.0f}, {"destroyMix", 1.0f}, {"filterCutoff", 1.0f}, {"filterLfo", 0.0f}, {"grainCloud", 0.3f}, {"grainDrift", 0.2f}, {"grainSpace", 0.3f}, {"grainMorph", 0.5f}, {"grainSizeSync", 0.0f}, {"grainReverse", 0.0f}, {"grainMix", 0.0f}, {"grainFreeze", 0.0f}, {"chorusSpeed", 1.0f}, {"chorusMix", 0.0f}, {"multiplyPanOuter", 1.0f}, {"multiplyPanInner", 0.8f}, {"tapeDrive", 0.02f}, {"tapeWear", 0.0f}, {"tapeGlue", 0.5f}, {"tapeNoise", 0.0f}, {"tapeNoiseSpeed", 1.0f}, {"tapeOutput", 0.0f}, {"tapeMix", 1.0f}, {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f}, {"distortionEnabled", 0.0f}, {"distortionDrive", 0.5f}, {"distortionTone", 0.5f}, {"multiplyDepth", 0.13f}, {"multiplyTone", 0.7f}, {"distortionBias", 0.0f}, {"distortionMode", 0.0f}, {"grainShape", 0.0f}, {"distortionAsym", 0.5f}, {"multiplyFeedback", 0.0f}, {"multiplyLfoShape", 0.0f}, {"multiplyTempoSync", 0.0f}, {"multiplyShimmer", 0.2f}, {"grainPitchQuant", 0.0f}, {"grainHarm", 0.0f}
         }},
@@ -1426,6 +1568,7 @@ void StardustProcessor::initFactoryPresets()
         }},
     };
 }
+#endif
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {

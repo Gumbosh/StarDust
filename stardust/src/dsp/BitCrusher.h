@@ -2,7 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cmath>
 
-// Degrader-style bitcrusher: raw S&H + truncation, no dither, no oversampling.
+// Degrader-style bitcrusher: raw S&H + truncation, no dither, no filtering.
 // Intentionally crude — aliasing and quantization noise ARE the character.
 class BitCrusher
 {
@@ -32,9 +32,4 @@ private:
     // Clock jitter — simple random walk on S&H timing
     float jitterAmount = 0.0f;
     uint32_t jitterState[kMaxChannels] = {};
-
-    // Post-crush LP filter: 2nd-order Butterworth at targetRate * 0.45
-    // Tames the harshest aliasing edges (like Degrader's post-filter)
-    float postZ1[kMaxChannels] = {}, postZ2[kMaxChannels] = {};
-    float postB0 = 1.0f, postB1 = 0.0f, postB2 = 0.0f, postA1 = 0.0f, postA2 = 0.0f;
 };

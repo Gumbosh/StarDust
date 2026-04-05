@@ -1259,6 +1259,57 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(unisonOuterKnob,  "unisonOuter",  "1+2");
     setupKnob(unisonInnerKnob,  "unisonInner",  "3+4");
 
+    // GRAIN knobs
+    setupKnob(grainSizeKnob, "grainSize", "Size");
+    setupKnob(grainDensityKnob, "grainDensity", "Density");
+    setupKnob(grainPitchKnob, "grainPitch", "Pitch");
+    setupKnob(grainScatterKnob, "grainScatter", "Scatter");
+
+    // STUTTER knobs
+    setupKnob(stutterRateKnob, "stutterRate", "Rate");
+    setupKnob(stutterDecayKnob, "stutterDecay", "Decay");
+    setupKnob(stutterDepthKnob, "stutterDepth", "Depth");
+
+    // SHIFT knobs
+    setupKnob(shiftPitchKnob, "shiftPitch", "Pitch");
+    setupKnob(shiftFeedbackKnob, "shiftFeedback", "Feedback");
+    setupKnob(shiftToneKnob, "shiftTone", "Tone");
+
+    // REVERSER: kHs-style value/value display (drag up/down to change)
+    setupKnob(reverserCrossfadeKnob, "reverserCrossfade", "Crossfade");
+    {
+        // Left: repeat count (1-64) — drag only, no click-to-jump
+        reverserRepeatSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        reverserRepeatSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        reverserRepeatSlider.setRotaryParameters(0.0f, juce::MathConstants<float>::twoPi, true);
+        reverserRepeatSlider.setMouseDragSensitivity(200);
+        reverserRepeatSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
+        reverserRepeatSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
+        reverserRepeatSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+        reverserRepeatSlider.onValueChange = [this]() { repaint(reverserDisplayBounds); };
+        reverserRepeatAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "reverserRepeat", reverserRepeatSlider);
+        addAndMakeVisible(reverserRepeatSlider);
+
+        // Right: division (0-7) — drag only, no click-to-jump
+        reverserDivSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        reverserDivSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        reverserDivSlider.setRotaryParameters(0.0f, juce::MathConstants<float>::twoPi, true);
+        reverserDivSlider.setMouseDragSensitivity(150);
+        reverserDivSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
+        reverserDivSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
+        reverserDivSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+        reverserDivSlider.onValueChange = [this]() { repaint(reverserDisplayBounds); };
+        reverserDivAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "reverserDivision", reverserDivSlider);
+        addAndMakeVisible(reverserDivSlider);
+
+        // "/" separator label
+        reverserSlashLabel.setText("/", juce::dontSendNotification);
+        reverserSlashLabel.setJustificationType(juce::Justification::centred);
+        reverserSlashLabel.setFont(juce::FontOptions(20.0f, juce::Font::bold));
+        reverserSlashLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(reverserSlashLabel);
+    }
+
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
 
     // Juno-60 mode buttons: I / II / I+II
@@ -1417,6 +1468,10 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupMixStrip(distortionMixStrip,   distortionMixStripAttach,   "distortionMix");
     setupMixStrip(hazeMixStrip,         hazeMixStripAttach,         "hazeMix");
     setupMixStrip(unisonMixStrip,       unisonMixStripAttach,       "unisonMix");
+    setupMixStrip(grainMixStrip,        grainMixStripAttach,        "grainMix");
+    setupMixStrip(stutterMixStrip,      stutterMixStripAttach,      "stutterMix");
+    setupMixStrip(shiftMixStrip,        shiftMixStripAttach,        "shiftMix");
+    setupMixStrip(reverserMixStrip,     reverserMixStripAttach,     "reverserMix");
 
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
@@ -1618,6 +1673,10 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(reverbToggle, reverbToggleAttach, "reverbEnabled");
     setupToggle(hazeToggle, hazeToggleAttach, "hazeEnabled");
     setupToggle(unisonToggle, unisonToggleAttach, "unisonEnabled");
+    setupToggle(grainToggle, grainToggleAttach, "grainEnabled");
+    setupToggle(stutterToggle, stutterToggleAttach, "stutterEnabled");
+    setupToggle(shiftToggle, shiftToggleAttach, "shiftEnabled");
+    setupToggle(reverserToggle, reverserToggleAttach, "reverserEnabled");
 
     // Disable and dim knobs when their section toggle is off
     auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobList) {
@@ -1694,6 +1753,15 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     dimSection(unisonToggle, { &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob });
     unisonToggle.onClick();
+
+    dimSection(grainToggle, { &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob });
+    grainToggle.onClick();
+    dimSection(stutterToggle, { &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob });
+    stutterToggle.onClick();
+    dimSection(shiftToggle, { &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob });
+    shiftToggle.onClick();
+    dimSection(reverserToggle, { &reverserCrossfadeKnob });
+    reverserToggle.onClick();
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
@@ -1931,19 +1999,25 @@ void StardustEditor::refreshPresetList()
     if (presetLibraryPanel != nullptr && presetLibraryPanel->isVisible())
     {
         std::vector<PresetListItem> factory, user;
-        std::map<juce::String, std::vector<PresetListItem>> bankItems;
+        std::map<juce::String, std::vector<PresetListItem>> factoryBankItems, bankItems;
         for (int i = 0; i < static_cast<int>(presets.size()); ++i)
         {
             const auto idx = static_cast<size_t>(i);
             PresetListItem item { presets[idx].name, i, presets[idx].isFactory, false, presets[idx].bank };
             if (presets[idx].isFactory)
-                factory.push_back(item);
+            {
+                if (presets[idx].bank.isEmpty())
+                    factory.push_back(item);
+                else
+                    factoryBankItems[presets[idx].bank].push_back(item);
+            }
             else if (presets[idx].bank.isEmpty())
                 user.push_back(item);
             else
                 bankItems[presets[idx].bank].push_back(item);
         }
-        presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
+        presetLibraryPanel->updatePresets(std::move(factory), std::move(factoryBankItems),
+                                          std::move(user), std::move(bankItems));
         presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
     }
 }
@@ -2030,7 +2104,7 @@ void StardustEditor::showPresetLibrary()
 
     // Build items — copy preset data under lock, file I/O after release
     std::vector<PresetListItem> factory, user;
-    std::map<juce::String, std::vector<PresetListItem>> bankItems;
+    std::map<juce::String, std::vector<PresetListItem>> factoryBankItems, bankItems;
     {
         PresetLockGuard guard(processorRef.presetLock);
         const auto& presets = processorRef.getAllPresets();
@@ -2039,7 +2113,12 @@ void StardustEditor::showPresetLibrary()
             const auto idx = static_cast<size_t>(i);
             PresetListItem item { presets[idx].name, i, presets[idx].isFactory, false, presets[idx].bank };
             if (presets[idx].isFactory)
-                factory.push_back(item);
+            {
+                if (presets[idx].bank.isEmpty())
+                    factory.push_back(item);
+                else
+                    factoryBankItems[presets[idx].bank].push_back(item);
+            }
             else if (presets[idx].bank.isEmpty())
                 user.push_back(item);
             else
@@ -2049,9 +2128,12 @@ void StardustEditor::showPresetLibrary()
     auto favs = StardustProcessor::loadFavorites();
     for (auto& item : factory) item.isFavorite = favs.count(item.name) > 0;
     for (auto& item : user) item.isFavorite = favs.count(item.name) > 0;
+    for (auto& [bk, items] : factoryBankItems)
+        for (auto& item : items) item.isFavorite = favs.count(item.name) > 0;
     for (auto& [bk, items] : bankItems)
         for (auto& item : items) item.isFavorite = favs.count(item.name) > 0;
-    presetLibraryPanel->updatePresets(std::move(factory), std::move(user), std::move(bankItems));
+    presetLibraryPanel->updatePresets(std::move(factory), std::move(factoryBankItems),
+                                      std::move(user), std::move(bankItems));
     presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
 
     // Position: overlay on left side, from galaxy top to controls bottom
@@ -2180,6 +2262,10 @@ juce::ToggleButton& StardustEditor::toggleForSection(int fxId)
         case 6: return reverbToggle;
         case 7: return hazeToggle;
         case 8: return unisonToggle;
+        case 9: return grainToggle;
+        case 10: return stutterToggle;
+        case 11: return shiftToggle;
+        case 12: return reverserToggle;
         default: return destroyToggle;
     }
 }
@@ -2243,17 +2329,25 @@ void StardustEditor::showAddEffectMenu(int row)
     reverbMenu.addItem(6,     "VOID",      !usedFx.count(6));
     textureMenu.addItem(7,    "HAZE",      !usedFx.count(7));
 
+    juce::PopupMenu creativeMenu;
+    creativeMenu.addItem(9, "GRAIN", !usedFx.count(9));
+    creativeMenu.addItem(10, "STUTTER", !usedFx.count(10));
+    creativeMenu.addItem(11, "SHIFT", !usedFx.count(11));
+    creativeMenu.addItem(12, "REVERSER", !usedFx.count(12));
+
     juce::PopupMenu menu;
     menu.addSubMenu("Distortion", distortionMenu);
     menu.addSubMenu("Modulation", modulationMenu);
     menu.addSubMenu("Reverb",     reverbMenu);
     menu.addSubMenu("Texture",    textureMenu);
+    menu.addSubMenu("Creative",   creativeMenu);
 
     menu.setLookAndFeel(&lookAndFeel);
     distortionMenu.setLookAndFeel(&lookAndFeel);
     modulationMenu.setLookAndFeel(&lookAndFeel);
     reverbMenu.setLookAndFeel(&lookAndFeel);
     textureMenu.setLookAndFeel(&lookAndFeel);
+    creativeMenu.setLookAndFeel(&lookAndFeel);
     // Anchor to centre of full 92px section
     const int sH = controlsBounds.getHeight() / 4;
     const auto rb = stripRowBounds(row);
@@ -2432,6 +2526,83 @@ void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
     layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 3, ky, kw, kKnobH });
 }
 
+void StardustEditor::layoutGrainSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 4;
+    layoutKnobInBounds(grainSizeKnob,    { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(grainDensityKnob, { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(grainPitchKnob,   { ox + kw * 2, ky, kw, kKnobH });
+    layoutKnobInBounds(grainScatterKnob, { ox + kw * 3, ky, kw, kKnobH });
+}
+
+void StardustEditor::layoutStutterSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 3;
+    layoutKnobInBounds(stutterRateKnob,  { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(stutterDecayKnob, { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(stutterDepthKnob, { ox + kw * 2, ky, kw, kKnobH });
+}
+
+void StardustEditor::layoutShiftSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    const int kw = availW / 3;
+    layoutKnobInBounds(shiftPitchKnob,    { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(shiftFeedbackKnob, { ox + kw * 1, ky, kw, kKnobH });
+    layoutKnobInBounds(shiftToneKnob,     { ox + kw * 2, ky, kw, kKnobH });
+}
+
+void StardustEditor::layoutReverserSection(juce::Rectangle<int> ap)
+{
+    static constexpr int kKnobH = 68;
+    const int padX = 8;
+    const int availW = ap.getWidth() - padX * 2;
+    const int ox = ap.getX() + padX;
+    const int cy = ap.getY() + ap.getHeight() / 2;
+
+    const int slashW = 16;
+    const int valW = 52;
+    const int displayW = valW * 2 + slashW;
+    const int displayH = 44;
+    const int knobW = availW / 3;
+
+    // Center the display in the full panel width
+    const int totalW = displayW + 16 + knobW; // display + gap + knob
+    const int startX = ox + (availW - totalW) / 2;
+    const int displayY = cy - displayH / 2;
+
+    reverserRepeatSlider.setBounds(startX, displayY, valW, displayH);
+    reverserRepeatSlider.setVisible(true);
+    reverserRepeatSlider.setAlpha(0.0f); // invisible — text drawn in paintOverChildren
+
+    reverserSlashLabel.setVisible(false); // drawn manually in paintOverChildren
+
+    reverserDivSlider.setBounds(startX + valW + slashW, displayY, valW, displayH);
+    reverserDivSlider.setVisible(true);
+    reverserDivSlider.setAlpha(0.0f); // invisible — text drawn in paintOverChildren
+
+    // Border around display (6px padding)
+    reverserDisplayBounds = { startX - 6, displayY - 6, displayW + 12, displayH + 12 };
+
+    // Crossfade knob
+    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
+    layoutKnobInBounds(reverserCrossfadeKnob, { startX + displayW + 16, ky, knobW, kKnobH });
+}
+
 void StardustEditor::generateBackgroundTexture()
 {
     constexpr int texW = 128;
@@ -2491,7 +2662,7 @@ void StardustEditor::paint(juce::Graphics& g)
     g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
     // ---- Chain strip rows ----
-    static const juce::String kFxNames[9] = { "", "G R I T", "C L O U D", "J U - 6 0", "O X I D E - 4 5 6", "D I S T", "V O I D", "H A Z E", "M U L T I P L Y" };
+    static const juce::String kFxNames[13] = { "", "G R I T", "C L O U D", "J U - 6 0", "O X I D E - 4 5 6", "D I S T", "V O I D", "H A Z E", "M U L T I P L Y", "G R A I N", "S T U T T E R", "S H I F T", "R E V E R S E R" };
     const auto monoFont10 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold);
     const auto monoFont12 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold);
 
@@ -2502,7 +2673,7 @@ void StardustEditor::paint(juce::Graphics& g)
     static constexpr int kPillH  =  28; // name pill height
 
     // Compact effect names for the pill
-    static const juce::String kPillNames[9] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY" };
+    static const juce::String kPillNames[13] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER" };
 
     for (int row = 0; row < 4; ++row)
     {
@@ -2718,10 +2889,41 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
         // Preset bar background + border is drawn in paint() so icons render on top
     }
 
+    // Reverser value/value display: border + centered text
+    if (reverserRepeatSlider.isVisible() && !reverserDisplayBounds.isEmpty())
+    {
+        // Border
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.5f));
+        g.drawRoundedRectangle(reverserDisplayBounds.toFloat(), 4.0f, 1.0f);
+
+        // Draw values + slash
+        g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        g.setColour(StardustLookAndFeel::kAccent);
+
+        const auto repeatBounds = reverserRepeatSlider.getBounds();
+        const auto divBounds = reverserDivSlider.getBounds();
+
+        // Left value
+        const int repeatVal = static_cast<int>(reverserRepeatSlider.getValue());
+        g.drawText(juce::String(repeatVal), repeatBounds, juce::Justification::centred, false);
+
+        // "/" between the two sliders
+        const int slashX = repeatBounds.getRight();
+        const int slashW = divBounds.getX() - slashX;
+        g.setColour(StardustLookAndFeel::kFgDim);
+        g.drawText("/", slashX, repeatBounds.getY(), slashW, repeatBounds.getHeight(), juce::Justification::centred, false);
+
+        // Right value
+        static const char* divNames[] = { "64", "32", "16T", "16", "8T", "8", "4T", "4" };
+        const int divIdx = juce::jlimit(0, 7, static_cast<int>(reverserDivSlider.getValue()));
+        g.setColour(StardustLookAndFeel::kAccent);
+        g.drawText(juce::String(divNames[divIdx]), divBounds, juce::Justification::centred, false);
+    }
+
     // Drag ghost for FX chain reorder
     if (dragSourceRow >= 0)
     {
-        static const juce::String kGhostNames[8] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE" };
+        static const juce::String kGhostNames[13] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER" };
         static constexpr int kGhostLeftW = 118;
         static constexpr int kGhostDragW =  30;
         static constexpr int kGhostPillX =  18;
@@ -3116,7 +3318,7 @@ void StardustEditor::resized()
 
     // Toggle buttons are kept for APVTS binding but rendered as name-pill in paint()
     juce::ignoreUnused(toggleH, toggleW);
-    for (int fx = 1; fx <= 8; ++fx)
+    for (int fx = 1; fx <= 12; ++fx)
         toggleForSection(fx).setBounds({0, 0, 0, 0});
 
     // Hide all section knobs first, then lay out each occupied slot
@@ -3127,12 +3329,17 @@ void StardustEditor::resized()
                      &tapeMixKnob, &tapeOutputKnob, &tapeWowKnob,
                      &distortionDriveKnob, &distortionToneKnob,
                      &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob,
-                     &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob })
+                     &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob,
+                     &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob,
+                     &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob,
+                     &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
+                     &reverserCrossfadeKnob })
         k->setBounds({0, 0, 0, 0});
 
     // Hide all sidebar mix sliders first
     for (auto* s : { &destroyMixStrip, &multiplyMixStrip, &tapeMixStrip,
-                     &distortionMixStrip, &hazeMixStrip, &unisonMixStrip })
+                     &distortionMixStrip, &hazeMixStrip, &unisonMixStrip,
+                     &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip })
         s->setBounds({0, 0, 0, 0});
 
     hazeTypeLabel.setVisible(false);
@@ -3144,13 +3351,17 @@ void StardustEditor::resized()
     for (auto& b : distortionModeBtn) b.setVisible(false);
     multiplyLfoLabel.setVisible(false);
     for (auto& b : multiplyLfoBtn) b.setVisible(false);
+    reverserRepeatSlider.setVisible(false);
+    reverserDivSlider.setVisible(false);
+    reverserSlashLabel.setVisible(false);
 
     // Pill constants (mirror paint() constants)
     static constexpr int kSbPillX = 18;
     static constexpr int kSbPillW = 92;
     static constexpr int kSbPillH = 28;
-    juce::Slider* mixStripForFx[9] = { nullptr, &destroyMixStrip, nullptr,
-                                        &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, nullptr, &hazeMixStrip, &unisonMixStrip };
+    juce::Slider* mixStripForFx[13] = { nullptr, &destroyMixStrip, nullptr,
+                                        &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, nullptr, &hazeMixStrip, &unisonMixStrip,
+                                        &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip };
 
     // Layout all occupied slots simultaneously
     for (int row = 0; row < 4; ++row)
@@ -3167,6 +3378,10 @@ void StardustEditor::resized()
             case 6: layoutReverbSection(kp);     break;
             case 7: layoutHazeSection(kp);       break;
             case 8: layoutUnisonSection(kp);     break;
+            case 9: layoutGrainSection(kp);     break;
+            case 10: layoutStutterSection(kp);   break;
+            case 11: layoutShiftSection(kp);     break;
+            case 12: layoutReverserSection(kp);  break;
             default: break;
         }
 
