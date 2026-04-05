@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 // Tempo-synced audio reverser (kHs Reverser style).
@@ -25,6 +26,7 @@ public:
 
 private:
     static constexpr int kBufferSize = 524288; // 2^19, handles slow tempos + high repeat counts
+    static_assert((kBufferSize & (kBufferSize - 1)) == 0, "kBufferSize must be a power of 2");
     static constexpr int kBufferMask = kBufferSize - 1;
     static constexpr int kMaxChannels = 2;
 
@@ -43,8 +45,8 @@ private:
         1.0f            // 1/4
     };
 
-    int repeatCount = 4;    // 1-64, like kHs "4/16" = 4 repeats of 1/16
-    int divisionIndex = 3;  // default 1/16
+    std::atomic<int> repeatCount { 4 };    // 1-64, like kHs "4/16" = 4 repeats of 1/16
+    std::atomic<int> divisionIndex { 3 };  // default 1/16
 
     // Double buffer: A captures while B plays reversed, then swap
     std::array<std::array<float, kBufferSize>, kMaxChannels> bufferA {};
@@ -53,7 +55,8 @@ private:
 
     int capturePos = 0;
     int playbackPos = 0;
-    int chunkSamples = 0; // repeatCount × divisionSamples
+    int chunkSamples = 0;        // recomputed each process() call
+    int latchedChunkSamples = 0; // only updated at swap boundaries
 
     juce::SmoothedValue<float> crossfadeSmoothed { 0.15f };
     juce::SmoothedValue<float> mixSmoothed { 0.5f };

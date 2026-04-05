@@ -1,4 +1,6 @@
 #include "TapeEngine.h"
+#include "FastMath.h"
+#include "HalfBandDecimator.h"
 
 // Soft saturation knee width (speed-adaptive onset is in cachedSatOnset)
 static constexpr float kSatTransition = 0.55f;
@@ -54,79 +56,19 @@ static constexpr float kNotchQ = 0.8f;
 // T1: improved half-band kernel coefficients for better stopband rejection (~60dB).
 // 15-tap Kaiser half-band polyphase: 8-element even branch + center tap.
 
-// ============================================================================
-// Fast polynomial approximations (replace std::tanh/std::sinh in hot path)
-// ============================================================================
-
-float TapeEngine::fastTanh(float x)
-{
-    // Hard clamp beyond ±3.5: tanh(3.5) ≈ 0.9982, error to ±1.0 is negligible.
-    if (x > 3.5f) return 1.0f;
-    if (x < -3.5f) return -1.0f;
-    // [5/5] Padé rational approximant — max error < 0.03% across [-3.5, 3.5]
-    const float x2 = x * x;
-    const float pade = x * (135135.0f + x2 * (17325.0f + x2 * 378.0f))
-                         / (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)));
-    // Blend to ±1 over [3.0, 3.5] with cubic smoothstep — eliminates C¹ discontinuity
-    // at the hard-clamp boundary. The common case (|x| < 3.0) returns immediately above,
-    // so this branch only costs ~1% of hot-path calls.
-    const float ax = std::abs(x);
-    if (ax > 3.0f)
-    {
-        const float t = (ax - 3.0f) * 2.0f;                      // [0,1] over [3.0, 3.5]
-        const float blend = t * t * (3.0f - 2.0f * t);           // cubic smoothstep
-        const float sign = x >= 0.0f ? 1.0f : -1.0f;
-        return pade + blend * (sign - pade);
-    }
-    return pade;
-}
-
-float TapeEngine::fastCoth(float x) noexcept
-{
-    const float ax = std::abs(x);
-    if (ax < 0.25f) return 0.0f; // should never be called for small x (langevin uses Taylor)
-    if (ax > 3.0f) {
-        const float sign = x >= 0.0f ? 1.0f : -1.0f;
-        return sign * (1.0f + 2.0f * std::exp(-2.0f * ax));
-    }
-    // coth(x) = 1/tanh(x). Inverted Padé: swap num/denom of fastTanh's [5/5] rational
-    const float x2 = x * x;
-    return (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)))
-         / (x * (135135.0f + x2 * (17325.0f + x2 * 378.0f)));
-}
-
-float TapeEngine::fastSinh(float x)
-{
-    const float ax = std::abs(x);
-    if (ax < 3.0f)
-    {
-        // 7-term Maclaurin series — max relative error < 0.003% at |x|=3.
-        // Covers the full operating range of langevinDeriv without a discontinuous join.
-        const float x2 = x * x;
-        return x * (1.0f + x2 * (1.0f/6.0f
-               + x2 * (1.0f/120.0f
-               + x2 * (1.0f/5040.0f
-               + x2 * (1.0f/362880.0f
-               + x2 * (1.0f/39916800.0f
-               + x2 *  1.0f/6227020800.0f))))));
-    }
-    const float e = std::exp(ax);
-    return (x >= 0.0f ? 1.0f : -1.0f) * (e - 1.0f / e) * 0.5f;
-}
-
 float TapeEngine::langevin(float x)
 {
     // L(x) = coth(x) - 1/x. Taylor for |x| < 0.25 (4-term, accurate to ~1e-8).
     // T2: matched threshold with langevinDeriv to eliminate ~0.1% boundary discontinuity.
-    // General branch uses std::tanh (not fastTanh) because 1/tanh amplifies
-    // approximation error — fastTanh's Padé causes ~0.7% jump at boundary.
+    // General branch uses FastMath::coth (not 1/FastMath::tanh) because 1/tanh amplifies
+    // approximation error — the Padé causes ~0.7% jump at boundary.
     const float ax = std::abs(x);
     if (ax < 0.25f)
     {
         const float x2 = x * x;
         return x * (1.0f/3.0f - x2 * (1.0f/45.0f - x2 * (2.0f/945.0f - x2 * (1.0f/4725.0f))));
     }
-    return fastCoth(x) - 1.0f / x;
+    return FastMath::coth(x) - 1.0f / x;
 }
 
 float TapeEngine::langevinDeriv(float x)
@@ -138,7 +80,7 @@ float TapeEngine::langevinDeriv(float x)
         const float x2 = x * x;
         return 1.0f/3.0f - x2 * (1.0f/15.0f - x2 * (2.0f/189.0f - x2 * (1.0f/675.0f - x2 * (2.0f/10395.0f))));
     }
-    const float sinhX = fastSinh(x);
+    const float sinhX = FastMath::sinh(x);
     return 1.0f / (x * x) - 1.0f / (sinhX * sinhX);
 }
 
@@ -356,7 +298,7 @@ void TapeEngine::recomputeSpeedCoeffs()
 
 void TapeEngine::resetChannelState(int ch)
 {
-    std::fill(std::begin(delayBuffer[ch]), std::end(delayBuffer[ch]), 0.0f);
+    std::fill(delayBuffer[ch].begin(), delayBuffer[ch].end(), 0.0f);
     wowNoiseState[ch] = 0.0f;
     flutterNoiseState[ch] = 0.0f;
     headBumpState[ch] = {};
@@ -414,6 +356,13 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     tapeOutGainSmoothed.reset(sampleRate, 0.02);
     inputGainSmoothed.reset(sampleRate, 0.02);
 
+    // Heap-allocate large buffers (avoids stack overflow with multiple instances)
+    for (int ch = 0; ch < kMaxChannels; ++ch)
+    {
+        delayBuffer[ch].assign(kDelayBufferSize, 0.0f);
+        eraseHeadBuf[ch].assign(kEraseHeadBufSize, 0.0f);
+    }
+
     for (int ch = 0; ch < kMaxChannels; ++ch) resetChannelState(ch);
     writePos = 0;
     sampleCounter = 0;
@@ -469,7 +418,7 @@ void TapeEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     eraseHeadWritePos = 0;
     eraseHeadLPCoeff = static_cast<float>(std::exp(-2.0 * 3.14159265 * 200.0 / sampleRate));
     for (int ch = 0; ch < kMaxChannels; ++ch) {
-        std::memset(eraseHeadBuf[ch], 0, sizeof(eraseHeadBuf[ch]));
+        std::fill(eraseHeadBuf[ch].begin(), eraseHeadBuf[ch].end(), 0.0f);
         eraseHeadLP[ch] = 0.0f;
     }
 
@@ -599,28 +548,6 @@ float TapeEngine::readHermite(int channel, float delaySamples) const
     return ((c3 * frac + c2) * frac + c1) * frac + y1;
 }
 
-// ============================================================================
-// 15-tap Kaiser half-band polyphase decimation helper (~90dB stopband rejection)
-// ============================================================================
-// T1: improved polyphase half-band kernel (~60dB stopband, Parks-McClellan optimized)
-// Even polyphase taps (8 coefficients, symmetric): designed for steeper transition band
-static float halfBandDecimate(const float in0, const float in1, float history[8])
-{
-    history[0] = history[1];
-    history[1] = history[2];
-    history[2] = history[3];
-    history[3] = history[4];
-    history[4] = history[5];
-    history[5] = history[6];
-    history[6] = history[7];
-    history[7] = in0;
-    // Improved kernel: narrower transition band, ~60dB stopband rejection
-    const float even =  0.000457f * (history[0] + history[7])
-                     + -0.007324f * (history[1] + history[6])
-                     + -0.054264f * (history[2] + history[5])
-                     +  0.302631f * (history[3] + history[4]);
-    return even + 0.5f * in1;
-}
 
 // ============================================================================
 // Extracted process helpers
@@ -718,13 +645,13 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
         }
         os[j] = hystRK4Step(H_interp, hystState[ch], hystMs, hystK);
     }
-    const float hb1a = halfBandDecimate(os[0], os[1], hb1aHistory[ch]);
-    const float hb1b = halfBandDecimate(os[2], os[3], hb1bHistory[ch]);
-    const float hb1c = halfBandDecimate(os[4], os[5], hb1cHistory[ch]);
-    const float hb1d = halfBandDecimate(os[6], os[7], hb1dHistory[ch]);
-    const float hb2a = halfBandDecimate(hb1a, hb1b, hb2aHistory[ch]);
-    const float hb2b = halfBandDecimate(hb1c, hb1d, hb2bHistory[ch]);
-    const float midOut = halfBandDecimate(hb2a, hb2b, hb3History[ch]);
+    const float hb1a = HalfBand::decimatePM(os[0], os[1], hb1aHistory[ch]);
+    const float hb1b = HalfBand::decimatePM(os[2], os[3], hb1bHistory[ch]);
+    const float hb1c = HalfBand::decimatePM(os[4], os[5], hb1cHistory[ch]);
+    const float hb1d = HalfBand::decimatePM(os[6], os[7], hb1dHistory[ch]);
+    const float hb2a = HalfBand::decimatePM(hb1a, hb1b, hb2aHistory[ch]);
+    const float hb2b = HalfBand::decimatePM(hb1c, hb1d, hb2bHistory[ch]);
+    const float midOut = HalfBand::decimatePM(hb2a, hb2b, hb3History[ch]);
 
     // --- LF band (<500Hz): easier saturation (warm, low-end glue) ---
     // K ×0.70 lowers coercivity (smaller denominator in dMirr → more sensitive, earlier onset).
@@ -745,9 +672,9 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
                              + (-2*t3+3*t2)*lf_h1  + (t3-t2)*lf_m1;
         osLF[j] = hystRK4Step(H_interp, hystStateLF[ch], lfMs, lfK);
     }
-    const float hbLF_a = halfBandDecimate(osLF[0], osLF[1], hbLFaHistory[ch]);
-    const float hbLF_b = halfBandDecimate(osLF[2], osLF[3], hbLFbHistory[ch]);
-    const float lfOut_4x = halfBandDecimate(hbLF_a, hbLF_b, hbLFHistory2[ch]);
+    const float hbLF_a = HalfBand::decimatePM(osLF[0], osLF[1], hbLFaHistory[ch]);
+    const float hbLF_b = HalfBand::decimatePM(osLF[2], osLF[3], hbLFbHistory[ch]);
+    const float lfOut_4x = HalfBand::decimatePM(hbLF_a, hbLF_b, hbLFHistory2[ch]);
 
     // --- HF band (>5kHz): frequency-dependent saturation (C6) ---
     // Higher K = harder to magnetize (larger denominator in dMirr). Baseline 1.25 so HF
@@ -770,9 +697,9 @@ float TapeEngine::processHysteresisBlock(int ch, float input)
                              + (-2*t3+3*t2)*hf_h1  + (t3-t2)*hf_m1;
         osHF[j] = hystRK4Step(H_interp, hystStateHF[ch], hfMs, hfK);
     }
-    const float hbHF_a = halfBandDecimate(osHF[0], osHF[1], hbHFaHistory[ch]);
-    const float hbHF_b = halfBandDecimate(osHF[2], osHF[3], hbHFbHistory[ch]);
-    const float hfOut_4x = halfBandDecimate(hbHF_a, hbHF_b, hbHFHistory2[ch]);
+    const float hbHF_a = HalfBand::decimatePM(osHF[0], osHF[1], hbHFaHistory[ch]);
+    const float hbHF_b = HalfBand::decimatePM(osHF[2], osHF[3], hbHFbHistory[ch]);
+    const float hfOut_4x = HalfBand::decimatePM(hbHF_a, hbHF_b, hbHFHistory2[ch]);
 
     return lfOut_4x + midOut + hfOut_4x;
 }
@@ -791,7 +718,7 @@ float TapeEngine::processSoftSat(float input, int ch)
     if (absLevel <= dynamicOnset) return input;
     const float over = std::min(1.0f, (absLevel - dynamicOnset) / kSatTransition);
     const float knee = over * over * (3.0f - 2.0f * over);
-    return input * (1.0f - knee) + fastTanh(input) * knee;
+    return input * (1.0f - knee) + FastMath::tanh(input) * knee;
 }
 
 void TapeEngine::processHissBlock(int ch, float hissAmt, float& wet)
@@ -861,11 +788,9 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
     }
 
     // Recompute speed-dependent coefficients if speed or standard changed
-    if (speedChanged.load() || standardChanged.load())
+    if (speedChanged.exchange(false) | standardChanged.exchange(false))
     {
         recomputeSpeedCoeffs();
-        speedChanged.store(false);
-        standardChanged.store(false);
     }
 
     const auto numChannels = buffer.getNumChannels();
@@ -1096,7 +1021,8 @@ void TapeEngine::process(juce::AudioBuffer<float>& buffer)
             // Store wet for print-through source (adjacent layer coupling)
             printThroughBuf[ch][printThroughWritePos] = wet;
 
-            data[i] = trueDry + mix * (wet * tapeOutG - trueDry);
+            const float out = trueDry + mix * (wet * tapeOutG - trueDry);
+            data[i] = std::isfinite(out) ? out : 0.0f;
             // Hiss added at final output, scaled by mix and tapeOutG — noise floor tracks
             // the tape signal level (both originate from the same playback head/amp path).
             if (hiss > 0.001f)

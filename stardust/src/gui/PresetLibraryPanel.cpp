@@ -53,15 +53,19 @@ PresetLibraryPanel::PresetLibraryPanel()
     loadBankBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     loadBankBtn.setColour(juce::TextButton::textColourOffId, kFgDim);
     loadBankBtn.onClick = [this] {
+        if (fileChooser != nullptr) return; // guard against re-entry
         fileChooser = std::make_unique<juce::FileChooser>(
             "Select a preset bank folder...",
             juce::File::getSpecialLocation(juce::File::userHomeDirectory));
+        auto safeThis = juce::Component::SafePointer<PresetLibraryPanel>(this);
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                                  | juce::FileBrowserComponent::canSelectDirectories,
-            [this](const juce::FileChooser& fc) {
+            [safeThis](const juce::FileChooser& fc) {
                 auto result = fc.getResult();
-                if (result.isDirectory() && onImportBank)
-                    onImportBank(result);
+                if (safeThis == nullptr) return;
+                safeThis->fileChooser.reset();
+                if (result.isDirectory() && safeThis->onImportBank)
+                    safeThis->onImportBank(result);
             });
     };
     addAndMakeVisible(loadBankBtn);
@@ -380,9 +384,12 @@ void PresetLibraryPanel::BankList::mouseDown(const juce::MouseEvent& e)
         juce::PopupMenu menu;
         menu.addItem(1, "Rename Bank...");
         menu.addItem(2, "Delete Bank");
+        auto safeBankList = juce::Component::SafePointer<BankList>(this);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-            [this, bankName](int result) {
-                if (result == 1 && owner.onRenameBank)
+            [safeBankList, bankName](int result) {
+                if (safeBankList == nullptr) return;
+                auto& ownerRef = safeBankList->owner;
+                if (result == 1 && ownerRef.onRenameBank)
                 {
                     // Show rename dialog via AlertWindow
                     auto* aw = new juce::AlertWindow("Rename Bank", "Enter new name:",
@@ -390,21 +397,20 @@ void PresetLibraryPanel::BankList::mouseDown(const juce::MouseEvent& e)
                     aw->addTextEditor("name", bankName);
                     aw->addButton("Rename", 1);
                     aw->addButton("Cancel", 0);
+                    auto safeInner = juce::Component::SafePointer<BankList>(safeBankList);
                     aw->enterModalState(true, juce::ModalCallbackFunction::create(
-                        [this, bankName, aw](int result2) {
-                            if (result2 == 1)
-                            {
-                                auto newName = aw->getTextEditorContents("name").trim();
-                                newName = newName.removeCharacters("/\\:*?\"<>|").substring(0, 64);
-                                if (newName.isNotEmpty() && newName != bankName)
-                                    owner.onRenameBank(bankName, newName);
-                            }
-                            delete aw;
-                        }), true);
+                        [safeInner, bankName, aw](int result2) {
+                            std::unique_ptr<juce::AlertWindow> owned(aw);
+                            if (safeInner == nullptr || result2 != 1) return;
+                            auto newName = owned->getTextEditorContents("name").trim();
+                            newName = newName.removeCharacters("/\\:*?\"<>|").substring(0, 64);
+                            if (newName.isNotEmpty() && newName != bankName)
+                                safeInner->owner.onRenameBank(bankName, newName);
+                        }), false);
                 }
-                else if (result == 2 && owner.onDeleteBank)
+                else if (result == 2 && ownerRef.onDeleteBank)
                 {
-                    owner.onDeleteBank(bankName);
+                    ownerRef.onDeleteBank(bankName);
                 }
             });
         return;
@@ -542,12 +548,15 @@ void PresetLibraryPanel::PresetList::mouseDown(const juce::MouseEvent& e)
         menu.addItem(2, "Delete");
         const int presetIdx = item.presetIndex;
         const juce::String presetName = item.name;
+        auto safePresetList = juce::Component::SafePointer<PresetList>(this);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-            [this, presetIdx, presetName](int result) {
-                if (result == 1 && owner.onRenamePreset)
-                    owner.onRenamePreset(presetIdx, presetName);
-                else if (result == 2 && owner.onDeletePreset)
-                    owner.onDeletePreset(presetIdx);
+            [safePresetList, presetIdx, presetName](int result) {
+                if (safePresetList == nullptr) return;
+                auto& ownerRef = safePresetList->owner;
+                if (result == 1 && ownerRef.onRenamePreset)
+                    ownerRef.onRenamePreset(presetIdx, presetName);
+                else if (result == 2 && ownerRef.onDeletePreset)
+                    ownerRef.onDeletePreset(presetIdx);
             });
         return;
     }

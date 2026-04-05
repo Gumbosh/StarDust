@@ -114,5 +114,4 @@ private:
     float hb3aHistory[kMaxChannels][8] = {};   // stage 2 branch A  (4x→2x)
     float hb3bHistory[kMaxChannels][8] = {};   // stage 2 branch B  (4x→2x)
     float hb4aHistory[kMaxChannels][8] = {};   // stage 3           (2x→1x)
-    static float halfBandDecimate(float a, float b, float* hist) noexcept;
 };

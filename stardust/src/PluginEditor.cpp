@@ -1806,6 +1806,8 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
 StardustEditor::~StardustEditor()
 {
+    stopTimer();
+
     for (auto* param : processorRef.getParameters())
     {
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
@@ -3110,33 +3112,41 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
     if (parameterID == "tapeNoiseSpeed")
     {
         const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
-        juce::MessageManager::callAsync([this, sel]() {
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
             for (int i = 0; i < 3; ++i)
-                tapeNoiseSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+                safeThis->tapeNoiseSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     else if (parameterID == "distortionMode")
     {
         const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
-        juce::MessageManager::callAsync([this, sel]() {
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
             for (int i = 0; i < 3; ++i)
-                distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+                safeThis->distortionModeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     else if (parameterID == "junoMode")
     {
         const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
-        juce::MessageManager::callAsync([this, sel]() {
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
             for (int i = 0; i < 3; ++i)
-                multiplyLfoBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+                safeThis->multiplyLfoBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     else if (parameterID == "hazeType")
     {
         const int sel = juce::jlimit(0, 2, static_cast<int>(std::round(newValue)));
-        juce::MessageManager::callAsync([this, sel]() {
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
             for (int i = 0; i < 3; ++i)
-                hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+                safeThis->hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     // Dirty state is now computed by comparing current values to loaded preset in timerCallback
@@ -3214,7 +3224,7 @@ void StardustEditor::timerCallback()
     int grace = processorRef.presetLoadGrace.load();
     if (grace > 0)
     {
-        processorRef.presetLoadGrace.compare_exchange_strong(grace, grace - 1);
+        processorRef.presetLoadGrace.fetch_sub(1);
         // Re-snapshot on last grace frame so we capture settled values
         if (grace == 1)
         {

@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "presets/FactoryPresets.h"
+#include "dsp/FastMath.h"
 
 StardustProcessor::StardustProcessor()
     : AudioProcessor(BusesProperties()
@@ -352,9 +353,12 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     outputGainSmoothed.reset(sampleRate, 0.01);
     modMatrix.prepare(sampleRate);
 
-    // H2: Mains hum oscillator
-    humPhaseInc = juce::MathConstants<float>::twoPi * 60.0f / static_cast<float>(currentSampleRate);
-    humPhase = 0.0f;
+    // H2: Mains hum incremental oscillators (zero trig per sample)
+    const float sr = static_cast<float>(currentSampleRate);
+    humOsc60.init(60.0f, sr);
+    humOsc120.init(120.0f, sr);
+    humOsc180.init(180.0f, sr);
+    humOsc240.init(240.0f, sr);
 
     // H3: Sub-bass rumble
     rumbleLFOPhase = 0.0f;
@@ -374,6 +378,35 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // H6: Allpass decorrelation
     std::memset(hazeAllpassBuf, 0, sizeof(hazeAllpassBuf));
     hazeAllpassWritePos = 0;
+
+    // Cache parameter pointers for real-time-safe access in processBlock
+    // (avoids juce::String heap allocation on the audio thread)
+    cachedModLfo1Rate  = apvts.getRawParameterValue("modLfo1Rate");
+    cachedModLfo1Depth = apvts.getRawParameterValue("modLfo1Depth");
+    cachedModLfo1Wave  = apvts.getRawParameterValue("modLfo1Wave");
+    cachedModLfo1Sync  = apvts.getRawParameterValue("modLfo1Sync");
+    cachedModLfo2Rate  = apvts.getRawParameterValue("modLfo2Rate");
+    cachedModLfo2Depth = apvts.getRawParameterValue("modLfo2Depth");
+    cachedModLfo2Wave  = apvts.getRawParameterValue("modLfo2Wave");
+    cachedModLfo2Sync  = apvts.getRawParameterValue("modLfo2Sync");
+
+    cachedModSlot1Src = apvts.getRawParameterValue("modSlot1Src");
+    cachedModSlot1Tgt = apvts.getRawParameterValue("modSlot1Tgt");
+    cachedModSlot1Amt = apvts.getRawParameterValue("modSlot1Amt");
+    cachedModSlot2Src = apvts.getRawParameterValue("modSlot2Src");
+    cachedModSlot2Tgt = apvts.getRawParameterValue("modSlot2Tgt");
+    cachedModSlot2Amt = apvts.getRawParameterValue("modSlot2Amt");
+    cachedModSlot3Src = apvts.getRawParameterValue("modSlot3Src");
+    cachedModSlot3Tgt = apvts.getRawParameterValue("modSlot3Tgt");
+    cachedModSlot3Amt = apvts.getRawParameterValue("modSlot3Amt");
+    cachedModSlot4Src = apvts.getRawParameterValue("modSlot4Src");
+    cachedModSlot4Tgt = apvts.getRawParameterValue("modSlot4Tgt");
+    cachedModSlot4Amt = apvts.getRawParameterValue("modSlot4Amt");
+
+    cachedChainSlot[0] = apvts.getRawParameterValue("chainSlot0");
+    cachedChainSlot[1] = apvts.getRawParameterValue("chainSlot1");
+    cachedChainSlot[2] = apvts.getRawParameterValue("chainSlot2");
+    cachedChainSlot[3] = apvts.getRawParameterValue("chainSlot3");
 
     // Always report max latency (oversampling + tape base delay) to avoid
     // host re-sync glitches when sections toggle on/off (fix 1.5)
@@ -434,23 +467,20 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float destroyFaderVal = *apvts.getRawParameterValue("destroyFader");
     const float destroyBitsVal  = *apvts.getRawParameterValue("destroyBits");
     const float destroyJitterVal = *apvts.getRawParameterValue("destroyJitter");
-    // Update modulation matrix LFOs and routing
-    for (int lfo = 0; lfo < 2; ++lfo)
-    {
-        const auto prefix = juce::String("modLfo") + juce::String(lfo + 1);
-        modMatrix.setLFO(lfo,
-            *apvts.getRawParameterValue(prefix + "Rate"),
-            *apvts.getRawParameterValue(prefix + "Depth"),
-            static_cast<int>(*apvts.getRawParameterValue(prefix + "Wave")),
-            *apvts.getRawParameterValue(prefix + "Sync") >= 0.5f);
-    }
-    for (int slot = 0; slot < 4; ++slot)
-    {
-        const auto prefix = juce::String("modSlot") + juce::String(slot + 1);
-        const int src = static_cast<int>(*apvts.getRawParameterValue(prefix + "Src")) - 1; // 0=Off→-1
-        const int tgt = static_cast<int>(*apvts.getRawParameterValue(prefix + "Tgt")) - 1; // 0=Off→-1
-        modMatrix.setSlot(slot, src, tgt, *apvts.getRawParameterValue(prefix + "Amt"));
-    }
+    // Update modulation matrix LFOs and routing (using cached pointers — no heap alloc)
+    modMatrix.setLFO(0, *cachedModLfo1Rate, *cachedModLfo1Depth,
+        static_cast<int>(*cachedModLfo1Wave), *cachedModLfo1Sync >= 0.5f);
+    modMatrix.setLFO(1, *cachedModLfo2Rate, *cachedModLfo2Depth,
+        static_cast<int>(*cachedModLfo2Wave), *cachedModLfo2Sync >= 0.5f);
+
+    modMatrix.setSlot(0, static_cast<int>(*cachedModSlot1Src) - 1,
+        static_cast<int>(*cachedModSlot1Tgt) - 1, *cachedModSlot1Amt);
+    modMatrix.setSlot(1, static_cast<int>(*cachedModSlot2Src) - 1,
+        static_cast<int>(*cachedModSlot2Tgt) - 1, *cachedModSlot2Amt);
+    modMatrix.setSlot(2, static_cast<int>(*cachedModSlot3Src) - 1,
+        static_cast<int>(*cachedModSlot3Tgt) - 1, *cachedModSlot3Amt);
+    modMatrix.setSlot(3, static_cast<int>(*cachedModSlot4Src) - 1,
+        static_cast<int>(*cachedModSlot4Tgt) - 1, *cachedModSlot4Amt);
     // Feed envelope follower from input levels (average of L/R peak)
     modMatrix.setEnvFollower((inputLevelLeft.load(std::memory_order_relaxed)
                             + inputLevelRight.load(std::memory_order_relaxed)) * 0.5f);
@@ -487,7 +517,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Process effects in chain slot order
     for (int slot = 0; slot < 4; ++slot)
     {
-        const int fx = static_cast<int>(*apvts.getRawParameterValue("chainSlot" + juce::String(slot)));
+        const int fx = static_cast<int>(*cachedChainSlot[slot]);
         switch (fx)
         {
             case 1: // CRUSH — Degrader-style: S&H → bit crush → saturation (no oversampling)
@@ -521,7 +551,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         for (int i = 0; i < numSamples; ++i)
                         {
                             const float x = data[i] * driveGain;
-                            data[i] = std::tanh(x) * outGain;
+                            data[i] = FastMath::tanh(x) * outGain;
                         }
                     }
                 }
@@ -623,11 +653,11 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             {
                 if (!(*apvts.getRawParameterValue("reverbEnabled") >= 0.5f)) break;
 
-                standaloneReverb.setSize(0.5f);      // hardcoded medium room
+                standaloneReverb.setSize(*apvts.getRawParameterValue("reverbSize"));
                 standaloneReverb.setDecay(*apvts.getRawParameterValue("reverbDecay"));
-                standaloneReverb.setDamping(0.7f);   // hardcoded natural damping
+                standaloneReverb.setDamping(*apvts.getRawParameterValue("reverbDamp"));
                 standaloneReverb.setPreDelay(*apvts.getRawParameterValue("reverbPreDelay"));
-                standaloneReverb.setDiffusion(0.7f);  // hardcoded smooth diffusion
+                standaloneReverb.setDiffusion(*apvts.getRawParameterValue("reverbDiffusion"));
 
                 const float reverbMixVal = *apvts.getRawParameterValue("reverbMix");
                 const float dryGain = std::cos(reverbMixVal * juce::MathConstants<float>::halfPi);
@@ -670,9 +700,11 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
                 // H5: Slow wow modulation on noise color (~0.5Hz)
                 const float hazeWow = std::sin(hazeWowPhase) * 0.3f;  // ±30% cutoff variation
-                const float modulatedColorFreq = colorFreq * (1.0f + hazeWow);
-                const float hazeLPMod = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * modulatedColorFreq
-                                                         / static_cast<float>(currentSampleRate));
+                const float modulatedColorFreq = std::min(colorFreq * (1.0f + hazeWow),
+                                                        static_cast<float>(getSampleRate()) * 0.45f);
+                const float hazeLPMod = juce::jlimit(0.0f, 0.999f,
+                                                      1.0f - std::exp(-juce::MathConstants<float>::twoPi * modulatedColorFreq
+                                                                       / static_cast<float>(currentSampleRate)));
 
                 const float noiseScale = hazeMixVal * 0.012f; // ~-38dBFS at full strip
                 for (int ch = 0; ch < numChannels; ++ch)
@@ -721,10 +753,10 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         }
 
                         // H2: Mains hum (60Hz + harmonics at 120/180/240Hz)
-                        const float hum = std::sin(humPhase) * 1.0f
-                                        + std::sin(humPhase * 2.0f) * 0.5f
-                                        + std::sin(humPhase * 3.0f) * 0.25f
-                                        + std::sin(humPhase * 4.0f) * 0.12f;
+                        const float hum = humOsc60.sinVal * 1.0f
+                                        + humOsc120.sinVal * 0.5f
+                                        + humOsc180.sinVal * 0.25f
+                                        + humOsc240.sinVal * 0.12f;
                         raw += hum * 0.03f;  // subtle, ~-30dB relative to noise
 
                         // H3: Sub-bass rumble (25Hz resonant noise, AM modulated)
@@ -756,10 +788,14 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
                         // Advance per-sample phase oscillators on ch==0 only
                         if (ch == 0) {
-                            // H2: Hum phase
-                            humPhase += humPhaseInc;
-                            if (humPhase >= juce::MathConstants<float>::twoPi)
-                                humPhase -= juce::MathConstants<float>::twoPi;
+                            // H2: Advance hum oscillators
+                            humOsc60.advance();
+                            humOsc120.advance();
+                            humOsc180.advance();
+                            humOsc240.advance();
+                            // Renormalize every 512 samples to prevent magnitude drift
+                            if ((s & 511) == 0) { humOsc60.normalize(); humOsc120.normalize();
+                                                   humOsc180.normalize(); humOsc240.normalize(); }
                             // H3: Rumble LFO phase (~0.2Hz)
                             rumbleLFOPhase += juce::MathConstants<float>::twoPi * 0.2f / static_cast<float>(currentSampleRate);
                             if (rumbleLFOPhase >= juce::MathConstants<float>::twoPi)
@@ -911,7 +947,7 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         {
             const float s = data[i];
             if (std::abs(s) > 2.0f)
-                data[i] = std::tanh(s * 0.5f) * 2.0f;
+                data[i] = FastMath::tanh(s * 0.5f) * 2.0f;
         }
     }
 
@@ -923,6 +959,8 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
 void StardustProcessor::setCurrentProgram(int index)
 {
+    PresetLockGuard lock(presetLock);
+    if (index < 0 || index >= static_cast<int>(allPresets.size())) return;
     loadPreset(index);
 }
 
@@ -944,8 +982,6 @@ void StardustProcessor::loadPreset(int index)
         if (index < 0 || index >= static_cast<int>(allPresets.size()))
             return;
         values = allPresets[static_cast<size_t>(index)].values;
-        loadingPreset.store(true);
-        ignoreParamChanges.store(static_cast<int>(values.size()) * 2 + 10);
         currentPresetIndex.store(index);
     }
 
@@ -964,11 +1000,10 @@ void StardustProcessor::loadPreset(int index)
             if (auto* param = apvts.getParameter(paramId))
                 loadedPresetNormValues[paramId] = param->getValue();
         }
+        presetLoadGrace.store(10); // skip dirty check for 10 frames (~330ms)
     }
 
     presetDirty.store(false);
-    loadingPreset.store(false);
-    presetLoadGrace.store(10); // skip dirty check for 10 frames (~330ms)
 }
 
 bool StardustProcessor::isFactoryPreset(int index) const
@@ -1026,8 +1061,12 @@ void StardustProcessor::saveUserPreset(const juce::String& name)
 
 void StardustProcessor::saveUserPreset(const juce::String& name, const juce::String& bank)
 {
+    auto safeName = name.removeCharacters("/\\:*?\"<>|").trim().substring(0, 64);
+    if (safeName.isEmpty()) return;
+    auto safeBank = bank.removeCharacters("/\\:*?\"<>|").trim().substring(0, 64);
+
     auto xml = std::make_unique<juce::XmlElement>("StardustPreset");
-    xml->setAttribute("name", name);
+    xml->setAttribute("name", safeName);
     xml->setAttribute("version", STARDUST_VERSION);
 
     for (auto* param : getParameters())
@@ -1041,14 +1080,14 @@ void StardustProcessor::saveUserPreset(const juce::String& name, const juce::Str
     }
 
     auto dir = getUserPresetsDir();
-    if (bank.isNotEmpty())
+    if (safeBank.isNotEmpty())
     {
-        dir = dir.getChildFile(bank);
+        dir = dir.getChildFile(safeBank);
         if (!dir.exists())
             dir.createDirectory();
     }
 
-    auto file = dir.getChildFile(name + ".xml");
+    auto file = dir.getChildFile(safeName + ".xml");
     if (!xml->writeTo(file))
         DBG("Failed to save preset: " + file.getFullPathName());
     presetDirty.store(false);
@@ -1181,16 +1220,22 @@ void StardustProcessor::importBank(const juce::File& sourceFolder)
 
     auto files = sourceFolder.findChildFiles(juce::File::findFiles, false, "*.xml");
     for (const auto& file : files)
+    {
+        if (file.isSymbolicLink() || file.getSize() > 1024 * 1024)
+            continue;
         file.copyFileTo(target.getChildFile(file.getFileName()));
+    }
 
     refreshPresets();
 }
 
 void StardustProcessor::deleteUserBank(const juce::String& bankName)
 {
-    if (bankName.isEmpty())
+    if (bankName.isEmpty() || bankName.containsChar('/') || bankName.containsChar('\\') || bankName == ".." || bankName == ".")
         return;
     auto dir = getUserPresetsDir().getChildFile(bankName);
+    if (!dir.isAChildOf(getUserPresetsDir()))
+        return;
     if (dir.isDirectory())
         dir.deleteRecursively();
     refreshPresets();
@@ -1200,9 +1245,15 @@ void StardustProcessor::renameUserBank(const juce::String& oldName, const juce::
 {
     if (oldName.isEmpty() || newName.isEmpty() || oldName == newName)
         return;
+    if (oldName.containsChar('/') || oldName.containsChar('\\') || oldName == ".." || oldName == ".")
+        return;
+    if (newName.containsChar('/') || newName.containsChar('\\') || newName == ".." || newName == ".")
+        return;
     auto dir = getUserPresetsDir();
     auto oldDir = dir.getChildFile(oldName);
     auto newDir = dir.getChildFile(newName);
+    if (!oldDir.isAChildOf(dir) || !newDir.isAChildOf(dir))
+        return;
     if (oldDir.isDirectory() && !newDir.exists())
         oldDir.moveFileTo(newDir);
     refreshPresets();

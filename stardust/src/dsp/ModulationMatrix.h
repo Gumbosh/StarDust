@@ -99,13 +99,15 @@ public:
                 {
                     lfo.triPhase += lfo.rate / static_cast<float>(sr);
                     if (lfo.triPhase >= 1.0f) lfo.triPhase -= 2.0f;
+                    if (lfo.triPhase < -1.0f) lfo.triPhase += 2.0f;
                     lfo.output = 1.0f - 2.0f * std::abs(lfo.triPhase);
                     break;
                 }
                 case 2: // Saw (phase accumulator — zero trig per sample)
                 {
-                    lfo.sawPhase += 2.0f * lfo.rate / static_cast<float>(sr);
+                    lfo.sawPhase += lfo.rate / static_cast<float>(sr);
                     if (lfo.sawPhase > 1.0f) lfo.sawPhase -= 2.0f;
+                    if (lfo.sawPhase < -1.0f) lfo.sawPhase += 2.0f;
                     lfo.output = lfo.sawPhase;
                     break;
                 }

@@ -110,6 +110,7 @@ private:
         static constexpr int kMask = maxDelay - 1;
     };
 
+    bool prepared = false;
     double sr = 44100.0;
     float decayVal = 0.5f;
     float sizeVal = 0.5f;
@@ -171,7 +172,7 @@ private:
     float poolSideDiffD[kPoolSize] = {};
 
     // R5: Early reflections: 16 Schroeder-style taps with per-tap LP filtering
-    static constexpr int kERBufferSize = 8192; // covers largest tap at up to 192kHz
+    static constexpr int kERBufferSize = 32768; // covers largest tap at up to 192kHz with 1.5x size scale
     float erBuffer[kERBufferSize] = {};
     float erSideBuffer[kERBufferSize] = {};
     int erWritePos = 0;
@@ -190,4 +191,8 @@ private:
     float dcBlockInL = 0.0f, dcBlockInR = 0.0f;   // x[n-1]
     float dcBlockOutL = 0.0f, dcBlockOutR = 0.0f;  // y[n-1]
     float dcBlockR = 0.9993f;
+
+    // Tank DC blocker state (prevents DC accumulation in freeze mode)
+    float tankADCState = 0.0f;
+    float tankBDCState = 0.0f;
 };

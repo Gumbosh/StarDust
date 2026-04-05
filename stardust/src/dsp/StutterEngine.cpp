@@ -64,7 +64,8 @@ void StutterEngine::process(juce::AudioBuffer<float>& buffer)
         {
             const float fadeOut = crossfadeWindow[kCrossfadeLen - distToEnd]; // 1→0
             const float fadeIn  = 1.0f - fadeOut;                             // 0→1
-            const int nextIdx = (capturePos + (readPos - latchedSliceLen + distToEnd)) & kBufferMask;
+            // Crossfade target: beginning of captured slice (readPos - latchedSliceLen + distToEnd == 0)
+            const int nextIdx = (capturePos) & kBufferMask;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {

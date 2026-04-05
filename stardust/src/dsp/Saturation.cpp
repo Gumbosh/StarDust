@@ -1,28 +1,11 @@
 #include "Saturation.h"
-
-// [5/5] Padé rational approximant — max error < 0.03% across [-3.5, 3.5].
-// Blended to ±1 with cubic smoothstep over [3.0, 3.5] to eliminate C¹ discontinuity.
-// Matches TapeEngine::fastTanh(); used in the 8× oversampling inner loop to replace std::tanh.
-static float fastTanh(float x) noexcept
-{
-    if (x > 3.5f) return 1.0f;
-    if (x < -3.5f) return -1.0f;
-    const float x2   = x * x;
-    const float pade = x * (135135.0f + x2 * (17325.0f + x2 * 378.0f))
-                         / (135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f)));
-    const float ax = std::abs(x);
-    if (ax > 3.0f)
-    {
-        const float t     = (ax - 3.0f) * 2.0f;
-        const float blend = t * t * (3.0f - 2.0f * t);
-        const float sign  = x >= 0.0f ? 1.0f : -1.0f;
-        return pade + blend * (sign - pade);
-    }
-    return pade;
-}
+#include "FastMath.h"
+#include "HalfBandDecimator.h"
 
 void Saturation::prepare(double newSampleRate, int /*samplesPerBlock*/)
 {
+    if (newSampleRate <= 0.0) return;
+
     sampleRate = newSampleRate;
     const double rampTimeSec = 0.02; // 20ms ramp
     inputGainSmoothed.reset(sampleRate, rampTimeSec);
@@ -423,25 +406,6 @@ void Saturation::processOutput(juce::AudioBuffer<float>& buffer)
     }
 }
 
-// 15-tap Kaiser half-band polyphase decimation helper (2:1 decimation, ~90dB stopband rejection).
-// Even polyphase branch uses 8-sample history; odd branch is center tap × 0.5.
-float Saturation::halfBandDecimate(const float in0, const float in1, float* history) noexcept
-{
-    history[0] = history[1];
-    history[1] = history[2];
-    history[2] = history[3];
-    history[3] = history[4];
-    history[4] = history[5];
-    history[5] = history[6];
-    history[6] = history[7];
-    history[7] = in0;
-    // 15-tap Kaiser half-band even polyphase (~90dB stopband rejection)
-    const float even = -0.001586f * (history[0] + history[7])
-                     +  0.011750f * (history[1] + history[6])
-                     + -0.052800f * (history[2] + history[5])
-                     +  0.295636f * (history[3] + history[4]);
-    return even + 0.5f * in1;
-}
 
 void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                                          juce::SmoothedValue<float>& gainSmoothed,
@@ -519,8 +483,8 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
         float tubeNormPos = 1.0f, tubeNormNeg = 1.0f;
         if (currentMode == 1)
         {
-            tubeNormPos = 1.0f / std::tanh(scale * 0.85f);
-            tubeNormNeg = 1.0f / std::tanh(scale * 1.15f);
+            tubeNormPos = 1.0f / FastMath::tanh(scale * 0.85f);
+            tubeNormNeg = 1.0f / FastMath::tanh(scale * 1.15f);
         }
 
         // Soft-knee threshold: scales with drive (1x rate, slow follower)
@@ -587,7 +551,7 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                     if (currentMode == 4) // Xfmr: arctangent + iron core harmonic series
                     {
                         const float driven = s * bandScale * 1.5f;
-                        const float arctan = (2.0f / juce::MathConstants<float>::pi) * std::atan(driven);
+                        const float arctan = (2.0f / juce::MathConstants<float>::pi) * FastMath::atan(driven);
                         const float arctan2 = arctan * arctan;
                         const float arctan3 = arctan2 * arctan;
                         const float h2 = 0.10f * arctan2;
@@ -621,17 +585,17 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                         const float envAlpha = (absX > variMuEnv[ch]) ? variMuAttack : variMuRelease;
                         variMuEnv[ch] += envAlpha * (absX - variMuEnv[ch]);
                         const float mu = 1.0f / (1.0f + variMuEnv[ch] * 2.0f);
-                        s = fastTanh(x * mu) * blockNorm;
+                        s = FastMath::tanh(x * mu) * blockNorm;
                     }
                     else if (currentMode == 1) // Tube: asymmetric knee + 2nd harmonic injection
                     {
                         const float scaledPos = s * bandScale * 0.85f;
                         const float scaledNeg = s * bandScale * 1.15f;
                         const float tubeOut   = s >= 0.0f
-                            ? (fastTanh(scaledPos) * tubeNormPos + 0.04f * scaledPos * scaledPos * tubeNormPos)
-                            : fastTanh(scaledNeg) * tubeNormNeg;
+                            ? (FastMath::tanh(scaledPos) * tubeNormPos + 0.04f * scaledPos * scaledPos * tubeNormPos)
+                            : FastMath::tanh(scaledNeg) * tubeNormNeg;
                         const float tubeNorm  = s >= 0.0f ? tubeNormPos : tubeNormNeg;
-                        const float saturated = (s >= 0.0f) ? tubeOut : tubeOut;
+                        const float saturated = tubeOut;
                         const float linear    = s * tubeNorm;
                         s = linear + smoothBlend * (saturated - linear);
                     }
@@ -655,7 +619,7 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
                     }
                     else // Soft (0): symmetric tanh
                     {
-                        const float saturated = fastTanh(s * bandScale) * blockNorm;
+                        const float saturated = FastMath::tanh(s * bandScale) * blockNorm;
                         const float linear    = s * blockNorm;
                         s = linear + smoothBlend * (saturated - linear);
                     }
@@ -671,13 +635,13 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
             prevSample[ch] = sample;
 
             // 3-stage half-band decimation: 8x -> 4x -> 2x -> 1x
-            const float s1a = halfBandDecimate(os[0], os[1], hb1History[ch]);
-            const float s1b = halfBandDecimate(os[2], os[3], hb2History[ch]);
-            const float s1c = halfBandDecimate(os[4], os[5], hb3History[ch]);
-            const float s1d = halfBandDecimate(os[6], os[7], hb4History[ch]);
-            const float s2a = halfBandDecimate(s1a, s1b, hb3aHistory[ch]);
-            const float s2b = halfBandDecimate(s1c, s1d, hb3bHistory[ch]);
-            data[i] = halfBandDecimate(s2a, s2b, hb4aHistory[ch]) * modeRamp;
+            const float s1a = HalfBand::decimateKaiser(os[0], os[1], hb1History[ch]);
+            const float s1b = HalfBand::decimateKaiser(os[2], os[3], hb2History[ch]);
+            const float s1c = HalfBand::decimateKaiser(os[4], os[5], hb3History[ch]);
+            const float s1d = HalfBand::decimateKaiser(os[6], os[7], hb4History[ch]);
+            const float s2a = HalfBand::decimateKaiser(s1a, s1b, hb3aHistory[ch]);
+            const float s2b = HalfBand::decimateKaiser(s1c, s1d, hb3bHistory[ch]);
+            data[i] = HalfBand::decimateKaiser(s2a, s2b, hb4aHistory[ch]) * modeRamp;
         }
     }
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <atomic>
 #include <cmath>
 #include <array>
 
@@ -56,7 +57,8 @@ private:
     // Butterworth Q values for 6th-order (pole angles)
     static constexpr float kButterworthQ[kNumSections] = { 0.5176f, 0.7071f, 1.9319f };
 
-    int filterType = 0; // 0=LP, 1=HP, 2=BP, 3=Notch
+    std::atomic<int> filterType { 0 }; // 0=LP, 1=HP, 2=BP, 3=Notch
+    static_assert(std::atomic<int>::is_always_lock_free, "must be lock-free");
     bool needsRecalc = true;
     float lastCalcCutoff = -1.0f;
     float lastCalcResonance = -1.0f;

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 // Granular freeze/scatter engine. Captures audio into a circular buffer
@@ -45,9 +46,11 @@ private:
     juce::SmoothedValue<float> scatterSmoothed { 0.5f };
     juce::SmoothedValue<float> mixSmoothed { 0.5f };
 
-    float reverseAmount = 0.0f; // 0-1: probability of reverse grain
-    int syncDivision = 0;      // 0=off, 1+=division index
-    double hostBpm = 120.0;
+    std::atomic<float> reverseAmount { 0.0f }; // 0-1: probability of reverse grain
+    std::atomic<int> syncDivision { 0 };      // 0=off, 1+=division index
+    std::atomic<double> hostBpm { 120.0 };
+    static_assert(std::atomic<float>::is_always_lock_free, "must be lock-free");
+    static_assert(std::atomic<int>::is_always_lock_free, "must be lock-free");
 
     struct Grain
     {

@@ -49,6 +49,10 @@ target_sources(Stardust PRIVATE
     src/dsp/PitchShifter.h
     src/dsp/ReverserEngine.cpp
     src/dsp/ReverserEngine.h
+    src/dsp/FastMath.h
+    src/dsp/HalfBandDecimator.h
+    src/dsp/Oscillator.h
+    src/dsp/ModulationMatrix.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp

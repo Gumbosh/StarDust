@@ -1,4 +1,5 @@
 #include "GranularEngine.h"
+#include "FastMath.h"
 
 void GranularEngine::prepare(double sr, int /*samplesPerBlock*/)
 {
@@ -94,8 +95,9 @@ float GranularEngine::divisionToMs() const
         2.0f,          // 11: 1/2
         4.0f,          // 12: 1 bar
     };
-    const int idx = juce::jlimit(1, 12, syncDivision);
-    const float beatMs = 60000.0f / static_cast<float>(hostBpm);
+    const int idx = juce::jlimit(1, 12, syncDivision.load(std::memory_order_relaxed));
+    const float safeBpm = std::max(20.0f, static_cast<float>(hostBpm));
+    const float beatMs = 60000.0f / safeBpm;
     return divisions[idx] * beatMs;
 }
 
@@ -135,10 +137,11 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
 
         // Read smoothed parameters
         const float sizeMs = (syncDivision > 0) ? divisionToMs() : sizeSmoothed.getNextValue();
-        const float sizeSmp = sizeMs * static_cast<float>(sampleRate) / 1000.0f;
+        const float sizeSmp = std::min(sizeMs * static_cast<float>(sampleRate) / 1000.0f,
+                                       static_cast<float>(kCaptureSize - 1));
         const float density = densitySmoothed.getNextValue();
         const float pitchSt = pitchSmoothed.getNextValue();
-        const float pitchRatio = std::pow(2.0f, pitchSt / 12.0f);
+        const float pitchRatio = std::exp2f(pitchSt / 12.0f);
         const float scatter = scatterSmoothed.getNextValue();
         const float mix = mixSmoothed.getNextValue();
 

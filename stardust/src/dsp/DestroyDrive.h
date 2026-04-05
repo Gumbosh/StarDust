@@ -20,9 +20,6 @@ public:
 private:
     static float dBToLinear(float dB) { return std::pow(10.0f, dB / 20.0f); }
 
-    // Fast tanh rational approximant
-    static float fastTanh(float x) noexcept;
-
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };
 
@@ -62,5 +59,4 @@ private:
     float dcTracker[kMaxChannels] = {};
     float dcTrackerAlpha = 0.0003f;
 
-    static float halfBandDecimate(float a, float b, float* hist) noexcept;
 };

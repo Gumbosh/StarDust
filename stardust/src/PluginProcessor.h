@@ -11,6 +11,7 @@
 #include "dsp/ModulationMatrix.h"
 #include "dsp/Saturation.h"
 #include "dsp/DattorroReverb.h"
+#include "dsp/Oscillator.h"
 #include "dsp/GranularEngine.h"
 #include "dsp/StutterEngine.h"
 #include "dsp/PitchShifter.h"
@@ -68,11 +69,9 @@ public:
     const std::vector<Preset>& getAllPresets() const { return allPresets; }
     mutable std::recursive_mutex presetLock;
     std::atomic<bool> presetDirty { false };
-    std::atomic<bool> loadingPreset { false };
     // Snapshot of normalized param values after loading a preset (for dirty detection)
     std::map<juce::String, float> loadedPresetNormValues;
     std::atomic<int> presetLoadGrace { 0 }; // frames to skip dirty check after load
-    std::atomic<int> ignoreParamChanges { 0 };
     int getPresetCount() const { PresetLockGuard g(presetLock); return static_cast<int>(allPresets.size()); }
     bool isFactoryPreset(int index) const;
     void loadPreset(int index);
@@ -132,6 +131,33 @@ private:
     // Cached AudioParameterChoice* pointers — set once in prepareToPlay, used every block
     juce::AudioParameterChoice* tapeNoiseSpeedParam  = nullptr;
 
+    // Cached parameter pointers for audio-thread reads (avoids juce::String
+    // heap allocation in processBlock — real-time safety).
+    // Set once in prepareToPlay, read every block.
+    std::atomic<float>* cachedModLfo1Rate  = nullptr;
+    std::atomic<float>* cachedModLfo1Depth = nullptr;
+    std::atomic<float>* cachedModLfo1Wave  = nullptr;
+    std::atomic<float>* cachedModLfo1Sync  = nullptr;
+    std::atomic<float>* cachedModLfo2Rate  = nullptr;
+    std::atomic<float>* cachedModLfo2Depth = nullptr;
+    std::atomic<float>* cachedModLfo2Wave  = nullptr;
+    std::atomic<float>* cachedModLfo2Sync  = nullptr;
+
+    std::atomic<float>* cachedModSlot1Src = nullptr;
+    std::atomic<float>* cachedModSlot1Tgt = nullptr;
+    std::atomic<float>* cachedModSlot1Amt = nullptr;
+    std::atomic<float>* cachedModSlot2Src = nullptr;
+    std::atomic<float>* cachedModSlot2Tgt = nullptr;
+    std::atomic<float>* cachedModSlot2Amt = nullptr;
+    std::atomic<float>* cachedModSlot3Src = nullptr;
+    std::atomic<float>* cachedModSlot3Tgt = nullptr;
+    std::atomic<float>* cachedModSlot3Amt = nullptr;
+    std::atomic<float>* cachedModSlot4Src = nullptr;
+    std::atomic<float>* cachedModSlot4Tgt = nullptr;
+    std::atomic<float>* cachedModSlot4Amt = nullptr;
+
+    std::atomic<float>* cachedChainSlot[4] = { nullptr, nullptr, nullptr, nullptr };
+
     // Shared pink-noise filter state (used by HAZE slot)
     float noisePinkB[5][2] = {}; // Voss-McCartney pink noise: 5 stages × 2 channels
     float hazeColorLP[2] = {};   // 1-pole LP state for HAZE color filter
@@ -142,9 +168,8 @@ private:
     // H1: Crackle bandpass state (800Hz-6kHz)
     float crackleBPState[2] = {};
 
-    // H2: Mains hum oscillator state
-    float humPhase = 0.0f;
-    float humPhaseInc = 0.0f;  // computed in prepareToPlay
+    // H2: Mains hum incremental oscillators (60/120/180/240 Hz)
+    IncrementalOscillator humOsc60, humOsc120, humOsc180, humOsc240;
 
     // H3: Sub-bass rumble state
     float rumbleState[2] = {};

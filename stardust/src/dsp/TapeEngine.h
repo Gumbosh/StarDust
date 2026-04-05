@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <atomic>
+#include <vector>
 #include "Oscillator.h"
 
 // Quarter-inch reel-to-reel tape emulation (Ampex 456, 7.5/15/30 ips):
@@ -62,10 +63,6 @@ private:
     // Oscillator type alias (shared implementation in Oscillator.h)
     using Oscillator = IncrementalOscillator;
 
-    // Fast polynomial approximations (replace std::tanh/std::sinh)
-    static float fastTanh(float x);
-    // Fast coth(x) = 1/tanh(x) via inverted Padé — avoids division in langevin() hot path
-    static float fastCoth(float x) noexcept;
     // T2: Fast 3rd-order rational tanh for the 8× inner loop (~40% cheaper)
     // Max error <0.5% on [-3, 3] — sufficient inside oversampled RK4
     static float fastTanhRK4(float x) noexcept {
@@ -74,7 +71,6 @@ private:
         const float x2 = x * x;
         return x * (15.0f + x2) / (15.0f + 6.0f * x2);
     }
-    static float fastSinh(float x);
     static float langevin(float x);
     static float langevinDeriv(float x);
     float hystDMDH(float H, float M, float dH, float ms, float k) const;
@@ -183,12 +179,13 @@ private:
 
     static constexpr int kDelayBufferSize = 8192;
     static_assert((kDelayBufferSize & (kDelayBufferSize - 1)) == 0, "must be power of 2");
-    float delayBuffer[kMaxChannels][kDelayBufferSize] = {};
+    std::vector<float> delayBuffer[kMaxChannels];
     int writePos = 0;
 
     // Print-through simulation: adjacent tape layer magnetization (C1)
     // Wet output is delayed 3ms and added to the future input at -46dB (0.005 linear)
     static constexpr int kPrintThroughBufSize = 1024; // power-of-2; 1024/44100 ≈ 23ms; covers 3ms at up to 192kHz
+    static_assert((kPrintThroughBufSize & (kPrintThroughBufSize - 1)) == 0, "must be power of 2");
     static constexpr float kPrintThroughCoeff = 0.005f; // -46dB coupling
     float printThroughBuf[kMaxChannels][kPrintThroughBufSize] = {};
     int printThroughWritePos = 0;
@@ -312,8 +309,9 @@ private:
     int biasOscCounter = 0; // T1: renormalization counter for bias oscillator
 
     // T3: Erase head ghost — previous signal remains at ~-55dB
-    static constexpr int kEraseHeadBufSize = 65536; // ~1.5s at 44.1kHz
-    float eraseHeadBuf[kMaxChannels][kEraseHeadBufSize] = {};
+    static constexpr int kEraseHeadBufSize = 262144; // ~6s at 44.1kHz; covers 1s lookback at 192kHz
+    static_assert((kEraseHeadBufSize & (kEraseHeadBufSize - 1)) == 0, "must be power of 2");
+    std::vector<float> eraseHeadBuf[kMaxChannels];
     int eraseHeadWritePos = 0;
     float eraseHeadLP[kMaxChannels] = {};  // 200Hz LP state for ghost signal
     float eraseHeadLPCoeff = 0.0f;

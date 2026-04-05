@@ -107,7 +107,7 @@ void ChorusEngine::setMix(float mix)
 
 void ChorusEngine::setMode(int mode)
 {
-    junoMode = juce::jlimit(0, 2, mode);
+    junoMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed);
 }
 
 float ChorusEngine::readInterpolated(const float* buf, float delaySamples) const
@@ -139,10 +139,11 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
     const float lfoInc     = 1.0f / static_cast<float>(sampleRate);
     const float twoPi      = juce::MathConstants<float>::twoPi;
 
-    const bool active[kNumModes] = { junoMode == 0 || junoMode == 2,
-                                     junoMode == 1 || junoMode == 2 };
+    const int mode = junoMode.load(std::memory_order_relaxed);
+    const bool active[kNumModes] = { mode == 0 || mode == 2,
+                                     mode == 1 || mode == 2 };
     // -3 dB when both modes active (hardware summing attenuation)
-    const float wetNorm = (junoMode == 2) ? 0.7071f : 1.0f;
+    const float wetNorm = (mode == 2) ? 0.7071f : 1.0f;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -184,14 +185,15 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
             monoIn += vcaDist * monoIn * monoIn;
 
             monoIn *= compGain;
+            compEnvState = std::min(compEnvState, 10.0f);
         }
 
         // BBD input OTA soft saturation (gentle, preserves unity small-signal gain)
-        monoIn = fastTanh(monoIn * 1.15f) * 0.8697f;
+        monoIn = FastMath::tanhFast(monoIn * 1.15f) * 0.8697f;
 
         // Write to delay buffers (CH5: separate buffers for I+II mode)
         delayBuffer0[static_cast<size_t>(writePos)] = monoIn;
-        if (junoMode == 2)
+        if (mode == 2)
             delayBuffer1[static_cast<size_t>(writePos)] = monoIn;
 
         if (mix < 0.001f)
@@ -231,11 +233,14 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
             // Stereo topology:
             //   Modes I and II standalone: R = inverted LFO (standard Juno stereo widening)
             //   I+II combined, Mode II: R = non-inverted (creates Leslie-style swirl)
-            const bool modeIIinCombined = (junoMode == 2 && m == 1);
+            const bool modeIIinCombined = (mode == 2 && m == 1);
             float delayL = std::max(1.0f, v.baseSamples + lfo * v.depthSamples + jL);
             float delayR = std::max(1.0f, modeIIinCombined
                                           ? v.baseSamples + lfo * v.depthSamples + jR   // non-inverted
                                           : v.baseSamples - lfo * v.depthSamples + jR); // inverted
+            // Guard against reading beyond delay buffer (triLFO overshoot + jitter)
+            delayL = std::min(delayL, static_cast<float>(kDelayBufferSize - 4));
+            delayR = std::min(delayR, static_cast<float>(kDelayBufferSize - 4));
 
             // CH1: BBD bucket discretization — quantize delay to 512 discrete stages
             {
@@ -245,7 +250,7 @@ void ChorusEngine::process(juce::AudioBuffer<float>& buffer)
             }
 
             // CH5: Select buffer based on mode — Mode II uses delayBuffer1 in I+II mode
-            const float* readBuf = (junoMode == 2 && m == 1)
+            const float* readBuf = (mode == 2 && m == 1)
                                    ? delayBuffer1.data()
                                    : delayBuffer0.data();
 

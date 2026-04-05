@@ -1,8 +1,10 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include "Oscillator.h"
+#include "FastMath.h"
 
 // Roland Juno-60 ensemble chorus emulation.
 // Hardware: 2× MN3009 256-stage BBD chips + MN3101 clock driver.
@@ -38,7 +40,8 @@ private:
 
     juce::SmoothedValue<float> mixSmoothed { 0.5f };
     float currentMix = 0.5f;
-    int junoMode = 0;
+    std::atomic<int> junoMode { 0 };
+    static_assert(std::atomic<int>::is_always_lock_free, "must be lock-free");
 
     // Dual MONO delay buffers — separate BBD paths for I+II mode (CH5)
     static constexpr int kDelayBufferSize = 8192;
@@ -105,13 +108,8 @@ private:
         // tanh(x*1.05)/tanh(1.05) ≈ x*(27+1.1025*x²)/(27+9*1.1025*x²) / 0.7818
         const float x = raw * 1.05f;
         const float x2 = x * x;
-        return (x * (27.0f + x2) / (27.0f + 9.0f * x2)) * (1.0f / 0.7818f);
+        const float result = (x * (27.0f + x2) / (27.0f + 9.0f * x2)) * (1.0f / 0.7818f);
+        return juce::jlimit(-1.0f, 1.0f, result);
     }
 
-    static float fastTanh(float x) noexcept {
-        if (x > 4.0f) return 1.0f;
-        if (x < -4.0f) return -1.0f;
-        const float x2 = x * x;
-        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-    }
 };

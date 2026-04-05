@@ -1,12 +1,6 @@
 #include "DestroyDrive.h"
-
-float DestroyDrive::fastTanh(float x) noexcept
-{
-    if (x > 4.0f) return 1.0f;
-    if (x < -4.0f) return -1.0f;
-    const float x2 = x * x;
-    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-}
+#include "FastMath.h"
+#include "HalfBandDecimator.h"
 
 // Asymmetric saturation (D10): different positive/negative thresholds
 // kPos=0.85 (softer on positive), kNeg=1.15 (harder on negative)
@@ -15,20 +9,10 @@ static constexpr float kSatKneeNeg = 0.8f;
 static constexpr float kInvTanhPos = 1.0f / 0.5370f; // ≈ 1/tanh(0.6)
 static constexpr float kInvTanhNeg = 1.0f / 0.6640f; // ≈ 1/tanh(0.8)
 
-float DestroyDrive::halfBandDecimate(float a, float b, float* hist) noexcept
-{
-    hist[0] = hist[1]; hist[1] = hist[2]; hist[2] = hist[3];
-    hist[3] = hist[4]; hist[4] = hist[5]; hist[5] = hist[6];
-    hist[6] = hist[7]; hist[7] = a;
-    const float even = -0.001586f * (hist[0] + hist[7])
-                     +  0.011750f * (hist[1] + hist[6])
-                     + -0.052800f * (hist[2] + hist[5])
-                     +  0.295636f * (hist[3] + hist[4]);
-    return even + 0.5f * b;
-}
 
 void DestroyDrive::prepare(double newSampleRate, int /*samplesPerBlock*/)
 {
+    if (newSampleRate <= 0.0) return;
     sampleRate = newSampleRate;
     constexpr double rampTimeSec = 0.005;
     inputGainSmoothed.reset(sampleRate, rampTimeSec);
@@ -165,17 +149,17 @@ void DestroyDrive::processInput(juce::AudioBuffer<float>& buffer)
                 const float invTanhBlend = kInvTanhPos + (kInvTanhNeg - kInvTanhPos) * (1.0f - bassRatio);
 
                 if (interp >= 0.0f)
-                    os[k] = fastTanh(interp * kneeBlend) * invTanhBlend;
+                    os[k] = FastMath::tanhFast(interp * kneeBlend) * invTanhBlend;
                 else
-                    os[k] = fastTanh(interp * kSatKneeNeg) * kInvTanhNeg;
+                    os[k] = FastMath::tanhFast(interp * kSatKneeNeg) * kInvTanhNeg;
             }
             prevPrevSample[ch] = prevSample[ch];
             prevSample[ch] = s;
 
             // 2-stage half-band decimation: 4×→2×→1×
-            const float s1a = halfBandDecimate(os[0], os[1], hb1History[ch]);
-            const float s1b = halfBandDecimate(os[2], os[3], hb2History[ch]);
-            float decimated = halfBandDecimate(s1a, s1b, hb3History[ch]);
+            const float s1a = HalfBand::decimateKaiser(os[0], os[1], hb1History[ch]);
+            const float s1b = HalfBand::decimateKaiser(os[2], os[3], hb2History[ch]);
+            float decimated = HalfBand::decimateKaiser(s1a, s1b, hb3History[ch]);
 
             // C6: DC tracking envelope — slow follower removes asymmetric saturation DC offset
             // Preserves sub-bass better than a simple DC blocker alone

@@ -197,10 +197,29 @@ void MultiplyEngine::process(juce::AudioBuffer<float>& buffer)
             delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] = treble;
         }
 
+        // Always advance oscillators so phase stays continuous even when mix is zero
+        for (int vi = 0; vi < kNumVoices; ++vi)
+        {
+            auto& v = voices[static_cast<size_t>(vi)];
+            v.fmOsc[0].advance(speedMul);
+            v.fmOsc[1].advance(speedMul);
+        }
+
+        // Renormalize oscillators periodically to prevent drift
+        if (++sampleCounter >= kNormalizeInterval)
+        {
+            sampleCounter = 0;
+            for (int vi = 0; vi < kNumVoices; ++vi)
+            {
+                auto& v = voices[static_cast<size_t>(vi)];
+                v.fmOsc[0].normalize();
+                v.fmOsc[1].normalize();
+            }
+        }
+
         if (mix < 0.001f)
         {
             writePos = (writePos + 1) & kDelayMask;
-            ++sampleCounter;
             continue;
         }
 
@@ -218,8 +237,12 @@ void MultiplyEngine::process(juce::AudioBuffer<float>& buffer)
             // FM: delay = base + depth * (1 + sin(phase)), oscillates 0 -> 2*depth
             const float fmLfoL = v.fmOsc[0].sinVal;
             const float fmLfoR = v.fmOsc[1].sinVal;
-            const float delaySmpL = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoL);
-            const float delaySmpR = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoR);
+            float delaySmpL = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoL);
+            float delaySmpR = v.baseDelaySamples + v.fmDepthSamples * (1.0f + fmLfoR);
+
+            // Guard: ensure delay >= 1 sample to prevent reading at or ahead of write pointer
+            delaySmpL = std::max(1.0f, delaySmpL);
+            delaySmpR = std::max(1.0f, delaySmpR);
 
             // ITD modeling — very small pan-dependent micro-delay for spatial imaging.
             // Keep conservative so widening does not translate into a delayed sound.
@@ -256,22 +279,6 @@ void MultiplyEngine::process(juce::AudioBuffer<float>& buffer)
             const float gR = std::sin(angle);
             outL += sampleL * gL;
             outR += sampleR * gR;
-
-            // Advance FM oscillators with speed scaling (rate-scaled advance)
-            v.fmOsc[0].advance(speedMul);
-            v.fmOsc[1].advance(speedMul);
-        }
-
-        // Renormalize oscillators periodically to prevent drift
-        if (++sampleCounter >= kNormalizeInterval)
-        {
-            sampleCounter = 0;
-            for (int vi = 0; vi < kNumVoices; ++vi)
-            {
-                auto& v = voices[static_cast<size_t>(vi)];
-                v.fmOsc[0].normalize();
-                v.fmOsc[1].normalize();
-            }
         }
 
         // Keep low-mid mix settings drier for "on top of dry" behavior like Multiply.

@@ -1,4 +1,5 @@
 #include "PitchShifter.h"
+#include "FastMath.h"
 
 void PitchShifter::prepare(double sr, int /*samplesPerBlock*/)
 {
@@ -64,7 +65,7 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
         const float tone = toneSmoothed.getNextValue();
         const float mix = mixSmoothed.getNextValue();
 
-        const float pitchRatio = std::pow(2.0f, pitch / 12.0f);
+        const float pitchRatio = std::exp2f(pitch / 12.0f);
         const float sawRate = (1.0f - pitchRatio) / static_cast<float>(kWindowSamples);
 
         // LP coefficient for feedback tone filter
@@ -96,7 +97,7 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
 
             // Feedback path: tone LP → soft clip → scale
             lpState[ch] += lpCoeff * (wet - lpState[ch]);
-            const float clipped = std::tanh(lpState[ch]);
+            const float clipped = FastMath::tanh(lpState[ch]);
             feedbackSample[ch] = clipped * fb;
 
             // Constant-power dry/wet mix

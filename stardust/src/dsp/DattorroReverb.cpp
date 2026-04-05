@@ -54,7 +54,8 @@ static constexpr float kTapDelB2_b = 335.0f;
 
 static int scaleDelay(float refDelay, double sampleRate)
 {
-    return std::max(1, std::min(32000, static_cast<int>(refDelay * static_cast<float>(sampleRate) / kRefRate)));
+    static constexpr int kMaxDelay = 32768; // matches Allpass::maxDelay
+    return std::max(1, std::min(kMaxDelay - 1, static_cast<int>(refDelay * static_cast<float>(sampleRate) / kRefRate)));
 }
 
 void DattorroReverb::prepare(double sampleRate)
@@ -148,6 +149,7 @@ void DattorroReverb::prepare(double sampleRate)
     erWritePos = 0;
 
     reset();
+    prepared = true;
 }
 
 void DattorroReverb::setDecay(float decay)
@@ -236,6 +238,8 @@ void DattorroReverb::reset()
     tankDampB2 = 0.0f;
     dcBlockInL = 0.0f; dcBlockInR = 0.0f;
     dcBlockOutL = 0.0f; dcBlockOutR = 0.0f;
+    tankADCState = 0.0f;
+    tankBDCState = 0.0f;
     std::memset(preDelayBuffer, 0, sizeof(preDelayBuffer));
     std::memset(preDelaySideBuffer, 0, sizeof(preDelaySideBuffer));
     preDelayWritePos = 0;
@@ -246,6 +250,7 @@ void DattorroReverb::reset()
 
 void DattorroReverb::processSample(float inL, float inR, float& outL, float& outR)
 {
+    if (!prepared) { outL = inL; outR = inR; return; }
     // True stereo: M/S decomposition, diffuse both mid and side before tanks
     const float inputMid = (inL + inR) * 0.5f;
     const float inputSide = (inL - inR) * 0.5f;
@@ -323,6 +328,9 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     // R1: LF damping — attenuate low frequencies independently
     const float lfContentA = tankA - tankDampA2;
     tankA = tankDampA2 + lfContentA * effectiveLFMult;
+    // DC blocker: remove DC accumulation in tank (critical for freeze mode)
+    tankADCState += 0.00001f * (tankA - tankADCState);
+    tankA -= tankADCState;
     // R2: Gentle feedback saturation — prevents explosion at high decay, adds density
     // ~1% THD at unity, self-limiting. Models EMT 140 plate driver nonlinearity.
     {
@@ -345,6 +353,9 @@ void DattorroReverb::processSample(float inL, float inR, float& outL, float& out
     // R1: LF damping — attenuate low frequencies independently
     const float lfContentB = tankB - tankDampB2;
     tankB = tankDampB2 + lfContentB * effectiveLFMult;
+    // DC blocker: remove DC accumulation in tank (critical for freeze mode)
+    tankBDCState += 0.00001f * (tankB - tankBDCState);
+    tankB -= tankBDCState;
     // R2: Feedback saturation (Tank B)
     {
         const float driven = tankB * 1.05f;

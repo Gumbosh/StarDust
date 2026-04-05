@@ -45,9 +45,9 @@ void ButterworthFilter::setLFO(float rate, float depth)
 
 void ButterworthFilter::setFilterType(int type)
 {
-    if (filterType != type)
+    if (filterType.load(std::memory_order_relaxed) != type)
     {
-        filterType = type;
+        filterType.store(type, std::memory_order_relaxed);
         needsRecalc = true;
         for (int ch = 0; ch < kMaxChannels; ++ch)
             for (int s = 0; s < kNumSections; ++s)
@@ -71,7 +71,9 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
     // D20: Cap maximum resonance Q at 6.0 for stability
     const float cappedResonance = std::min(resonanceVal, 0.75f); // maps to Q max ~6.0
 
-    if (filterType == 0) // LP: 3 cascaded biquad sections
+    const int ftype = filterType.load(std::memory_order_relaxed);
+
+    if (ftype == 0) // LP: 3 cascaded biquad sections
     {
         for (int s = 0; s < kNumSections; ++s)
         {
@@ -93,7 +95,7 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
             }
         }
     }
-    else if (filterType == 1) // HP: 3 cascaded biquad sections
+    else if (ftype == 1) // HP: 3 cascaded biquad sections
     {
         for (int s = 0; s < kNumSections; ++s)
         {
@@ -115,7 +117,7 @@ void ButterworthFilter::recalculateCoefficients(float cutoffVal, float resonance
             }
         }
     }
-    else if (filterType == 2) // BP: 6th-order (D18: all 3 sections active)
+    else if (ftype == 2) // BP: 6th-order (D18: all 3 sections active)
     {
         for (int s = 0; s < kNumSections; ++s)
         {
@@ -167,7 +169,7 @@ void ButterworthFilter::process(juce::AudioBuffer<float>& buffer)
     const float lfoDepth = lfoDepthSmoothed.getCurrentValue();
 
     // Bypass when LP cutoff is near max and no LFO (LP only — HP/BP/Notch always active)
-    if (filterType == 0 && cutoffVal >= 0.985f && lfoDepth < 0.001f)
+    if (filterType.load(std::memory_order_relaxed) == 0 && cutoffVal >= 0.985f && lfoDepth < 0.001f)
     {
         cutoffSmoothed.skip(buffer.getNumSamples());
         resonanceSmoothed.skip(buffer.getNumSamples());
