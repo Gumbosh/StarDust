@@ -207,6 +207,7 @@ private:
     void layoutStutterSection(juce::Rectangle<int> bounds);
     void layoutShiftSection(juce::Rectangle<int> bounds);
     void layoutReverserSection(juce::Rectangle<int> bounds);
+    void layoutHalfTimeSection(juce::Rectangle<int> bounds);
 
     StardustProcessor& processorRef;
     StardustLookAndFeel lookAndFeel;
@@ -285,6 +286,17 @@ private:
     std::unique_ptr<ButtonAttachment> reverserToggleAttach;
     juce::Slider reverserMixStrip;
     std::unique_ptr<SliderAttachment> reverserMixStripAttach;
+
+    // HALFTIME section
+    LabeledKnob halftimeFadeKnob;
+    juce::TextButton halftimeDivBtn[8];   // 1/16, 1/8T, 1/8, 1/4, 1/2, 1Bar, 2Bar, 4Bar
+    juce::Label halftimeDivLabel;
+    juce::TextButton halftimeSpeedBtn[2]; // 2x, 4x
+    juce::Label halftimeSpeedLabel;
+    juce::ToggleButton halftimeToggle;
+    std::unique_ptr<ButtonAttachment> halftimeToggleAttach;
+    juce::Slider halftimeMixStrip;
+    std::unique_ptr<SliderAttachment> halftimeMixStripAttach;
 
     LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
 

@@ -162,7 +162,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     for (int i = 0; i < 4; ++i)
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID("chainSlot" + juce::String(i), 1),
-            "FX Slot " + juce::String(i + 1), 0, 12, i + 1));
+            "FX Slot " + juce::String(i + 1), 0, 13, i + 1));
 
     // Reverb (standalone Dattorro plate)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -315,6 +315,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("reverserMix", 1), "Reverser Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
+    // HALFTIME: tempo-synced half/quarter speed (slot 13)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("halftimeDivision", 1), "HalfTime Division",
+        juce::StringArray{"1/16", "1/8T", "1/8", "1/4", "1/2", "1 Bar", "2 Bars", "4 Bars"}, 2));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("halftimeSpeed", 1), "HalfTime Speed",
+        juce::StringArray{"2x", "4x"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("halftimeFade", 1), "HalfTime Fade",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("halftimeEnabled", 1), "HalfTime Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("halftimeMix", 1), "HalfTime Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
     return { params.begin(), params.end() };
 }
 
@@ -343,6 +359,7 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     stutterEngine.prepare(sampleRate, samplesPerBlock);
     pitchShifter.prepare(sampleRate, samplesPerBlock);
     reverserEngine.prepare(sampleRate, samplesPerBlock);
+    halfTimeEngine.prepare(sampleRate, samplesPerBlock);
 
     // Pre-allocate with generous headroom for oversampled data
     // Use 8x to handle hosts that exceed the declared block size
@@ -425,6 +442,46 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
+
+    // Flush all DSP state on preset change — prevents old reverb tails, delay
+    // contents, and granular buffers from bleeding into the new preset.
+    // Uses a short 4ms fade-out to avoid clicks from the hard buffer reset.
+    if (presetChangeReset.exchange(false))
+    {
+        // Quick fade-out of current buffer to avoid click (4ms or remaining samples)
+        const int fadeSamples = std::min(buffer.getNumSamples(),
+                                         static_cast<int>(currentSampleRate * 0.004));
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < fadeSamples; ++i)
+                data[i] *= static_cast<float>(fadeSamples - i) / static_cast<float>(fadeSamples);
+            for (int i = fadeSamples; i < buffer.getNumSamples(); ++i)
+                data[i] = 0.0f;
+        }
+
+        // Reset all DSP modules (zeroes buffers, resets positions)
+        const int blk = buffer.getNumSamples();
+        tapeEngine.prepare(currentSampleRate, blk);
+        standaloneReverb.prepare(currentSampleRate);
+        standaloneReverb.reset();
+        chorusEngine.prepare(currentSampleRate, blk);
+        multiplyEngine.prepare(currentSampleRate, blk);
+        saturation.prepare(currentSampleRate, blk);
+        destroyDrive.prepare(currentSampleRate, blk);
+        bitCrusher.prepare(currentSampleRate, blk);
+        granularEngine.prepare(currentSampleRate, blk);
+        stutterEngine.prepare(currentSampleRate, blk);
+        pitchShifter.prepare(currentSampleRate, blk);
+        reverserEngine.prepare(currentSampleRate, blk);
+        halfTimeEngine.prepare(currentSampleRate, blk);
+
+        // Clear haze state (inline DSP, no separate module)
+        std::memset(noisePinkB, 0, sizeof(noisePinkB));
+        std::memset(hazeColorLP, 0, sizeof(hazeColorLP));
+
+        return; // skip processing this block — next block starts clean
+    }
 
     // Input gain — smoothed per-sample to avoid zipper noise on automation (fix 2.4)
     const float inputGainDb = *apvts.getRawParameterValue("inputGain");
@@ -877,6 +934,22 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 reverserEngine.process(buffer);
                 break;
             }
+            case 13: // HALFTIME — tempo-synced half/quarter speed
+            {
+                if (!(*apvts.getRawParameterValue("halftimeEnabled") >= 0.5f)) break;
+                double hostBPM = 120.0;
+                if (auto* playHead = getPlayHead())
+                    if (auto pos = playHead->getPosition())
+                        if (auto bpm = pos->getBpm())
+                            hostBPM = *bpm;
+                halfTimeEngine.setBPM(hostBPM);
+                halfTimeEngine.setDivision(static_cast<int>(*apvts.getRawParameterValue("halftimeDivision")));
+                halfTimeEngine.setSpeed(static_cast<int>(*apvts.getRawParameterValue("halftimeSpeed")));
+                halfTimeEngine.setFade(*apvts.getRawParameterValue("halftimeFade"));
+                halfTimeEngine.setMix(*apvts.getRawParameterValue("halftimeMix"));
+                halfTimeEngine.process(buffer);
+                break;
+            }
             default: break; // 0 = empty slot
         }
     }
@@ -991,6 +1064,40 @@ void StardustProcessor::loadPreset(int index)
             param->setValueNotifyingHost(param->convertTo0to1(value));
     }
 
+    // Auto-enable any effect that is assigned to a chain slot.
+    // Prevents presets from having visible but disabled effects.
+    static const std::pair<int, const char*> slotEnableMap[] = {
+        { 1,  "destroyEnabled" },
+        { 3,  "multiplyEnabled" },  // chorus shares multiply toggle
+        { 4,  "tapeEnabled" },
+        { 5,  "distortionEnabled" },
+        { 6,  "reverbEnabled" },
+        { 7,  "hazeEnabled" },
+        { 8,  "unisonEnabled" },
+        { 9,  "grainEnabled" },
+        { 10, "stutterEnabled" },
+        { 11, "shiftEnabled" },
+        { 12, "reverserEnabled" },
+        { 13, "halftimeEnabled" },
+    };
+    for (int slot = 0; slot < 4; ++slot)
+    {
+        const auto key = "chainSlot" + juce::String(slot);
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        const int fx = static_cast<int>(it->second);
+        if (fx == 0) continue;
+        for (const auto& [id, enableParam] : slotEnableMap)
+        {
+            if (id == fx)
+            {
+                if (auto* param = apvts.getParameter(enableParam))
+                    param->setValueNotifyingHost(1.0f);
+                break;
+            }
+        }
+    }
+
     // Snapshot actual normalized values after host has applied them
     {
         PresetLockGuard g(presetLock);
@@ -1004,6 +1111,7 @@ void StardustProcessor::loadPreset(int index)
     }
 
     presetDirty.store(false);
+    presetChangeReset.store(true); // tell processBlock to flush DSP buffers
 }
 
 bool StardustProcessor::isFactoryPreset(int index) const

@@ -16,6 +16,7 @@
 #include "dsp/StutterEngine.h"
 #include "dsp/PitchShifter.h"
 #include "dsp/ReverserEngine.h"
+#include "dsp/HalfTimeEngine.h"
 
 struct Preset
 {
@@ -69,6 +70,7 @@ public:
     const std::vector<Preset>& getAllPresets() const { return allPresets; }
     mutable std::recursive_mutex presetLock;
     std::atomic<bool> presetDirty { false };
+    std::atomic<bool> presetChangeReset { false }; // signals processBlock to flush DSP state
     // Snapshot of normalized param values after loading a preset (for dirty detection)
     std::map<juce::String, float> loadedPresetNormValues;
     std::atomic<int> presetLoadGrace { 0 }; // frames to skip dirty check after load
@@ -104,6 +106,7 @@ private:
     StutterEngine stutterEngine;
     PitchShifter pitchShifter;
     ReverserEngine reverserEngine;
+    HalfTimeEngine halfTimeEngine;
 
     double currentSampleRate = 44100.0;
     std::vector<Preset> factoryPresets;

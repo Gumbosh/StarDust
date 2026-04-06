@@ -94,6 +94,7 @@ std::vector<Preset> getGrainsPresets();
 std::vector<Preset> getGlitchPresets();
 std::vector<Preset> getTapePresets();
 std::vector<Preset> getAtmospherePresets();
+std::vector<Preset> getAbstractPresets();
 
-// Returns all 250+ factory presets (Init + 5 banks concatenated)
+// Returns all factory presets (Init + 6 banks concatenated)
 std::vector<Preset> getAllFactoryPresets();

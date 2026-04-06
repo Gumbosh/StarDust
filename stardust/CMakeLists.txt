@@ -49,6 +49,8 @@ target_sources(Stardust PRIVATE
     src/dsp/PitchShifter.h
     src/dsp/ReverserEngine.cpp
     src/dsp/ReverserEngine.h
+    src/dsp/HalfTimeEngine.cpp
+    src/dsp/HalfTimeEngine.h
     src/dsp/FastMath.h
     src/dsp/HalfBandDecimator.h
     src/dsp/Oscillator.h
@@ -64,6 +66,7 @@ target_sources(Stardust PRIVATE
     src/presets/GlitchPresets.cpp
     src/presets/TapePresets.cpp
     src/presets/AtmospherePresets.cpp
+    src/presets/AbstractPresets.cpp
 )
 
 juce_add_binary_data(StardustAssets SOURCES

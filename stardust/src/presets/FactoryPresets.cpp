@@ -17,6 +17,7 @@ std::vector<Preset> getAllFactoryPresets()
     append(getGlitchPresets());
     append(getTapePresets());
     append(getAtmospherePresets());
+    append(getAbstractPresets());
 
     return all;
 }

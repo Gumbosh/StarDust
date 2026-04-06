@@ -1311,6 +1311,75 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         addAndMakeVisible(reverserSlashLabel);
     }
 
+    // HALFTIME knobs + buttons
+    setupKnob(halftimeFadeKnob, "halftimeFade", "Fade");
+    {
+        static const char* divLabels[] = {"1/16","1/8T","1/8","1/4","1/2","1 Bar","2 Bar","4 Bar"};
+        auto* halftimeDivParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("halftimeDivision"));
+        auto updateDivButtons = [this, halftimeDivParam]() {
+            int sel = halftimeDivParam ? halftimeDivParam->getIndex() : 2;
+            for (int i = 0; i < 8; ++i)
+                halftimeDivBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 8; ++i)
+        {
+            halftimeDivBtn[i].setButtonText(divLabels[i]);
+            halftimeDivBtn[i].setClickingTogglesState(false);
+            halftimeDivBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            halftimeDivBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            halftimeDivBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            halftimeDivBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            halftimeDivBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            halftimeDivBtn[i].onClick = [i, updateDivButtons, halftimeDivParam]() {
+                if (halftimeDivParam)
+                    halftimeDivParam->setValueNotifyingHost(halftimeDivParam->convertTo0to1(static_cast<float>(i)));
+                updateDivButtons();
+            };
+            addAndMakeVisible(halftimeDivBtn[i]);
+        }
+        updateDivButtons();
+        processorRef.apvts.addParameterListener("halftimeDivision", this);
+        halftimeDivLabel.setText("Division", juce::dontSendNotification);
+        halftimeDivLabel.setJustificationType(juce::Justification::centred);
+        halftimeDivLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        halftimeDivLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(halftimeDivLabel);
+    }
+    {
+        static const char* speedLabels[] = {"2x", "4x"};
+        auto* halftimeSpeedParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("halftimeSpeed"));
+        auto updateSpeedButtons = [this, halftimeSpeedParam]() {
+            int sel = halftimeSpeedParam ? halftimeSpeedParam->getIndex() : 0;
+            for (int i = 0; i < 2; ++i)
+                halftimeSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 2; ++i)
+        {
+            halftimeSpeedBtn[i].setButtonText(speedLabels[i]);
+            halftimeSpeedBtn[i].setClickingTogglesState(false);
+            halftimeSpeedBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
+            halftimeSpeedBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
+            halftimeSpeedBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
+            halftimeSpeedBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
+            halftimeSpeedBtn[i].setComponentID("tapeNoiseSpeedBtn");
+            halftimeSpeedBtn[i].onClick = [i, updateSpeedButtons, halftimeSpeedParam]() {
+                if (halftimeSpeedParam)
+                    halftimeSpeedParam->setValueNotifyingHost(halftimeSpeedParam->convertTo0to1(static_cast<float>(i)));
+                updateSpeedButtons();
+            };
+            addAndMakeVisible(halftimeSpeedBtn[i]);
+        }
+        updateSpeedButtons();
+        processorRef.apvts.addParameterListener("halftimeSpeed", this);
+        halftimeSpeedLabel.setText("Speed", juce::dontSendNotification);
+        halftimeSpeedLabel.setJustificationType(juce::Justification::centred);
+        halftimeSpeedLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+        halftimeSpeedLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
+        addAndMakeVisible(halftimeSpeedLabel);
+    }
+
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
 
     // Juno-60 mode buttons: I / II / I+II
@@ -1474,6 +1543,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupMixStrip(stutterMixStrip,      stutterMixStripAttach,      "stutterMix");
     setupMixStrip(shiftMixStrip,        shiftMixStripAttach,        "shiftMix");
     setupMixStrip(reverserMixStrip,     reverserMixStripAttach,     "reverserMix");
+    setupMixStrip(halftimeMixStrip,    halftimeMixStripAttach,    "halftimeMix");
 
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
@@ -1700,6 +1770,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(stutterToggle, stutterToggleAttach, "stutterEnabled");
     setupToggle(shiftToggle, shiftToggleAttach, "shiftEnabled");
     setupToggle(reverserToggle, reverserToggleAttach, "reverserEnabled");
+    setupToggle(halftimeToggle, halftimeToggleAttach, "halftimeEnabled");
 
     // Disable and dim knobs when their section toggle is off
     auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobList) {
@@ -1785,6 +1856,20 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     shiftToggle.onClick();
     dimSection(reverserToggle, { &reverserCrossfadeKnob });
     reverserToggle.onClick();
+    dimSection(halftimeToggle, { &halftimeFadeKnob });
+    {
+        auto origOnClick = halftimeToggle.onClick;
+        halftimeToggle.onClick = [this, origOnClick]() {
+            if (origOnClick) origOnClick();
+            const bool on = halftimeToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+            halftimeDivLabel.setAlpha(alpha);
+            halftimeSpeedLabel.setAlpha(alpha);
+            for (auto& b : halftimeDivBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+            for (auto& b : halftimeSpeedBtn) { b.setEnabled(on); b.setAlpha(alpha); }
+        };
+    }
+    halftimeToggle.onClick();
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
@@ -2373,6 +2458,7 @@ juce::ToggleButton& StardustEditor::toggleForSection(int fxId)
         case 10: return stutterToggle;
         case 11: return shiftToggle;
         case 12: return reverserToggle;
+        case 13: return halftimeToggle;
         default: return destroyToggle;
     }
 }
@@ -2441,6 +2527,7 @@ void StardustEditor::showAddEffectMenu(int row)
     creativeMenu.addItem(10, "STUTTER", !usedFx.count(10));
     creativeMenu.addItem(11, "SHIFT", !usedFx.count(11));
     creativeMenu.addItem(12, "REVERSER", !usedFx.count(12));
+    creativeMenu.addItem(13, "HALFTIME", !usedFx.count(13));
 
     juce::PopupMenu menu;
     menu.addSubMenu("Distortion", distortionMenu);
@@ -2724,6 +2811,52 @@ void StardustEditor::layoutReverserSection(juce::Rectangle<int> ap)
     layoutKnobInBounds(reverserCrossfadeKnob, { startX + displayW + 16, ky, knobW, kKnobH });
 }
 
+void StardustEditor::layoutHalfTimeSection(juce::Rectangle<int> ap)
+{
+    const int padX = 6;
+    const int padY = 4;
+    const int availW = ap.getWidth() - padX * 2;
+    const int availH = ap.getHeight() - padY * 2;
+    const int ox = ap.getX() + padX;
+    const int oy = ap.getY() + padY;
+
+    // ── Row 1: 8 division buttons across full width ──
+    const int btnH = 20;
+    const int divGap = 2;
+    const int divBtnW = (availW - divGap * 7) / 8;
+    const int row1Y = oy + 2;
+    for (int i = 0; i < 8; ++i)
+    {
+        halftimeDivBtn[i].setBounds(ox + i * (divBtnW + divGap), row1Y, divBtnW, btnH);
+        halftimeDivBtn[i].setVisible(true);
+    }
+    halftimeDivLabel.setVisible(false);
+
+    // ── Row 2: Speed (2x/4x) left + Fade knob right, vertically centered ──
+    const int row2Y = row1Y + btnH + 6;
+    const int row2H = availH - (row2Y - oy) - 2;
+
+    // Speed buttons — compact, left side
+    const int speedBtnW = 36;
+    const int speedGap = 3;
+    const int speedX = ox;
+    const int speedY = row2Y + (row2H - btnH - 12) / 2;
+    for (int i = 0; i < 2; ++i)
+    {
+        halftimeSpeedBtn[i].setBounds(speedX + i * (speedBtnW + speedGap), speedY, speedBtnW, btnH);
+        halftimeSpeedBtn[i].setVisible(true);
+    }
+    halftimeSpeedLabel.setBounds(speedX, speedY + btnH + 1, speedBtnW * 2 + speedGap, 11);
+    halftimeSpeedLabel.setVisible(true);
+
+    // Fade knob — right side, vertically centered in remaining row2 space
+    const int knobW = std::min(availW / 3, 72);
+    const int knobH = std::min(row2H, 62);
+    const int fadeX = ox + availW - knobW;
+    const int fadeY = row2Y + (row2H - knobH) / 2;
+    layoutKnobInBounds(halftimeFadeKnob, { fadeX, fadeY, knobW, knobH });
+}
+
 void StardustEditor::generateBackgroundTexture()
 {
     constexpr int texW = 128;
@@ -2794,7 +2927,7 @@ void StardustEditor::paint(juce::Graphics& g)
     static constexpr int kPillH  =  28; // name pill height
 
     // Compact effect names for the pill
-    static const juce::String kPillNames[13] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER" };
+    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
 
     for (int row = 0; row < 4; ++row)
     {
@@ -3044,7 +3177,7 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     // Drag ghost for FX chain reorder
     if (dragSourceRow >= 0)
     {
-        static const juce::String kGhostNames[13] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER" };
+        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
         static constexpr int kGhostLeftW = 118;
         static constexpr int kGhostDragW =  30;
         static constexpr int kGhostPillX =  18;
@@ -3147,6 +3280,26 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
             if (safeThis == nullptr) return;
             for (int i = 0; i < 3; ++i)
                 safeThis->hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "halftimeDivision")
+    {
+        const int sel = juce::jlimit(0, 7, static_cast<int>(std::round(newValue)));
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
+            for (int i = 0; i < 8; ++i)
+                safeThis->halftimeDivBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "halftimeSpeed")
+    {
+        const int sel = juce::jlimit(0, 1, static_cast<int>(std::round(newValue)));
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis, sel]() {
+            if (safeThis == nullptr) return;
+            for (int i = 0; i < 2; ++i)
+                safeThis->halftimeSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
     // Dirty state is now computed by comparing current values to loaded preset in timerCallback
@@ -3447,7 +3600,7 @@ void StardustEditor::resized()
 
     // Toggle buttons are kept for APVTS binding but rendered as name-pill in paint()
     juce::ignoreUnused(toggleH, toggleW);
-    for (int fx = 1; fx <= 12; ++fx)
+    for (int fx = 1; fx <= 13; ++fx)
         toggleForSection(fx).setBounds({0, 0, 0, 0});
 
     // Hide all section knobs first, then lay out each occupied slot
@@ -3462,13 +3615,15 @@ void StardustEditor::resized()
                      &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob, &grainReverseKnob,
                      &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob,
                      &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
-                     &reverserCrossfadeKnob })
+                     &reverserCrossfadeKnob,
+                     &halftimeFadeKnob })
         k->setBounds({0, 0, 0, 0});
 
     // Hide all sidebar mix sliders first
     for (auto* s : { &destroyMixStrip, &multiplyMixStrip, &tapeMixStrip,
                      &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                     &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip })
+                     &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip,
+                     &halftimeMixStrip })
         s->setBounds({0, 0, 0, 0});
 
     hazeTypeLabel.setVisible(false);
@@ -3485,14 +3640,18 @@ void StardustEditor::resized()
     reverserRepeatSlider.setVisible(false);
     reverserDivSlider.setVisible(false);
     reverserSlashLabel.setVisible(false);
+    for (auto& b : halftimeDivBtn) b.setVisible(false);
+    for (auto& b : halftimeSpeedBtn) b.setVisible(false);
+    halftimeDivLabel.setVisible(false);
+    halftimeSpeedLabel.setVisible(false);
 
     // Pill constants (mirror paint() constants)
     static constexpr int kSbPillX = 18;
     static constexpr int kSbPillW = 92;
     static constexpr int kSbPillH = 28;
-    juce::Slider* mixStripForFx[13] = { nullptr, &destroyMixStrip, nullptr,
+    juce::Slider* mixStripForFx[14] = { nullptr, &destroyMixStrip, nullptr,
                                         &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                                        &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip };
+                                        &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip, &halftimeMixStrip };
 
     // Layout all occupied slots simultaneously
     for (int row = 0; row < 4; ++row)
@@ -3513,6 +3672,7 @@ void StardustEditor::resized()
             case 10: layoutStutterSection(kp);   break;
             case 11: layoutShiftSection(kp);     break;
             case 12: layoutReverserSection(kp);  break;
+            case 13: layoutHalfTimeSection(kp);  break;
             default: break;
         }
 
