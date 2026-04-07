@@ -2002,15 +2002,19 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return static_cast<double>(juce::jlimit(1.0f, 24.0f, t.getFloatValue()));
         };
     }
-    else if (paramId == "grainPitch")
+    else if (paramId == "grainPitch" || paramId == "shiftPitch")
     {
+        const int minSt = (paramId == "shiftPitch") ? -24 : -12;
+        const int maxSt = (paramId == "shiftPitch") ? 24 : 12;
+        knob.slider.setNumDecimalPlacesToDisplay(0);
         knob.slider.textFromValueFunction = [](double v) {
             const int semitones = static_cast<int>(std::round(v));
             if (semitones > 0) return juce::String("+") + juce::String(semitones) + " st";
             return juce::String(semitones) + " st";
         };
-        knob.slider.valueFromTextFunction = [](const juce::String& t) {
-            return t.getDoubleValue();
+        knob.slider.valueFromTextFunction = [minSt, maxSt](const juce::String& t) {
+            const int semitones = juce::jlimit(minSt, maxSt, juce::roundToInt(t.getFloatValue()));
+            return static_cast<double>(semitones);
         };
     }
     // Force text refresh with the new formatter

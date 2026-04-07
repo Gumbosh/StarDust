@@ -284,7 +284,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     // SHIFT: pitch shifter (slot 11)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("shiftPitch", 1), "Shift Pitch",
-        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.01f), 0.0f));
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("shiftFeedback", 1), "Shift Feedback",
         juce::NormalisableRange<float>(0.0f, 0.95f, 0.01f), 0.0f));

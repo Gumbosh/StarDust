@@ -27,7 +27,7 @@ public:
     void process(juce::AudioBuffer<float>& buffer);
 
 private:
-    static constexpr int kMaxGrains = 16;
+    static constexpr int kMaxGrains = 48;
     static constexpr int kCaptureSize = 262144; // 2^18, ~2.7s at 96kHz
     static constexpr int kCaptureMask = kCaptureSize - 1;
     static constexpr int kMaxChannels = 2;

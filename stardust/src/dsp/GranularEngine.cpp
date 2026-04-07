@@ -103,11 +103,27 @@ float GranularEngine::divisionToMs() const
 
 void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pitchRatio)
 {
-    auto& g = grains[nextGrainIndex];
-    nextGrainIndex = (nextGrainIndex + 1) % kMaxGrains;
+    int slot = -1;
+    for (int attempt = 0; attempt < kMaxGrains; ++attempt)
+    {
+        const int idx = (nextGrainIndex + attempt) % kMaxGrains;
+        if (!grains[idx].active)
+        {
+            slot = idx;
+            nextGrainIndex = (idx + 1) % kMaxGrains;
+            break;
+        }
+    }
+
+    // If all grain voices are busy, skip spawning rather than stealing a live grain.
+    if (slot < 0)
+        return;
+
+    auto& g = grains[slot];
+    const float grainLen = std::max(1.0f, sizeSamples);
 
     // Scatter: random offset backwards into capture buffer (up to 1.5 seconds)
-    const float maxScatter = std::min(static_cast<float>(kCaptureSize) - sizeSamples * 2.0f,
+    const float maxScatter = std::min(static_cast<float>(kCaptureSize) - grainLen * 2.0f,
                                        static_cast<float>(sampleRate) * 1.5f);
     const int scatterOffset = static_cast<int>(nextRandom() * scatterAmt * std::max(0.0f, maxScatter));
 
@@ -115,10 +131,10 @@ void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pit
     const bool isReverse = nextRandom() < reverseAmount;
 
     g.active = true;
-    g.startPos = (writePos - static_cast<int>(sizeSamples) - scatterOffset + kCaptureSize) & kCaptureMask;
-    g.readPos = isReverse ? sizeSamples : 0.0f;
+    g.startPos = (writePos - static_cast<int>(grainLen) - scatterOffset + kCaptureSize) & kCaptureMask;
+    g.readPos = isReverse ? grainLen : 0.0f;
     g.playbackRate = isReverse ? -pitchRatio : pitchRatio;
-    g.grainLength = static_cast<int>(sizeSamples);
+    g.grainLength = static_cast<int>(grainLen);
     g.reverse = isReverse;
 }
 

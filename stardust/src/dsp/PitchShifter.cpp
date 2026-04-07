@@ -26,7 +26,11 @@ void PitchShifter::prepare(double sr, int /*samplesPerBlock*/)
         hannWindow[i] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSamples)));
 }
 
-void PitchShifter::setPitch(float st)    { pitchSmoothed.setTargetValue(juce::jlimit(-24.0f, 24.0f, st)); }
+void PitchShifter::setPitch(float st)
+{
+    const float snapped = std::round(juce::jlimit(-24.0f, 24.0f, st));
+    pitchSmoothed.setTargetValue(snapped);
+}
 void PitchShifter::setFeedback(float fb) { feedbackSmoothed.setTargetValue(juce::jlimit(0.0f, 0.95f, fb)); }
 void PitchShifter::setTone(float hz)     { toneSmoothed.setTargetValue(juce::jlimit(200.0f, 20000.0f, hz)); }
 void PitchShifter::setMix(float m)       { mixSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, m)); }
