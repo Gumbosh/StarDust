@@ -124,7 +124,6 @@ private:
     juce::AudioBuffer<float> masterDryBuffer;
 
     bool lastTapeOn = false;
-    bool lastDestroyOn = false;
     juce::SmoothedValue<float> msWidthSmoothed { 1.0f };
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };

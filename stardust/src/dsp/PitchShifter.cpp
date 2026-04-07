@@ -15,15 +15,15 @@ void PitchShifter::prepare(double sr, int /*samplesPerBlock*/)
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
-        delayBuffer[ch].fill(0.0f);
-        lpState[ch] = 0.0f;
-        feedbackSample[ch] = 0.0f;
+        delayBuffer[static_cast<size_t>(ch)].fill(0.0f);
+        lpState[static_cast<size_t>(ch)] = 0.0f;
+        feedbackSample[static_cast<size_t>(ch)] = 0.0f;
     }
 
     // Precompute Hann window (full period)
     const float pi = juce::MathConstants<float>::pi;
     for (int i = 0; i < kWindowSamples; ++i)
-        hannWindow[i] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSamples)));
+        hannWindow[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSamples)));
 }
 
 void PitchShifter::setPitch(float st)
@@ -44,8 +44,11 @@ float PitchShifter::readHermite(int channel, float delaySamples) const
     const int i3 = (i0 + 3) & kDelayMask;
     const float frac = readPos - std::floor(readPos);
 
-    const auto& buf = delayBuffer[channel];
-    const float y0 = buf[i0], y1 = buf[i1], y2 = buf[i2], y3 = buf[i3];
+    const auto& buf = delayBuffer[static_cast<size_t>(channel)];
+    const float y0 = buf[static_cast<size_t>(i0)];
+    const float y1 = buf[static_cast<size_t>(i1)];
+    const float y2 = buf[static_cast<size_t>(i2)];
+    const float y3 = buf[static_cast<size_t>(i3)];
 
     const float c0 = y1;
     const float c1 = 0.5f * (y2 - y0);
@@ -77,7 +80,8 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
 
         // Write input + feedback into delay line
         for (int ch = 0; ch < numChannels; ++ch)
-            delayBuffer[ch][writePos] = buffer.getSample(ch, i) + feedbackSample[ch];
+            delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] =
+                buffer.getSample(ch, i) + feedbackSample[static_cast<size_t>(ch)];
 
         // Read two taps with Hann crossfade
         const float phaseA = sawPhase;
@@ -90,8 +94,8 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
 
         const int winIdxA = static_cast<int>(phaseA * static_cast<float>(kWindowSamples)) % kWindowSamples;
         const int winIdxB = static_cast<int>(phaseB * static_cast<float>(kWindowSamples)) % kWindowSamples;
-        const float windowA = hannWindow[winIdxA];
-        const float windowB = hannWindow[winIdxB];
+        const float windowA = hannWindow[static_cast<size_t>(winIdxA)];
+        const float windowB = hannWindow[static_cast<size_t>(winIdxB)];
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
@@ -100,9 +104,10 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
             const float wet = tapA + tapB;
 
             // Feedback path: tone LP → soft clip → scale
-            lpState[ch] += lpCoeff * (wet - lpState[ch]);
-            const float clipped = FastMath::tanh(lpState[ch]);
-            feedbackSample[ch] = clipped * fb;
+            const size_t chIndex = static_cast<size_t>(ch);
+            lpState[chIndex] += lpCoeff * (wet - lpState[chIndex]);
+            const float clipped = FastMath::tanh(lpState[chIndex]);
+            feedbackSample[chIndex] = clipped * fb;
 
             // Constant-power dry/wet mix
             const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);

@@ -20,7 +20,7 @@ void GranularEngine::prepare(double sr, int /*samplesPerBlock*/)
     hostBpm = 120.0;
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
-        captureBuffer[ch].fill(0.0f);
+        captureBuffer[static_cast<size_t>(ch)].fill(0.0f);
 
     for (auto& g : grains)
         g.active = false;
@@ -28,7 +28,7 @@ void GranularEngine::prepare(double sr, int /*samplesPerBlock*/)
     // Precompute Hann window
     const float pi = juce::MathConstants<float>::pi;
     for (int i = 0; i < kWindowSize; ++i)
-        hannWindow[i] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSize - 1)));
+        hannWindow[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSize - 1)));
 }
 
 void GranularEngine::setSize(float ms)     { sizeSmoothed.setTargetValue(juce::jlimit(5.0f, 200.0f, ms)); }
@@ -54,8 +54,11 @@ float GranularEngine::readHermite(int channel, float pos) const
     const int i3 = (i0 + 3) & kCaptureMask;
     const float frac = pos - std::floor(pos);
 
-    const auto& buf = captureBuffer[channel];
-    const float y0 = buf[i0], y1 = buf[i1], y2 = buf[i2], y3 = buf[i3];
+    const auto& buf = captureBuffer[static_cast<size_t>(channel)];
+    const float y0 = buf[static_cast<size_t>(i0)];
+    const float y1 = buf[static_cast<size_t>(i1)];
+    const float y2 = buf[static_cast<size_t>(i2)];
+    const float y3 = buf[static_cast<size_t>(i3)];
 
     const float c0 = y1;
     const float c1 = 0.5f * (y2 - y0);
@@ -72,7 +75,9 @@ float GranularEngine::getWindowValue(float phase) const
     const int i = static_cast<int>(idx);
     const float frac = idx - static_cast<float>(i);
     const int iClamped = juce::jlimit(0, kWindowSize - 2, i);
-    return hannWindow[iClamped] + frac * (hannWindow[iClamped + 1] - hannWindow[iClamped]);
+    return hannWindow[static_cast<size_t>(iClamped)]
+        + frac * (hannWindow[static_cast<size_t>(iClamped + 1)]
+                - hannWindow[static_cast<size_t>(iClamped)]);
 }
 
 float GranularEngine::divisionToMs() const
@@ -107,7 +112,7 @@ void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pit
     for (int attempt = 0; attempt < kMaxGrains; ++attempt)
     {
         const int idx = (nextGrainIndex + attempt) % kMaxGrains;
-        if (!grains[idx].active)
+        if (!grains[static_cast<size_t>(idx)].active)
         {
             slot = idx;
             nextGrainIndex = (idx + 1) % kMaxGrains;
@@ -119,7 +124,7 @@ void GranularEngine::triggerGrain(float sizeSamples, float scatterAmt, float pit
     if (slot < 0)
         return;
 
-    auto& g = grains[slot];
+    auto& g = grains[static_cast<size_t>(slot)];
     const float grainLen = std::max(1.0f, sizeSamples);
 
     // Scatter: random offset backwards into capture buffer (up to 1.5 seconds)
@@ -148,7 +153,7 @@ void GranularEngine::process(juce::AudioBuffer<float>& buffer)
     {
         // Write input to capture buffer
         for (int ch = 0; ch < numChannels; ++ch)
-            captureBuffer[ch][writePos] = buffer.getSample(ch, i);
+            captureBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] = buffer.getSample(ch, i);
         writePos = (writePos + 1) & kCaptureMask;
 
         // Read smoothed parameters
