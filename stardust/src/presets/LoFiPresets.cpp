@@ -1,7 +1,7 @@
 #include "FactoryPresets.h"
 
 // Chain slot IDs: 0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE,
-//                 6=REVERB, 7=HAZE, 8=MULTIPLY, 9=GRAIN, 10=STUTTER,
+//                 6=REVERB, 7=HAZE, 8=MULTIPLY, 10=STUTTER,
 //                 11=SHIFT, 12=REVERSER
 
 std::vector<Preset> getLoFiPresets()

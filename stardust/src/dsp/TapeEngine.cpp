@@ -451,12 +451,12 @@ void TapeEngine::setHiss(float a) { if (currentHiss != a) { currentHiss = a; his
 void TapeEngine::setBias(float a) { if (currentBias != a) { currentBias = a; biasSmoothed.setTargetValue(a); } }
 void TapeEngine::setDrive(float a)
 {
-    if (currentDrive != a)
+    const float clamped = juce::jlimit(0.0f, 1.0f, a);
+    if (currentDrive != clamped)
     {
-        currentDrive = a;
-        // Smoothstep curve: sweet spot at 30-50% knob, aggressive bloom above 70%
-        const float shaped = a * a * (3.0f - 2.0f * a);
-        const float db = shaped * kDriveMaxDb;
+        currentDrive = clamped;
+        // Linear-in-dB mapping gives predictable drive response across the full knob range.
+        const float db = clamped * kDriveMaxDb;
         driveGainSmoothed.setTargetValue(std::pow(10.0f, db / 20.0f));
     }
 }

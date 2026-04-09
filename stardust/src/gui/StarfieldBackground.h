@@ -20,9 +20,7 @@ struct StarfieldParams
 class StarfieldBackground : public juce::Component, public juce::Timer
 {
 public:
-    StarfieldBackground(juce::AudioProcessorValueTreeState& apvts,
-                        std::atomic<float>& outputLevelL,
-                        std::atomic<float>& outputLevelR);
+    StarfieldBackground(juce::AudioProcessorValueTreeState& apvts);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -42,7 +40,6 @@ private:
     void applyVoid       (float mix, float time);
     void applyHaze       (float mix, float time);
     void applyMultiply   (float mix, float time);
-    void applyGrain      (float mix, float time);
     void applyStutter    (float mix, float time);
     void applyShift      (float mix, float time);
     void applyReverser   (float mix, float time);
@@ -58,8 +55,6 @@ private:
     };
 
     juce::AudioProcessorValueTreeState& apvts;
-    std::atomic<float>& outputLevelL;
-    std::atomic<float>& outputLevelR;
     juce::Image cachedImage;
     juce::Rectangle<int> excludeRect;
     float timeCounter = 0.0f;

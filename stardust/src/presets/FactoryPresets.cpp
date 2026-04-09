@@ -13,7 +13,6 @@ std::vector<Preset> getAllFactoryPresets()
     };
 
     append(getLoFiPresets());
-    append(getGrainsPresets());
     append(getGlitchPresets());
     append(getTapePresets());
     append(getAtmospherePresets());

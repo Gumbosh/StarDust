@@ -1,7 +1,7 @@
 #include "FactoryPresets.h"
 
 // Chain slot IDs: 0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE,
-//                 6=REVERB, 7=HAZE, 8=MULTIPLY, 9=GRAIN, 10=STUTTER,
+//                 6=REVERB, 7=HAZE, 8=MULTIPLY, 10=STUTTER,
 //                 11=SHIFT, 12=REVERSER
 
 std::vector<Preset> getAtmospherePresets()
@@ -157,18 +157,13 @@ std::vector<Preset> getAtmospherePresets()
             {"tapeDrive", 0.12f}, {"tapeGlue", 0.45f}, {"tapeMix", 0.5f}
         }),
         makePreset("Suspense Bed", bank, {
-            {"chainSlot0", 6.0f}, {"chainSlot1", 9.0f}, {"chainSlot2", 7.0f},
-            {"reverbEnabled", 1.0f}, {"grainEnabled", 1.0f}, {"hazeEnabled", 1.0f},
+            {"chainSlot0", 6.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 7.0f},
+            {"reverbEnabled", 1.0f}, {"hazeEnabled", 1.0f},
             {"reverbMix", 0.5f}, {"reverbDecay", 0.75f}, {"reverbSize", 0.8f},
-            {"grainSize", 80.0f}, {"grainDensity", 4.0f},
-            {"grainScatter", 0.4f}, {"grainMix", 0.3f},
             {"hazeType", 0.0f}, {"hazeMix", 0.08f}
         }),
         makePreset("Drone Bed", bank, {
-            {"chainSlot0", 9.0f}, {"chainSlot1", 6.0f}, {"chainSlot2", 11.0f},
-            {"grainEnabled", 1.0f}, {"reverbEnabled", 1.0f}, {"shiftEnabled", 1.0f},
-            {"grainSize", 150.0f}, {"grainDensity", 10.0f},
-            {"grainPitch", -12.0f}, {"grainScatter", 0.2f}, {"grainMix", 0.7f},
+            {"chainSlot0", 0.0f}, {"chainSlot1", 6.0f}, {"chainSlot2", 11.0f}, {"reverbEnabled", 1.0f}, {"shiftEnabled", 1.0f},
             {"reverbMix", 0.6f}, {"reverbDecay", 0.9f}, {"reverbSize", 0.9f},
             {"shiftPitch", -12.0f}, {"shiftFeedback", 0.5f}, {"shiftMix", 0.3f}
         }),
@@ -211,10 +206,7 @@ std::vector<Preset> getAtmospherePresets()
             {"reverbMix", 0.55f}, {"reverbDecay", 0.75f}
         }),
         makePreset("Textured Shimmer", bank, {
-            {"chainSlot0", 9.0f}, {"chainSlot1", 11.0f}, {"chainSlot2", 6.0f},
-            {"grainEnabled", 1.0f}, {"shiftEnabled", 1.0f}, {"reverbEnabled", 1.0f},
-            {"grainSize", 60.0f}, {"grainDensity", 8.0f},
-            {"grainPitch", 0.0f}, {"grainScatter", 0.3f}, {"grainMix", 0.5f},
+            {"chainSlot0", 0.0f}, {"chainSlot1", 11.0f}, {"chainSlot2", 6.0f}, {"shiftEnabled", 1.0f}, {"reverbEnabled", 1.0f},
             {"shiftPitch", 12.0f}, {"shiftFeedback", 0.4f}, {"shiftMix", 0.25f},
             {"reverbMix", 0.55f}, {"reverbDecay", 0.8f}
         }),
@@ -243,10 +235,7 @@ std::vector<Preset> getAtmospherePresets()
             {"modSlot1Src", 1.0f}, {"modSlot1Tgt", 3.0f}, {"modSlot1Amt", 0.5f}
         }),
         makePreset("Evolving Texture", bank, {
-            {"chainSlot0", 9.0f}, {"chainSlot1", 6.0f},
-            {"grainEnabled", 1.0f}, {"reverbEnabled", 1.0f},
-            {"grainSize", 80.0f}, {"grainDensity", 6.0f},
-            {"grainScatter", 0.4f}, {"grainMix", 0.5f},
+            {"chainSlot0", 0.0f}, {"chainSlot1", 6.0f}, {"reverbEnabled", 1.0f},
             {"reverbMix", 0.5f}, {"reverbDecay", 0.7f},
             {"modLfo1Rate", 0.1f}, {"modLfo1Depth", 0.5f}, {"modLfo1Wave", 0.0f},
             {"modLfo2Rate", 0.3f}, {"modLfo2Depth", 0.3f}, {"modLfo2Wave", 1.0f},
@@ -272,22 +261,17 @@ std::vector<Preset> getAtmospherePresets()
             {"reverbMix", 0.4f}, {"reverbDecay", 0.6f}
         }),
         makePreset("Everything Shimmer", bank, {
-            {"chainSlot0", 9.0f}, {"chainSlot1", 11.0f}, {"chainSlot2", 8.0f}, {"chainSlot3", 6.0f},
-            {"grainEnabled", 1.0f}, {"shiftEnabled", 1.0f},
+            {"chainSlot0", 0.0f}, {"chainSlot1", 11.0f}, {"chainSlot2", 8.0f}, {"chainSlot3", 6.0f}, {"shiftEnabled", 1.0f},
             {"unisonEnabled", 1.0f}, {"reverbEnabled", 1.0f},
-            {"grainSize", 60.0f}, {"grainDensity", 8.0f},
-            {"grainScatter", 0.3f}, {"grainMix", 0.5f},
             {"shiftPitch", 12.0f}, {"shiftFeedback", 0.4f}, {"shiftMix", 0.25f},
             {"unisonMix", 0.35f}, {"unisonSpeed", 0.8f},
             {"reverbMix", 0.55f}, {"reverbDecay", 0.8f}
         }),
         makePreset("Total Immersion", bank, {
-            {"chainSlot0", 4.0f}, {"chainSlot1", 9.0f}, {"chainSlot2", 11.0f}, {"chainSlot3", 6.0f},
-            {"tapeEnabled", 1.0f}, {"grainEnabled", 1.0f},
+            {"chainSlot0", 4.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 11.0f}, {"chainSlot3", 6.0f},
+            {"tapeEnabled", 1.0f},
             {"shiftEnabled", 1.0f}, {"reverbEnabled", 1.0f},
             {"tapeDrive", 0.15f}, {"tapeWow", 0.04f}, {"tapeMix", 0.6f},
-            {"grainSize", 70.0f}, {"grainDensity", 6.0f},
-            {"grainScatter", 0.35f}, {"grainMix", 0.4f},
             {"shiftPitch", 7.0f}, {"shiftFeedback", 0.3f}, {"shiftMix", 0.2f},
             {"reverbMix", 0.55f}, {"reverbDecay", 0.8f}, {"reverbSize", 0.85f}
         }),
@@ -345,11 +329,8 @@ std::vector<Preset> getAtmospherePresets()
             {"shiftPitch", -12.0f}, {"shiftFeedback", 0.4f}, {"shiftMix", 0.35f},
             {"reverbMix", 0.55f}, {"reverbDecay", 0.75f}, {"reverbSize", 0.8f}
         }),
-        makePreset("Grain Reverb", bank, {
-            {"chainSlot0", 9.0f}, {"chainSlot1", 6.0f},
-            {"grainEnabled", 1.0f}, {"reverbEnabled", 1.0f},
-            {"grainSize", 60.0f}, {"grainDensity", 6.0f},
-            {"grainScatter", 0.3f}, {"grainMix", 0.5f},
+        makePreset("Texture Reverb", bank, {
+            {"chainSlot0", 0.0f}, {"chainSlot1", 6.0f}, {"reverbEnabled", 1.0f},
             {"reverbMix", 0.5f}, {"reverbDecay", 0.65f}
         }),
         makePreset("Tape Atmosphere", bank, {

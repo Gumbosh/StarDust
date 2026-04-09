@@ -167,7 +167,17 @@ void Saturation::setMode(int m)
 {
     const int clamped = juce::jlimit(0, 5, m);
     if (clamped == currentMode && pendingMode < 0) return;
-    if (clamped == currentMode) return; // already transitioning to this mode
+    if (clamped == pendingMode) return; // transition to this mode is already in progress
+    if (clamped == currentMode)
+    {
+        // User returned to the active mode while a transition was pending.
+        pendingMode = -1;
+        isMorphing = false;
+        modeRamp = 1.0f;
+        modeRampInc = 0.0f;
+        computeModeEQ();
+        return;
+    }
     // D14: curve morphing — save old mode, start crossfade
     prevMode = currentMode;
     pendingMode = clamped;
@@ -508,8 +518,9 @@ void Saturation::applyGainAndSaturation(juce::AudioBuffer<float>& buffer,
             else if (currentMode == 3 || currentMode == 4)
                 modKnee *= (1.0f + progEnv[ch] * 0.12f);
 
-            // Soft-knee blend (1x rate — depends on smoothed drive, not sub-sample values)
-            const float kneeBlend = juce::jlimit(0.0f, 1.0f, (absIn - modKnee) / modKnee);
+            // Drive must influence knee engagement, not only shaper scale.
+            const float absInDriven = absIn * scale;
+            const float kneeBlend = juce::jlimit(0.0f, 1.0f, (absInDriven - modKnee) / modKnee);
             const float smoothBlend = kneeBlend * kneeBlend * (3.0f - 2.0f * kneeBlend);
 
             // Catmull-Rom (Hermite cubic) upsampling of raw input to 8x

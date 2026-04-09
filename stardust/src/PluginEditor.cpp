@@ -2,6 +2,12 @@
 #include "BinaryData.h"
 #include <set>
 
+namespace
+{
+constexpr float kEffectCardSeparatorAlpha = 0.62f;
+constexpr int kEffectCardSeparatorW = 2;
+}
+
 // ============================================================================
 // StardustLookAndFeel — Orbital Galaxy Style
 // ============================================================================
@@ -1188,7 +1194,7 @@ void SettingsPanel::resized()
 StardustEditor::StardustEditor(StardustProcessor& p)
     : AudioProcessorEditor(&p),
       processorRef(p),
-      starfield(p.apvts, p.outputLevelLeft, p.outputLevelRight)
+    starfield(p.apvts)
 {
     setLookAndFeel(&lookAndFeel);
     setSize(860, 720);
@@ -1258,13 +1264,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(unisonSpeedKnob,  "unisonSpeed",  "Speed");
     setupKnob(unisonOuterKnob,  "unisonOuter",  "1+2");
     setupKnob(unisonInnerKnob,  "unisonInner",  "3+4");
-
-    // GRAIN knobs
-    setupKnob(grainSizeKnob, "grainSize", "Size");
-    setupKnob(grainDensityKnob, "grainDensity", "Density");
-    setupKnob(grainPitchKnob, "grainPitch", "Pitch");
-    setupKnob(grainScatterKnob, "grainScatter", "Scatter");
-    setupKnob(grainReverseKnob, "grainReverse", "Reverse");
 
     // STUTTER knobs
     setupKnob(stutterRateKnob, "stutterRate", "Rate");
@@ -1539,7 +1538,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupMixStrip(hazeMixStrip,         hazeMixStripAttach,         "hazeMix");
     setupMixStrip(unisonMixStrip,       unisonMixStripAttach,       "unisonMix");
     setupMixStrip(reverbMixStrip,       reverbMixStripAttach,       "reverbMix");
-    setupMixStrip(grainMixStrip,        grainMixStripAttach,        "grainMix");
     setupMixStrip(stutterMixStrip,      stutterMixStripAttach,      "stutterMix");
     setupMixStrip(shiftMixStrip,        shiftMixStripAttach,        "shiftMix");
     setupMixStrip(reverserMixStrip,     reverserMixStripAttach,     "reverserMix");
@@ -1745,28 +1743,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(reverbToggle, reverbToggleAttach, "reverbEnabled");
     setupToggle(hazeToggle, hazeToggleAttach, "hazeEnabled");
     setupToggle(unisonToggle, unisonToggleAttach, "unisonEnabled");
-    setupToggle(grainToggle, grainToggleAttach, "grainEnabled");
-    // Grain sync division dropdown
-    grainSyncCombo.addItemList({"Free", "1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T",
-                                "1/8", "1/4T", "1/4", "1/2T", "1/2", "1 Bar"}, 1);
-    grainSyncCombo.onChange = [this] {
-        const bool isFree = (grainSyncCombo.getSelectedId() == 1); // "Free" = id 1
-        const float alpha = isFree ? 1.0f : 0.4f;
-        grainSizeKnob.slider.setEnabled(isFree);
-        grainSizeKnob.slider.setAlpha(alpha);
-        grainSizeKnob.label.setAlpha(alpha);
-    };
-    grainSyncCombo.setColour(juce::ComboBox::backgroundColourId, StardustLookAndFeel::kBg);
-    grainSyncCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
-    grainSyncCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.3f));
-    addAndMakeVisible(grainSyncCombo);
-    grainSyncAttach = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        processorRef.apvts, "grainSync", grainSyncCombo);
-    grainSyncLabel.setText("Sync", juce::dontSendNotification);
-    grainSyncLabel.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
-    grainSyncLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-    grainSyncLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(grainSyncLabel);
     setupToggle(stutterToggle, stutterToggleAttach, "stutterEnabled");
     setupToggle(shiftToggle, shiftToggleAttach, "shiftEnabled");
     setupToggle(reverserToggle, reverserToggleAttach, "reverserEnabled");
@@ -1848,8 +1824,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     dimSection(unisonToggle, { &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob });
     unisonToggle.onClick();
 
-    dimSection(grainToggle, { &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob, &grainReverseKnob });
-    grainToggle.onClick();
     dimSection(stutterToggle, { &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob });
     stutterToggle.onClick();
     dimSection(shiftToggle, { &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob });
@@ -1975,14 +1949,28 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return t.getDoubleValue() / 99.0;
         };
     }
+    else if (paramId == "shiftTone")
+    {
+        knob.slider.textFromValueFunction = [](double v) {
+            if (v >= 1000.0)
+                return juce::String(v / 1000.0, 1) + " kHz";
+            return juce::String(v, 1) + " Hz";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            auto text = t.trim();
+            double value = text.getDoubleValue();
+            if (text.containsIgnoreCase("k"))
+                value *= 1000.0;
+            return juce::jlimit(20.0, 22000.0, value);
+        };
+    }
     else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "stereoWidth"
              || paramId == "chorusMix"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
              || paramId == "masterMix"
              || paramId == "tapeDrive" || paramId == "tapeInput" || paramId == "tapeGlue"
-             || paramId == "tapeNoise" || paramId == "tapeMix"
-             || paramId == "grainReverse")
+             || paramId == "tapeNoise" || paramId == "tapeMix")
     {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
@@ -2002,18 +1990,16 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return static_cast<double>(juce::jlimit(1.0f, 24.0f, t.getFloatValue()));
         };
     }
-    else if (paramId == "grainPitch" || paramId == "shiftPitch")
+    else if (paramId == "shiftPitch")
     {
-        const int minSt = (paramId == "shiftPitch") ? -24 : -12;
-        const int maxSt = (paramId == "shiftPitch") ? 24 : 12;
         knob.slider.setNumDecimalPlacesToDisplay(0);
         knob.slider.textFromValueFunction = [](double v) {
             const int semitones = static_cast<int>(std::round(v));
             if (semitones > 0) return juce::String("+") + juce::String(semitones) + " st";
             return juce::String(semitones) + " st";
         };
-        knob.slider.valueFromTextFunction = [minSt, maxSt](const juce::String& t) {
-            const int semitones = juce::jlimit(minSt, maxSt, juce::roundToInt(t.getFloatValue()));
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            const int semitones = juce::jlimit(-24, 24, juce::roundToInt(t.getFloatValue()));
             return static_cast<double>(semitones);
         };
     }
@@ -2071,7 +2057,7 @@ void StardustEditor::showPresetDropdown()
 
     // Factory bank sub-menus (Init stays at top level)
     juce::PopupMenu factoryMenu;
-    const juce::String factoryBankOrder[] = { "Lo-Fi", "Grains", "Glitch", "Tape", "Atmosphere" };
+    const juce::String factoryBankOrder[] = { "Lo-Fi", "Glitch", "Tape", "Atmosphere" };
     for (const auto& bankName : factoryBankOrder)
     {
         juce::PopupMenu bankMenu;
@@ -2151,7 +2137,7 @@ void StardustEditor::refreshPresetList()
             rootMenu->addItem(i + 1, presets[static_cast<size_t>(i)].name);
 
     // Factory banks as sub-menus (curated order)
-    const juce::String factoryBankOrder[] = { "Lo-Fi", "Grains", "Glitch", "Tape", "Atmosphere" };
+    const juce::String factoryBankOrder[] = { "Lo-Fi", "Glitch", "Tape", "Atmosphere" };
     for (const auto& bankName : factoryBankOrder)
     {
         juce::PopupMenu subMenu;
@@ -2458,7 +2444,6 @@ juce::ToggleButton& StardustEditor::toggleForSection(int fxId)
         case 6: return reverbToggle;
         case 7: return hazeToggle;
         case 8: return unisonToggle;
-        case 9: return grainToggle;
         case 10: return stutterToggle;
         case 11: return shiftToggle;
         case 12: return reverserToggle;
@@ -2524,10 +2509,9 @@ void StardustEditor::showAddEffectMenu(int row)
     modulationMenu.addItem(3, "JU-60",     !usedFx.count(3));
     modulationMenu.addItem(8, "MULTIPLY",  !usedFx.count(8));
     reverbMenu.addItem(6,     "VOID",      !usedFx.count(6));
-    textureMenu.addItem(7,    "HAZE",      !usedFx.count(7));
+    textureMenu.addItem(7,    "NOISE",     !usedFx.count(7));
 
     juce::PopupMenu creativeMenu;
-    creativeMenu.addItem(9, "GRAIN", !usedFx.count(9));
     creativeMenu.addItem(10, "STUTTER", !usedFx.count(10));
     creativeMenu.addItem(11, "SHIFT", !usedFx.count(11));
     creativeMenu.addItem(12, "REVERSER", !usedFx.count(12));
@@ -2535,7 +2519,7 @@ void StardustEditor::showAddEffectMenu(int row)
 
     juce::PopupMenu menu;
     menu.addSubMenu("Distortion", distortionMenu);
-    menu.addSubMenu("Modulation", modulationMenu);
+    menu.addSubMenu("Chorus", modulationMenu);
     menu.addSubMenu("Reverb",     reverbMenu);
     menu.addSubMenu("Texture",    textureMenu);
     menu.addSubMenu("Creative",   creativeMenu);
@@ -2723,35 +2707,6 @@ void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
     layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 2, ky, kw, kKnobH });
 }
 
-void StardustEditor::layoutGrainSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 6; // Size | Density | Pitch | Scatter | Reverse | Sync
-    layoutKnobInBounds(grainSizeKnob,    { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(grainDensityKnob, { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(grainPitchKnob,   { ox + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(grainScatterKnob, { ox + kw * 3, ky, kw, kKnobH });
-    layoutKnobInBounds(grainReverseKnob, { ox + kw * 4, ky, kw, kKnobH });
-
-    // Sync dropdown in last column
-    const int syncX = ox + kw * 5;
-    grainSyncLabel.setVisible(true);
-    grainSyncLabel.setBounds(syncX, ky, kw, 14);
-    grainSyncCombo.setVisible(true);
-    grainSyncCombo.setBounds(syncX + 2, ky + 16, kw - 4, 22);
-
-    // Dim size knob when synced to a division
-    const bool isFree = (grainSyncCombo.getSelectedId() <= 1);
-    const float alpha = isFree ? 1.0f : 0.4f;
-    grainSizeKnob.slider.setEnabled(isFree);
-    grainSizeKnob.slider.setAlpha(alpha);
-    grainSizeKnob.label.setAlpha(alpha);
-}
-
 void StardustEditor::layoutStutterSection(juce::Rectangle<int> ap)
 {
     static constexpr int kKnobH = 68;
@@ -2920,7 +2875,6 @@ void StardustEditor::paint(juce::Graphics& g)
     g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
 
     // ---- Chain strip rows ----
-    static const juce::String kFxNames[13] = { "", "G R I T", "C L O U D", "J U - 6 0", "O X I D E - 4 5 6", "D I S T", "V O I D", "H A Z E", "M U L T I P L Y", "G R A I N", "S T U T T E R", "S H I F T", "R E V E R S E R" };
     const auto monoFont10 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold);
     const auto monoFont12 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold);
 
@@ -2931,7 +2885,8 @@ void StardustEditor::paint(juce::Graphics& g)
     static constexpr int kPillH  =  28; // name pill height
 
     // Compact effect names for the pill
-    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
+    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
+    const auto effectCardSeparatorColour = StardustLookAndFeel::kFgDim.withAlpha(kEffectCardSeparatorAlpha);
 
     for (int row = 0; row < 4; ++row)
     {
@@ -2986,9 +2941,9 @@ void StardustEditor::paint(juce::Graphics& g)
                        juce::Justification::centred);
 
             // Left divider between sidebar and knobs
-            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
-            g.drawVerticalLine(rb.getX() + kLeftW, static_cast<float>(rb.getY() + 8),
-                               static_cast<float>(rb.getBottom() - 8));
+            g.setColour(effectCardSeparatorColour);
+            g.fillRect(rb.getX() + kLeftW - (kEffectCardSeparatorW / 2), rb.getY(),
+                       kEffectCardSeparatorW, rb.getHeight());
 
             // ---- Right drag column ----
             // Subtle background tint
@@ -2996,9 +2951,9 @@ void StardustEditor::paint(juce::Graphics& g)
             g.fillRect(rb.getRight() - kDragW, rb.getY(), kDragW, rb.getHeight());
 
             // Right divider
-            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
-            g.drawVerticalLine(rb.getRight() - kDragW, static_cast<float>(rb.getY() + 8),
-                               static_cast<float>(rb.getBottom() - 8));
+            g.setColour(effectCardSeparatorColour);
+            g.fillRect(rb.getRight() - kDragW - (kEffectCardSeparatorW / 2), rb.getY(),
+                       kEffectCardSeparatorW, rb.getHeight());
 
             // ≡ drag handle centered in right column
             g.setColour(StardustLookAndFeel::kFg.withAlpha(0.65f));
@@ -3010,9 +2965,9 @@ void StardustEditor::paint(juce::Graphics& g)
         // Section separator at bottom of row (skip last row)
         if (row < 3)
         {
-            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.18f));
-            g.drawHorizontalLine(rb.getBottom() - 1, static_cast<float>(rb.getX() + 4),
-                                 static_cast<float>(rb.getRight() - 4));
+            g.setColour(effectCardSeparatorColour);
+            g.fillRect(rb.getX() + 4, rb.getBottom() - (kEffectCardSeparatorW / 2),
+                       rb.getWidth() - 8, kEffectCardSeparatorW);
         }
     }
 
@@ -3181,12 +3136,13 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     // Drag ghost for FX chain reorder
     if (dragSourceRow >= 0)
     {
-        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "HAZE", "MULTIPLY", "GRAIN", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
+        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
         static constexpr int kGhostLeftW = 118;
         static constexpr int kGhostDragW =  30;
         static constexpr int kGhostPillX =  18;
         static constexpr int kGhostPillW =  92;
         static constexpr int kGhostPillH =  28;
+        const auto effectCardSeparatorColour = StardustLookAndFeel::kFgDim.withAlpha(kEffectCardSeparatorAlpha);
 
         const int fx = chainSlots[dragSourceRow];
         auto rb = stripRowBounds(dragSourceRow).withY(dragPos.y - stripRowBounds(0).getHeight() / 2);
@@ -3214,16 +3170,16 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
                    juce::Justification::centred);
 
         // Left divider
-        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
-        g.drawVerticalLine(rb.getX() + kGhostLeftW, static_cast<float>(rb.getY() + 8),
-                           static_cast<float>(rb.getBottom() - 8));
+        g.setColour(effectCardSeparatorColour);
+        g.fillRect(rb.getX() + kGhostLeftW - (kEffectCardSeparatorW / 2), rb.getY(),
+               kEffectCardSeparatorW, rb.getHeight());
 
         // Right drag column
         g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.08f));
         g.fillRect(rb.getRight() - kGhostDragW, rb.getY(), kGhostDragW, rb.getHeight());
-        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
-        g.drawVerticalLine(rb.getRight() - kGhostDragW, static_cast<float>(rb.getY() + 8),
-                           static_cast<float>(rb.getBottom() - 8));
+        g.setColour(effectCardSeparatorColour);
+        g.fillRect(rb.getRight() - kGhostDragW - (kEffectCardSeparatorW / 2), rb.getY(),
+               kEffectCardSeparatorW, rb.getHeight());
         g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.8f));
         const int dragCx = rb.getRight() - kGhostDragW / 2;
         for (int i = 0; i < 3; ++i)
@@ -3616,7 +3572,6 @@ void StardustEditor::resized()
                      &distortionDriveKnob, &distortionToneKnob,
                      &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob,
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob,
-                     &grainSizeKnob, &grainDensityKnob, &grainPitchKnob, &grainScatterKnob, &grainReverseKnob,
                      &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob,
                      &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
                      &reverserCrossfadeKnob,
@@ -3626,7 +3581,7 @@ void StardustEditor::resized()
     // Hide all sidebar mix sliders first
     for (auto* s : { &destroyMixStrip, &multiplyMixStrip, &tapeMixStrip,
                      &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                     &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip,
+                     &stutterMixStrip, &shiftMixStrip, &reverserMixStrip,
                      &halftimeMixStrip })
         s->setBounds({0, 0, 0, 0});
 
@@ -3637,8 +3592,6 @@ void StardustEditor::resized()
     // Tape formulation hardcoded — no UI elements
     distortionModeLabel.setVisible(false);
     for (auto& b : distortionModeBtn) b.setVisible(false);
-    grainSyncCombo.setVisible(false);
-    grainSyncLabel.setVisible(false);
     multiplyLfoLabel.setVisible(false);
     for (auto& b : multiplyLfoBtn) b.setVisible(false);
     reverserRepeatSlider.setVisible(false);
@@ -3648,14 +3601,13 @@ void StardustEditor::resized()
     for (auto& b : halftimeSpeedBtn) b.setVisible(false);
     halftimeDivLabel.setVisible(false);
     halftimeSpeedLabel.setVisible(false);
-
     // Pill constants (mirror paint() constants)
     static constexpr int kSbPillX = 18;
     static constexpr int kSbPillW = 92;
     static constexpr int kSbPillH = 28;
     juce::Slider* mixStripForFx[14] = { nullptr, &destroyMixStrip, nullptr,
                                         &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                                        &grainMixStrip, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip, &halftimeMixStrip };
+                                        nullptr, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip, &halftimeMixStrip };
 
     // Layout all occupied slots simultaneously
     for (int row = 0; row < 4; ++row)
@@ -3672,7 +3624,6 @@ void StardustEditor::resized()
             case 6: layoutReverbSection(kp);     break;
             case 7: layoutHazeSection(kp);       break;
             case 8: layoutUnisonSection(kp);     break;
-            case 9: layoutGrainSection(kp);     break;
             case 10: layoutStutterSection(kp);   break;
             case 11: layoutShiftSection(kp);     break;
             case 12: layoutReverserSection(kp);  break;

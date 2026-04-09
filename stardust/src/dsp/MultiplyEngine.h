@@ -6,7 +6,7 @@
 
 // 4-voice unison thickener modeled after Acon Digital Multiply.
 // FM-modulated micro-delays + very short allpass diffusion for transparent thickening.
-// No granular pitch shifting, no aggressive AM — detuning comes solely from FM delay modulation.
+// No pitch shifting, no aggressive AM - detuning comes solely from FM delay modulation.
 class MultiplyEngine
 {
 public:

@@ -272,7 +272,7 @@ int PresetLibraryPanel::BankList::bankAtY(int y) const
     const int rowH = 30;
     if (y < startY) return -1;
 
-    // Fixed banks: FAVORITES(0), factory banks(1..5), USER(6)
+    // Fixed banks: FAVORITES(0), factory banks(1..4), USER(5)
     const int fixedEndY = startY + kFixedBanks * rowH;
     if (y < fixedEndY)
         return (y - startY) / rowH;
@@ -290,10 +290,10 @@ int PresetLibraryPanel::BankList::bankAtY(int y) const
 
 void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
 {
-    // Bank layout: FAVORITES, Lo-Fi, Grains, Glitch, Tape, Atmosphere, USER, [dynamic...]
+    // Bank layout: FAVORITES, Lo-Fi, Glitch, Tape, Atmosphere, USER, [dynamic...]
     const juce::String fixedNames[] = {
         "FAVORITES",
-        "LO-FI", "GRAINS", "GLITCH", "TAPE", "ATMOSPHERE",
+        "LO-FI", "GLITCH", "TAPE", "ATMOSPHERE",
         "USER"
     };
     const int startY = 12;
@@ -329,7 +329,7 @@ void PresetLibraryPanel::BankList::paint(juce::Graphics& g)
             g.drawText(label, rowBounds.withLeft(14.0f), juce::Justification::centredLeft);
     };
 
-    // Draw all fixed banks (FAVORITES + 5 factory banks + USER)
+    // Draw all fixed banks (FAVORITES + 4 factory banks + USER)
     for (int i = 0; i < kFixedBanks; ++i)
         drawBankRow(i, fixedNames[i], static_cast<float>(startY + i * rowH), i == 0);
 

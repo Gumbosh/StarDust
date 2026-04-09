@@ -203,7 +203,6 @@ private:
     void layoutTapeSection(juce::Rectangle<int> bounds);
     void layoutDistortionSection(juce::Rectangle<int> bounds);
     void layoutReverbSection(juce::Rectangle<int> bounds);
-    void layoutGrainSection(juce::Rectangle<int> bounds);
     void layoutStutterSection(juce::Rectangle<int> bounds);
     void layoutShiftSection(juce::Rectangle<int> bounds);
     void layoutReverserSection(juce::Rectangle<int> bounds);
@@ -251,16 +250,6 @@ private:
     LabeledKnob unisonSpeedKnob, unisonOuterKnob, unisonInnerKnob;
     juce::ToggleButton unisonToggle;
     std::unique_ptr<ButtonAttachment> unisonToggleAttach;
-
-    // GRAIN section
-    LabeledKnob grainSizeKnob, grainDensityKnob, grainPitchKnob, grainScatterKnob, grainReverseKnob;
-    juce::ToggleButton grainToggle;
-    std::unique_ptr<ButtonAttachment> grainToggleAttach;
-    juce::ComboBox grainSyncCombo;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> grainSyncAttach;
-    juce::Label grainSyncLabel;
-    juce::Slider grainMixStrip;
-    std::unique_ptr<SliderAttachment> grainMixStripAttach;
 
     // STUTTER section
     LabeledKnob stutterRateKnob, stutterDecayKnob, stutterDepthKnob;

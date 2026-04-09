@@ -16,7 +16,7 @@ inline std::map<juce::String, float> defaultPresetValues()
         // Enable flags — all off
         {"destroyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
         {"distortionEnabled", 0.0f}, {"reverbEnabled", 0.0f}, {"hazeEnabled", 0.0f},
-        {"unisonEnabled", 0.0f}, {"grainEnabled", 0.0f}, {"stutterEnabled", 0.0f},
+        {"unisonEnabled", 0.0f}, {"stutterEnabled", 0.0f},
         {"shiftEnabled", 0.0f}, {"reverserEnabled", 0.0f},
 
         // Destroy
@@ -47,11 +47,6 @@ inline std::map<juce::String, float> defaultPresetValues()
         // Multiply (unison)
         {"unisonMix", 0.5f}, {"unisonSpeed", 1.0f},
         {"unisonOuter", 1.0f}, {"unisonInner", 0.8f},
-
-        // Grain
-        {"grainSize", 50.0f}, {"grainDensity", 4.0f}, {"grainPitch", 0.0f},
-        {"grainScatter", 0.5f}, {"grainReverse", 0.0f}, {"grainSync", 0.0f},
-        {"grainMix", 0.5f},
 
         // Stutter
         {"stutterRate", 125.0f}, {"stutterDecay", 0.8f},
@@ -90,11 +85,10 @@ inline Preset makePreset(const juce::String& name, const juce::String& bank,
 
 // Per-bank preset generators
 std::vector<Preset> getLoFiPresets();
-std::vector<Preset> getGrainsPresets();
 std::vector<Preset> getGlitchPresets();
 std::vector<Preset> getTapePresets();
 std::vector<Preset> getAtmospherePresets();
 std::vector<Preset> getAbstractPresets();
 
-// Returns all factory presets (Init + 6 banks concatenated)
+// Returns all factory presets (Init + curated banks concatenated)
 std::vector<Preset> getAllFactoryPresets();

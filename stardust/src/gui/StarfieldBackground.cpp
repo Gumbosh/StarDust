@@ -1,10 +1,8 @@
 #include "StarfieldBackground.h"
 #include <cmath>
 
-StarfieldBackground::StarfieldBackground(juce::AudioProcessorValueTreeState& apvtsRef,
-                                           std::atomic<float>& outL,
-                                           std::atomic<float>& outR)
-    : apvts(apvtsRef), outputLevelL(outL), outputLevelR(outR)
+StarfieldBackground::StarfieldBackground(juce::AudioProcessorValueTreeState& apvtsRef)
+    : apvts(apvtsRef)
 {
     startTimerHz(30);
     cachedImage = juce::Image(juce::Image::ARGB, kRenderWidth, kRenderHeight, true);
@@ -53,7 +51,6 @@ static const char* mixParamForEffect(int id)
         case 6:  return "reverbMix";
         case 7:  return "hazeMix";
         case 8:  return "unisonMix";
-        case 9:  return "grainMix";
         case 10: return "stutterMix";
         case 11: return "shiftMix";
         case 12: return "reverserMix";
@@ -72,7 +69,6 @@ static const char* enabledParamForEffect(int id)
         case 6:  return "reverbEnabled";
         case 7:  return "hazeEnabled";
         case 8:  return "unisonEnabled";
-        case 9:  return "grainEnabled";
         case 10: return "stutterEnabled";
         case 11: return "shiftEnabled";
         case 12: return "reverserEnabled";
@@ -406,39 +402,6 @@ void StarfieldBackground::applyMultiply(float mix, float time)
         pixelData_[i] = source[i] * (1.0f - mix) + pixelData_[i] * mix;
 }
 
-void StarfieldBackground::applyGrain(float mix, float time)
-{
-    // Scatter blocks: random rectangular regions displaced
-    const int blockW = 8 + static_cast<int>((1.0f - mix) * 16.0f); // smaller blocks at high mix
-    const int blockH = 4 + static_cast<int>((1.0f - mix) * 8.0f);
-    const float displaceMax = mix * 20.0f;
-    const float probability = mix * 0.3f;
-
-    auto& temp = tempBuffer_;
-    std::copy(pixelData_.begin(), pixelData_.end(), temp.begin());
-
-    for (int by = 0; by < kRenderHeight; by += blockH)
-        for (int bx = 0; bx < kRenderWidth; bx += blockW)
-        {
-            const float r = hash(static_cast<float>(bx) * 0.7f + time * 0.5f,
-                                 static_cast<float>(by) * 1.3f + time * 0.3f);
-            if (r > probability) continue;
-
-            const int offX = static_cast<int>((hash(static_cast<float>(bx + 1), static_cast<float>(by) + time) - 0.5f) * 2.0f * displaceMax);
-            const int offY = static_cast<int>((hash(static_cast<float>(bx), static_cast<float>(by + 1) + time) - 0.5f) * 2.0f * displaceMax);
-
-            for (int dy = 0; dy < blockH && (by + dy) < kRenderHeight; ++dy)
-                for (int dx = 0; dx < blockW && (bx + dx) < kRenderWidth; ++dx)
-                {
-                    const int srcX = bx + dx + offX;
-                    const int srcY = by + dy + offY;
-                    if (srcX >= 0 && srcX < kRenderWidth && srcY >= 0 && srcY < kRenderHeight)
-                        pixelData_[static_cast<size_t>((by + dy) * kRenderWidth + (bx + dx))] =
-                            temp[static_cast<size_t>(srcY * kRenderWidth + srcX)];
-                }
-        }
-}
-
 void StarfieldBackground::applyStutter(float mix, float time)
 {
     // Horizontal slice repeat: random rows get duplicated (glitch stripes)
@@ -585,7 +548,6 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
             case 6:  applyVoid(slot.mix, time);      break;
             case 7:  applyHaze(slot.mix, time);      break;
             case 8:  applyMultiply(slot.mix, time);  break;
-            case 9:  applyGrain(slot.mix, time);     break;
             case 10: applyStutter(slot.mix, time);   break;
             case 11: applyShift(slot.mix, time);     break;
             case 12: applyReverser(slot.mix, time);  break;

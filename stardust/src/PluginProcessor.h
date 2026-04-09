@@ -12,7 +12,6 @@
 #include "dsp/Saturation.h"
 #include "dsp/DattorroReverb.h"
 #include "dsp/Oscillator.h"
-#include "dsp/GranularEngine.h"
 #include "dsp/StutterEngine.h"
 #include "dsp/PitchShifter.h"
 #include "dsp/ReverserEngine.h"
@@ -102,7 +101,6 @@ private:
     TapeEngine tapeEngine;
     Saturation saturation;
     DattorroReverb standaloneReverb;
-    GranularEngine granularEngine;
     StutterEngine stutterEngine;
     PitchShifter pitchShifter;
     ReverserEngine reverserEngine;
@@ -123,7 +121,6 @@ private:
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> masterDryBuffer;
 
-    bool lastTapeOn = false;
     juce::SmoothedValue<float> msWidthSmoothed { 1.0f };
     juce::SmoothedValue<float> inputGainSmoothed { 1.0f };
     juce::SmoothedValue<float> outputGainSmoothed { 1.0f };

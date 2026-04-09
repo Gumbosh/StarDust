@@ -47,7 +47,7 @@ void MultiplyEngine::prepare(double newSampleRate, int /*samplesPerBlock*/)
     //   4 voices, very short base delays and shallow FM for subtle detune/widening.
     //   Keep group delay low to avoid a chorusy/predelayed sensation.
     //   FM: delay = base + depth * (1 + sin(phase)), oscillates 0 -> 2*depth, never negative.
-    //   No AM, no granular pitch shifting — detuning from FM delay modulation only.
+    //   No AM, no pitch shifting - detuning from FM delay modulation only.
     const float fmDepthMs = 0.25f;  // subtle detuning — Acon Multiply is very clean
 
     // Sub-2ms base delays keep the effect immediate and reduce perceived predelay.

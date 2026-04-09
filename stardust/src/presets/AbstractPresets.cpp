@@ -49,20 +49,13 @@ std::vector<Preset> getAbstractPresets()
 
         makePreset("Wormhole", bank, {
             {"chainSlot0", 13.0f},   // HALFTIME
-            {"chainSlot1", 9.0f},    // GRAIN
+            {"chainSlot1", 0.0f},    // TEXTURE
             {"chainSlot2", 6.0f},    // REVERB
             {"halftimeEnabled", 1.0f},
             {"halftimeDivision", 3.0f},  // 1/4
             {"halftimeSpeed", 0.0f},     // 2x
             {"halftimeFade", 0.2f},
-            {"halftimeMix", 0.6f},
-            {"grainEnabled", 1.0f},
-            {"grainSize", 80.0f},
-            {"grainDensity", 6.0f},
-            {"grainPitch", 7.0f},        // fifth up
-            {"grainScatter", 0.7f},
-            {"grainReverse", 0.3f},
-            {"grainMix", 0.35f},
+            {"halftimeMix", 0.6f},        // fifth up
             {"reverbEnabled", 1.0f},
             {"reverbDecay", 0.88f},
             {"reverbSize", 0.7f},
@@ -123,15 +116,8 @@ std::vector<Preset> getAbstractPresets()
         // ── Textural abstractions ───────────────────────────────────────
 
         makePreset("Frozen Light", bank, {
-            {"chainSlot0", 9.0f},    // GRAIN
+            {"chainSlot0", 0.0f},    // TEXTURE
             {"chainSlot1", 6.0f},    // REVERB
-            {"grainEnabled", 1.0f},
-            {"grainSize", 150.0f},
-            {"grainDensity", 2.0f},
-            {"grainPitch", 0.0f},
-            {"grainScatter", 0.9f},
-            {"grainReverse", 0.5f},
-            {"grainMix", 0.8f},
             {"reverbEnabled", 1.0f},
             {"reverbDecay", 0.96f},
             {"reverbSize", 0.95f},
@@ -256,19 +242,13 @@ std::vector<Preset> getAbstractPresets()
 
         makePreset("Fractal Echo", bank, {
             {"chainSlot0", 11.0f},   // SHIFT
-            {"chainSlot1", 9.0f},    // GRAIN
+            {"chainSlot1", 0.0f},    // TEXTURE
             {"chainSlot2", 13.0f},   // HALFTIME
             {"shiftEnabled", 1.0f},
             {"shiftPitch", 7.0f},    // fifth up
             {"shiftFeedback", 0.55f},
             {"shiftTone", 5000.0f},
             {"shiftMix", 0.45f},
-            {"grainEnabled", 1.0f},
-            {"grainSize", 30.0f},
-            {"grainDensity", 8.0f},
-            {"grainPitch", -5.0f},
-            {"grainScatter", 0.6f},
-            {"grainMix", 0.35f},
             {"halftimeEnabled", 1.0f},
             {"halftimeDivision", 2.0f},  // 1/8
             {"halftimeSpeed", 0.0f},     // 2x
@@ -299,16 +279,9 @@ std::vector<Preset> getAbstractPresets()
         }),
 
         makePreset("Particle Cloud", bank, {
-            {"chainSlot0", 9.0f},    // GRAIN
+            {"chainSlot0", 0.0f},    // TEXTURE
             {"chainSlot1", 8.0f},    // MULTIPLY
             {"chainSlot2", 6.0f},    // REVERB
-            {"grainEnabled", 1.0f},
-            {"grainSize", 20.0f},
-            {"grainDensity", 12.0f},
-            {"grainPitch", 0.0f},
-            {"grainScatter", 0.85f},
-            {"grainReverse", 0.4f},
-            {"grainMix", 0.7f},
             {"unisonEnabled", 1.0f},
             {"unisonSpeed", 1.2f},
             {"unisonOuter", 0.9f},
@@ -390,7 +363,7 @@ std::vector<Preset> getAbstractPresets()
         makePreset("Inverted Reality", bank, {
             {"chainSlot0", 12.0f},   // REVERSER
             {"chainSlot1", 11.0f},   // SHIFT
-            {"chainSlot2", 9.0f},    // GRAIN
+            {"chainSlot2", 0.0f},    // TEXTURE
             {"chainSlot3", 6.0f},    // REVERB
             {"reverserEnabled", 1.0f},
             {"reverserRepeat", 1.0f},
@@ -401,14 +374,7 @@ std::vector<Preset> getAbstractPresets()
             {"shiftPitch", 12.0f},       // octave up
             {"shiftFeedback", 0.3f},
             {"shiftTone", 7000.0f},
-            {"shiftMix", 0.35f},
-            {"grainEnabled", 1.0f},
-            {"grainSize", 60.0f},
-            {"grainDensity", 5.0f},
-            {"grainPitch", -12.0f},      // octave down
-            {"grainScatter", 0.5f},
-            {"grainReverse", 0.6f},
-            {"grainMix", 0.3f},
+            {"shiftMix", 0.35f},      // octave down
             {"reverbEnabled", 1.0f},
             {"reverbDecay", 0.91f},
             {"reverbSize", 0.8f},
@@ -480,16 +446,9 @@ std::vector<Preset> getAbstractPresets()
         }),
 
         makePreset("Deep Freeze", bank, {
-            {"chainSlot0", 9.0f},    // GRAIN
+            {"chainSlot0", 0.0f},    // TEXTURE
             {"chainSlot1", 13.0f},   // HALFTIME
             {"chainSlot2", 6.0f},    // REVERB
-            {"grainEnabled", 1.0f},
-            {"grainSize", 180.0f},
-            {"grainDensity", 1.5f},
-            {"grainPitch", -12.0f},
-            {"grainScatter", 0.3f},
-            {"grainReverse", 0.7f},
-            {"grainMix", 0.6f},
             {"halftimeEnabled", 1.0f},
             {"halftimeDivision", 6.0f},  // 2 Bars
             {"halftimeSpeed", 1.0f},     // 4x
@@ -592,7 +551,7 @@ std::vector<Preset> getAbstractPresets()
 
         makePreset("Backwards Rain", bank, {
             {"chainSlot0", 12.0f},   // REVERSER
-            {"chainSlot1", 9.0f},    // GRAIN
+            {"chainSlot1", 0.0f},    // TEXTURE
             {"chainSlot2", 7.0f},    // HAZE
             {"chainSlot3", 6.0f},    // REVERB
             {"reverserEnabled", 1.0f},
@@ -600,12 +559,6 @@ std::vector<Preset> getAbstractPresets()
             {"reverserDivision", 1.0f},  // 1/32
             {"reverserCrossfade", 0.1f},
             {"reverserMix", 0.55f},
-            {"grainEnabled", 1.0f},
-            {"grainSize", 15.0f},
-            {"grainDensity", 14.0f},
-            {"grainPitch", 5.0f},
-            {"grainScatter", 0.8f},
-            {"grainMix", 0.3f},
             {"hazeEnabled", 1.0f},
             {"hazeColor", 0.4f},
             {"hazeType", 0.0f},          // Pink
@@ -843,7 +796,7 @@ std::vector<Preset> getAbstractPresets()
         makePreset("Dream Logic", bank, {
             {"chainSlot0", 3.0f},    // CHORUS
             {"chainSlot1", 13.0f},   // HALFTIME
-            {"chainSlot2", 9.0f},    // GRAIN
+            {"chainSlot2", 0.0f},    // TEXTURE
             {"chainSlot3", 6.0f},    // REVERB
             {"chorusMix", 0.55f},
             {"junoMode", 2.0f},      // I+II
@@ -852,13 +805,6 @@ std::vector<Preset> getAbstractPresets()
             {"halftimeSpeed", 0.0f},
             {"halftimeFade", 0.2f},
             {"halftimeMix", 0.6f},
-            {"grainEnabled", 1.0f},
-            {"grainSize", 40.0f},
-            {"grainDensity", 6.0f},
-            {"grainPitch", 12.0f},
-            {"grainScatter", 0.4f},
-            {"grainReverse", 0.2f},
-            {"grainMix", 0.25f},
             {"reverbEnabled", 1.0f},
             {"reverbDecay", 0.89f},
             {"reverbSize", 0.75f},
@@ -988,16 +934,9 @@ std::vector<Preset> getAbstractPresets()
             {"reverbMix", 0.35f},
         }),
 
-        makePreset("Micro Grain", bank, {
-            {"chainSlot0", 9.0f},    // GRAIN
+        makePreset("Micro Texture", bank, {
+            {"chainSlot0", 0.0f},    // TEXTURE
             {"chainSlot1", 6.0f},    // REVERB
-            {"grainEnabled", 1.0f},
-            {"grainSize", 8.0f},
-            {"grainDensity", 16.0f},
-            {"grainPitch", 0.0f},
-            {"grainScatter", 0.2f},
-            {"grainReverse", 0.1f},
-            {"grainMix", 0.4f},
             {"reverbEnabled", 1.0f},
             {"reverbDecay", 0.8f},
             {"reverbSize", 0.55f},
@@ -1006,17 +945,10 @@ std::vector<Preset> getAbstractPresets()
         }),
 
         makePreset("Soft Disintegration", bank, {
-            {"chainSlot0", 9.0f},    // GRAIN
+            {"chainSlot0", 0.0f},    // TEXTURE
             {"chainSlot1", 13.0f},   // HALFTIME
             {"chainSlot2", 7.0f},    // HAZE
             {"chainSlot3", 6.0f},    // REVERB
-            {"grainEnabled", 1.0f},
-            {"grainSize", 100.0f},
-            {"grainDensity", 3.0f},
-            {"grainPitch", 0.0f},
-            {"grainScatter", 0.95f},
-            {"grainReverse", 0.5f},
-            {"grainMix", 0.5f},
             {"halftimeEnabled", 1.0f},
             {"halftimeDivision", 5.0f},
             {"halftimeSpeed", 0.0f},
