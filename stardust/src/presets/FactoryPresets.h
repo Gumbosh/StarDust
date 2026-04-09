@@ -49,8 +49,11 @@ inline std::map<juce::String, float> defaultPresetValues()
         {"unisonOuter", 1.0f}, {"unisonInner", 0.8f},
 
         // Stutter
-        {"stutterRate", 125.0f}, {"stutterDecay", 0.8f},
-        {"stutterDepth", 1.0f}, {"stutterMix", 1.0f},
+        {"stutterRate", 16.0f}, {"stutterAttack", 35.0f},
+        {"stutterDecay", 124.0f}, {"stutterDepth", 100.0f},
+        {"stutterRelease", 65.0f}, {"stutterSwing", 10.0f},
+        {"stutterResolution", 2.0f},
+        {"stutterMix", 1.0f},
 
         // Shift
         {"shiftPitch", 0.0f}, {"shiftFeedback", 0.0f},

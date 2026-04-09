@@ -5,7 +5,7 @@
 namespace
 {
 constexpr float kEffectCardSeparatorAlpha = 0.62f;
-constexpr int kEffectCardSeparatorW = 2;
+constexpr int kEffectCardSeparatorW = 1;
 }
 
 // ============================================================================
@@ -1191,6 +1191,97 @@ void SettingsPanel::resized()
 // StardustEditor
 // ============================================================================
 
+void GatePatternEditor::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().reduced(2, 2);
+    if (bounds.isEmpty())
+        return;
+
+    const int chunks = juce::jlimit(2, 64, getChunkCount ? getChunkCount() : 16);
+    const float stepW = static_cast<float>(bounds.getWidth()) / static_cast<float>(chunks);
+
+    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.45f));
+    g.drawRoundedRectangle(bounds.toFloat(), 3.0f, 1.0f);
+
+    for (int step = 0; step < chunks; ++step)
+    {
+        const int x = bounds.getX() + static_cast<int>(std::floor(stepW * static_cast<float>(step)));
+        const int nextX = bounds.getX() + static_cast<int>(std::floor(stepW * static_cast<float>(step + 1)));
+        const int stepPx = juce::jmax(1, nextX - x);
+        const int gapPx = stepPx > 4 ? 2 : 1; // keep a tiny visible gap at all chunk counts
+        const int insetPx = gapPx / 2;
+        auto cell = juce::Rectangle<int>(x + insetPx, bounds.getY() + 3,
+                                         juce::jmax(1, stepPx - gapPx), bounds.getHeight() - 6);
+
+        const bool enabled = getStepEnabled && getStepEnabled(step);
+
+        if (enabled)
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.65f));
+        else
+            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
+
+        g.fillRoundedRectangle(cell.toFloat(), 2.0f);
+
+        g.setColour(StardustLookAndFeel::kAccent);
+        g.drawRoundedRectangle(cell.toFloat(), 2.0f, 1.0f);
+    }
+}
+
+int GatePatternEditor::stepAt(juce::Point<float> p) const
+{
+    auto bounds = getLocalBounds().reduced(2, 2);
+    if (!bounds.toFloat().contains(p))
+        return -1;
+
+    const int chunks = juce::jlimit(2, 64, getChunkCount ? getChunkCount() : 16);
+    const float rel = (p.x - static_cast<float>(bounds.getX())) / static_cast<float>(juce::jmax(1, bounds.getWidth()));
+    return juce::jlimit(0, chunks - 1, static_cast<int>(std::floor(rel * static_cast<float>(chunks))));
+}
+
+void GatePatternEditor::mouseDown(const juce::MouseEvent& e)
+{
+    const int step = stepAt(e.position);
+    if (step < 0)
+        return;
+
+    dragLastStep = step;
+    dragMode = DragMode::toggle;
+    dragToggleValue = !(getStepEnabled && getStepEnabled(step));
+
+    if (setStepEnabled)
+        setStepEnabled(step, dragToggleValue);
+
+    repaint();
+}
+
+void GatePatternEditor::mouseDrag(const juce::MouseEvent& e)
+{
+    if (dragMode == DragMode::none)
+        return;
+
+    const int step = stepAt(e.position);
+    if (step < 0)
+        return;
+
+    if (!setStepEnabled)
+        return;
+
+    const int a = juce::jmin(step, dragLastStep);
+    const int b = juce::jmax(step, dragLastStep);
+    for (int s = a; s <= b; ++s)
+        setStepEnabled(s, dragToggleValue);
+
+    dragLastStep = step;
+    repaint();
+}
+
+void GatePatternEditor::mouseUp(const juce::MouseEvent& /*e*/)
+{
+    dragMode = DragMode::none;
+    dragLastStep = -1;
+    repaint();
+}
+
 StardustEditor::StardustEditor(StardustProcessor& p)
     : AudioProcessorEditor(&p),
       processorRef(p),
@@ -1265,10 +1356,54 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(unisonOuterKnob,  "unisonOuter",  "1+2");
     setupKnob(unisonInnerKnob,  "unisonInner",  "3+4");
 
-    // STUTTER knobs
-    setupKnob(stutterRateKnob, "stutterRate", "Rate");
-    setupKnob(stutterDecayKnob, "stutterDecay", "Decay");
-    setupKnob(stutterDepthKnob, "stutterDepth", "Depth");
+    // GATE controls (slot 10)
+    setupKnob(stutterAttackKnob,  "stutterAttack",  "Attack");
+    setupKnob(stutterDecayKnob,   "stutterDecay",   "Decay");
+    setupKnob(stutterSustainKnob, "stutterDepth",   "Sustain");
+    setupKnob(stutterReleaseKnob, "stutterRelease", "Release");
+    setupKnob(stutterSwingKnob,   "stutterSwing",   "Swing");
+
+    {
+        stutterChunkSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        stutterChunkSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        stutterChunkSlider.setRotaryParameters(0.0f, juce::MathConstants<float>::twoPi, true);
+        stutterChunkSlider.setMouseDragSensitivity(180);
+        stutterChunkSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
+        stutterChunkSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
+        stutterChunkSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+        stutterChunkSlider.onValueChange = [this]() { repaint(stutterChunkDisplayBounds); stutterPatternEditor.repaint(); };
+        stutterChunkAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "stutterRate", stutterChunkSlider);
+        addAndMakeVisible(stutterChunkSlider);
+    }
+
+    {
+        stutterResolutionCombo.addItem("1/8", 1);
+        stutterResolutionCombo.addItem("1/8T", 2);
+        stutterResolutionCombo.addItem("1/16", 3);
+        stutterResolutionCombo.addItem("1/32", 4);
+        stutterResolutionCombo.addItem("1/32T", 5);
+        stutterResolutionCombo.addItem("1/64", 6);
+        stutterResolutionCombo.setJustificationType(juce::Justification::centred);
+        // Match outlined dropdown styling used in settings and dialogs.
+        stutterResolutionCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.4f));
+        stutterResolutionCombo.setColour(juce::ComboBox::focusedOutlineColourId, StardustLookAndFeel::kAccent.withAlpha(0.4f));
+        stutterResolutionCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF151515));
+        stutterResolutionCombo.setColour(juce::ComboBox::arrowColourId, StardustLookAndFeel::kFgDim);
+        stutterResolutionCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kFg);
+        stutterResolutionAttach = std::make_unique<ComboBoxAttachment>(processorRef.apvts, "stutterResolution", stutterResolutionCombo);
+        addAndMakeVisible(stutterResolutionCombo);
+    }
+
+    stutterPatternEditor.getChunkCount = [this]() {
+        return juce::jlimit(2, 64, juce::roundToInt(processorRef.apvts.getRawParameterValue("stutterRate")->load(std::memory_order_relaxed)));
+    };
+    stutterPatternEditor.getStepEnabled = [this](int step) {
+        return processorRef.getGatePatternStepEnabled(step);
+    };
+    stutterPatternEditor.setStepEnabled = [this](int step, bool enabled) {
+        processorRef.setGatePatternStepEnabled(step, enabled);
+    };
+    addAndMakeVisible(stutterPatternEditor);
 
     // SHIFT knobs
     setupKnob(shiftPitchKnob, "shiftPitch", "Pitch");
@@ -1824,7 +1959,24 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     dimSection(unisonToggle, { &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob });
     unisonToggle.onClick();
 
-    dimSection(stutterToggle, { &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob });
+    dimSection(stutterToggle, { &stutterAttackKnob, &stutterDecayKnob, &stutterSustainKnob,
+                                &stutterReleaseKnob, &stutterSwingKnob });
+    {
+        auto origOnClick = stutterToggle.onClick;
+        stutterToggle.onClick = [this, origOnClick]() {
+            if (origOnClick) origOnClick();
+            const bool on = stutterToggle.getToggleState();
+            const float alpha = on ? 1.0f : 0.4f;
+
+            stutterChunkSlider.setEnabled(on);
+            stutterChunkSlider.setAlpha(on ? 0.0f : 0.0f); // slider is invisible; display is custom-painted.
+            stutterPatternEditor.setEnabled(on);
+            stutterPatternEditor.setAlpha(alpha);
+            stutterResolutionCombo.setEnabled(on);
+            stutterResolutionCombo.setAlpha(alpha);
+            repaint(stutterChunkDisplayBounds);
+        };
+    }
     stutterToggle.onClick();
     dimSection(shiftToggle, { &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob });
     shiftToggle.onClick();
@@ -1962,6 +2114,36 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             if (text.containsIgnoreCase("k"))
                 value *= 1000.0;
             return juce::jlimit(20.0, 22000.0, value);
+        };
+    }
+    else if (paramId == "stutterAttack" || paramId == "stutterDecay" || paramId == "stutterRelease")
+    {
+        knob.slider.setNumDecimalPlacesToDisplay(0);
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(juce::roundToInt(v)) + " ms";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return juce::jlimit(5.0, 600.0, t.getDoubleValue());
+        };
+    }
+    else if (paramId == "stutterDepth")
+    {
+        knob.slider.setNumDecimalPlacesToDisplay(0);
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(juce::roundToInt(v)) + "%";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return juce::jlimit(0.0, 100.0, t.getDoubleValue());
+        };
+    }
+    else if (paramId == "stutterSwing")
+    {
+        knob.slider.setNumDecimalPlacesToDisplay(0);
+        knob.slider.textFromValueFunction = [](double v) {
+            return juce::String(juce::roundToInt(v)) + "%";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            return juce::jlimit(10.0, 90.0, t.getDoubleValue());
         };
     }
     else if (paramId == "destroyMix" || paramId == "filterLfo"
@@ -2512,7 +2694,7 @@ void StardustEditor::showAddEffectMenu(int row)
     textureMenu.addItem(7,    "NOISE",     !usedFx.count(7));
 
     juce::PopupMenu creativeMenu;
-    creativeMenu.addItem(10, "STUTTER", !usedFx.count(10));
+    creativeMenu.addItem(10, "TRANCE GATE", !usedFx.count(10));
     creativeMenu.addItem(11, "SHIFT", !usedFx.count(11));
     creativeMenu.addItem(12, "REVERSER", !usedFx.count(12));
     creativeMenu.addItem(13, "HALFTIME", !usedFx.count(13));
@@ -2709,15 +2891,44 @@ void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
 
 void StardustEditor::layoutStutterSection(juce::Rectangle<int> ap)
 {
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 3;
-    layoutKnobInBounds(stutterRateKnob,  { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(stutterDecayKnob, { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(stutterDepthKnob, { ox + kw * 2, ky, kw, kKnobH });
+    static constexpr int kKnobH = 72;
+    auto inner = ap.reduced(8, 4);
+
+    // Top row: chunk editor takes the full section width.
+    const int editorH = juce::jlimit(15, 21, inner.getHeight() / 4);
+    auto editorArea = inner.removeFromTop(editorH);
+    stutterPatternEditor.setVisible(true);
+    stutterPatternEditor.setBounds(editorArea);
+
+    inner.removeFromTop(4);
+    auto bottom = inner;
+
+    // Bottom row: chunk count + resolution controls on the left, knobs on the right.
+    const int controlsW = juce::jlimit(190, 270, bottom.getWidth() / 3);
+    auto controls = bottom.removeFromLeft(controlsW);
+    auto knobsArea = bottom.reduced(4, 0);
+
+    const int controlH = 22;
+    const int controlY = controls.getY() + (controls.getHeight() - controlH) / 2;
+    const int chunkW = 84;
+    const int comboGap = 8;
+    stutterChunkSlider.setVisible(true);
+    stutterChunkSlider.setBounds(controls.getX(), controlY + 1, chunkW, controlH - 1);
+    stutterChunkDisplayBounds = stutterChunkSlider.getBounds().expanded(4, 4);
+
+    const int comboX = controls.getX() + chunkW + comboGap;
+    stutterResolutionCombo.setVisible(true);
+    stutterResolutionCombo.setBounds(comboX, controlY, juce::jmax(80, controls.getRight() - comboX), controlH + 1);
+
+    // Bottom-right: A/D/S/R + Swing knobs.
+    const int kw = juce::jmax(44, knobsArea.getWidth() / 5);
+    const int knobH = juce::jmin(kKnobH, knobsArea.getHeight());
+    const int ky = knobsArea.getY() + (knobsArea.getHeight() - knobH) / 2;
+    layoutKnobInBounds(stutterAttackKnob,  { knobsArea.getX() + kw * 0, ky, kw, knobH });
+    layoutKnobInBounds(stutterDecayKnob,   { knobsArea.getX() + kw * 1, ky, kw, knobH });
+    layoutKnobInBounds(stutterSustainKnob, { knobsArea.getX() + kw * 2, ky, kw, knobH });
+    layoutKnobInBounds(stutterReleaseKnob, { knobsArea.getX() + kw * 3, ky, kw, knobH });
+    layoutKnobInBounds(stutterSwingKnob,   { knobsArea.getX() + kw * 4, ky, knobsArea.getRight() - (knobsArea.getX() + kw * 4), knobH });
 }
 
 void StardustEditor::layoutShiftSection(juce::Rectangle<int> ap)
@@ -2885,7 +3096,7 @@ void StardustEditor::paint(juce::Graphics& g)
     static constexpr int kPillH  =  28; // name pill height
 
     // Compact effect names for the pill
-    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
+    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "GATE", "SHIFT", "REVERSER", "HALFTIME" };
     const auto effectCardSeparatorColour = StardustLookAndFeel::kFgDim.withAlpha(kEffectCardSeparatorAlpha);
 
     for (int row = 0; row < 4; ++row)
@@ -3102,6 +3313,24 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
         // Preset bar background + border is drawn in paint() so icons render on top
     }
 
+    // Gate chunk display
+    if (stutterChunkSlider.isVisible() && !stutterChunkDisplayBounds.isEmpty())
+    {
+        const float gateAlpha = stutterChunkSlider.isEnabled() ? 1.0f : 0.35f;
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.5f * gateAlpha));
+        g.drawRoundedRectangle(stutterChunkDisplayBounds.toFloat(), 4.0f, 1.0f);
+
+        auto textBounds = stutterChunkDisplayBounds.reduced(5, 2);
+        g.setFont(juce::FontOptions(10.0f, juce::Font::plain));
+        g.setColour(StardustLookAndFeel::kFgDim.withAlpha(gateAlpha));
+        g.drawText("Chunks", textBounds.removeFromLeft(42), juce::Justification::centredLeft, false);
+
+        const int chunkVal = juce::jlimit(2, 64, juce::roundToInt(stutterChunkSlider.getValue()));
+        g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        g.setColour(StardustLookAndFeel::kAccent.withAlpha(gateAlpha));
+        g.drawText(juce::String(chunkVal), textBounds, juce::Justification::centredRight, false);
+    }
+
     // Reverser value/value display: border + centered text
     if (reverserRepeatSlider.isVisible() && !reverserDisplayBounds.isEmpty())
     {
@@ -3136,7 +3365,7 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
     // Drag ghost for FX chain reorder
     if (dragSourceRow >= 0)
     {
-        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "STUTTER", "SHIFT", "REVERSER", "HALFTIME" };
+        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "GATE", "SHIFT", "REVERSER", "HALFTIME" };
         static constexpr int kGhostLeftW = 118;
         static constexpr int kGhostDragW =  30;
         static constexpr int kGhostPillX =  18;
@@ -3260,6 +3489,15 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
             if (safeThis == nullptr) return;
             for (int i = 0; i < 2; ++i)
                 safeThis->halftimeSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        });
+    }
+    else if (parameterID == "stutterRate")
+    {
+        auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
+        juce::MessageManager::callAsync([safeThis]() {
+            if (safeThis == nullptr) return;
+            safeThis->repaint(safeThis->stutterChunkDisplayBounds);
+            safeThis->stutterPatternEditor.repaint();
         });
     }
     // Dirty state is now computed by comparing current values to loaded preset in timerCallback
@@ -3572,7 +3810,8 @@ void StardustEditor::resized()
                      &distortionDriveKnob, &distortionToneKnob,
                      &reverbMixKnob, &reverbDecayKnob, &reverbPreDelayKnob, &reverbWidthKnob,
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob,
-                     &stutterRateKnob, &stutterDecayKnob, &stutterDepthKnob,
+                     &stutterAttackKnob, &stutterDecayKnob, &stutterSustainKnob,
+                     &stutterReleaseKnob, &stutterSwingKnob,
                      &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
                      &reverserCrossfadeKnob,
                      &halftimeFadeKnob })
@@ -3597,6 +3836,10 @@ void StardustEditor::resized()
     reverserRepeatSlider.setVisible(false);
     reverserDivSlider.setVisible(false);
     reverserSlashLabel.setVisible(false);
+    stutterChunkSlider.setVisible(false);
+    stutterPatternEditor.setVisible(false);
+    stutterResolutionCombo.setVisible(false);
+    stutterChunkDisplayBounds = {};
     for (auto& b : halftimeDivBtn) b.setVisible(false);
     for (auto& b : halftimeSpeedBtn) b.setVisible(false);
     halftimeDivLabel.setVisible(false);

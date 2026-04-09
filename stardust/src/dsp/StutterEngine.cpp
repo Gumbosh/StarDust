@@ -4,31 +4,270 @@ void StutterEngine::prepare(double sr, int /*samplesPerBlock*/)
 {
     sampleRate = sr;
     constexpr double kRampSec = 0.02;
-    rateSmoothed.reset(sr, kRampSec);
+    attackSmoothed.reset(sr, kRampSec);
     decaySmoothed.reset(sr, kRampSec);
-    depthSmoothed.reset(sr, kRampSec);
+    sustainSmoothed.reset(sr, kRampSec);
+    releaseSmoothed.reset(sr, kRampSec);
+    swingSmoothed.reset(sr, kRampSec);
     mixSmoothed.reset(sr, kRampSec);
 
-    writePos = 0;
-    readPos = 0;
-    capturePos = 0;
-    currentDecayGain = 1.0f;
-    sliceLengthSamples = static_cast<int>(125.0 * sr / 1000.0);
-    latchedSliceLen = sliceLengthSamples;
+    currentBpm = 120.0;
+    chunks = 16;
+    resolutionIndex = 2;
+    patternEnabledMask = 0xAAAAAAAAAAAAAAAAull;
+    patternTieMask = 0ull;
 
-    for (int ch = 0; ch < kMaxChannels; ++ch)
-        captureBuffer[ch].fill(0.0f);
+    attackSmoothed.setCurrentAndTargetValue(0.05f);
+    decaySmoothed.setCurrentAndTargetValue(0.20f);
+    sustainSmoothed.setCurrentAndTargetValue(1.0f);
+    releaseSmoothed.setCurrentAndTargetValue(0.10f);
+    swingSmoothed.setCurrentAndTargetValue(0.0f);
+    mixSmoothed.setCurrentAndTargetValue(1.0f);
 
-    // Precompute crossfade window (raised cosine: 0→1)
-    const float pi = juce::MathConstants<float>::pi;
-    for (int i = 0; i < kCrossfadeLen; ++i)
-        crossfadeWindow[i] = 0.5f * (1.0f - std::cos(pi * static_cast<float>(i) / static_cast<float>(kCrossfadeLen)));
+    resetSequence();
 }
 
-void StutterEngine::setRate(float ms)    { rateSmoothed.setTargetValue(juce::jlimit(10.0f, 1000.0f, ms)); }
-void StutterEngine::setDecay(float d)    { decaySmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, d)); }
-void StutterEngine::setDepth(float d)    { depthSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, d)); }
-void StutterEngine::setMix(float m)      { mixSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, m)); }
+void StutterEngine::setBPM(double bpm)
+{
+    currentBpm = juce::jlimit(20.0, 300.0, bpm);
+}
+
+void StutterEngine::setChunks(int chunkCount)
+{
+    chunks = juce::jlimit(2, kPatternSteps, chunkCount);
+}
+
+void StutterEngine::setResolution(int resolutionIx)
+{
+    resolutionIndex = juce::jlimit(0, kResolutionCount - 1, resolutionIx);
+}
+
+void StutterEngine::setSwing(float swingNorm)
+{
+    swingSmoothed.setTargetValue(clampNorm(swingNorm));
+}
+
+void StutterEngine::setAttack(float attackNorm)
+{
+    attackSmoothed.setTargetValue(clampNorm(attackNorm));
+}
+
+void StutterEngine::setDecay(float decayNorm)
+{
+    decaySmoothed.setTargetValue(clampNorm(decayNorm));
+}
+
+void StutterEngine::setSustain(float sustainNorm)
+{
+    sustainSmoothed.setTargetValue(clampNorm(sustainNorm));
+}
+
+void StutterEngine::setRelease(float releaseNorm)
+{
+    releaseSmoothed.setTargetValue(clampNorm(releaseNorm));
+}
+
+void StutterEngine::setPattern(uint64_t enabledMask, uint64_t tieMask)
+{
+    patternEnabledMask = enabledMask;
+    // Tie is only meaningful for enabled source steps.
+    patternTieMask = tieMask & enabledMask;
+}
+
+void StutterEngine::setMix(float mix)
+{
+    mixSmoothed.setTargetValue(clampNorm(mix));
+}
+
+void StutterEngine::resetSequence()
+{
+    currentStep = 0;
+    currentStepDurationSamples = 1;
+    stepSamplesRemaining = 1.0;
+    sequencePrimed = false;
+    gateOpen = false;
+    envelopeStage = EnvelopeStage::Idle;
+    envelopeValue = 0.0f;
+    releaseStep = 0.0f;
+}
+
+float StutterEngine::clampNorm(float value)
+{
+    return juce::jlimit(0.0f, 1.0f, value);
+}
+
+bool StutterEngine::isStepEnabled(int step) const
+{
+    if (step < 0 || step >= chunks)
+        return false;
+
+    return (patternEnabledMask & (uint64_t(1) << static_cast<uint32_t>(step))) != 0u;
+}
+
+bool StutterEngine::isStepTied(int step) const
+{
+    if (step < 0 || step >= (chunks - 1))
+        return false;
+
+    return (patternTieMask & (uint64_t(1) << static_cast<uint32_t>(step))) != 0u;
+}
+
+int StutterEngine::resolveStepDurationSamples(int step, float swingNorm) const
+{
+    const int safeStep = juce::jlimit(0, juce::jmax(0, chunks - 1), step);
+    const size_t resolutionIx = static_cast<size_t>(juce::jlimit(0, 5, resolutionIndex));
+    const double stepSeconds = static_cast<double>(kResolutionBeats[resolutionIx]) * 60.0 / currentBpm;
+
+    // Swing offsets every second step while keeping pair duration stable.
+    double swingFactor = 1.0;
+    if (chunks > 1 && swingNorm > 0.0001f)
+        swingFactor = (safeStep & 1) == 0 ? (1.0 - static_cast<double>(swingNorm) * 0.5)
+                                          : (1.0 + static_cast<double>(swingNorm) * 0.5);
+
+    const int samples = static_cast<int>(std::round(stepSeconds * swingFactor * sampleRate));
+    return juce::jlimit(1, kMaxStepSamples, samples);
+}
+
+void StutterEngine::startGateSegment(float attackNorm, float decayNorm, float sustainNorm)
+{
+    gateOpen = true;
+
+    if (attackNorm <= 0.0001f)
+    {
+        envelopeValue = 1.0f;
+        envelopeStage = decayNorm <= 0.0001f ? EnvelopeStage::Sustain : EnvelopeStage::Decay;
+        if (envelopeStage == EnvelopeStage::Sustain)
+            envelopeValue = sustainNorm;
+    }
+    else
+    {
+        envelopeStage = EnvelopeStage::Attack;
+    }
+}
+
+void StutterEngine::endGateSegment(float releaseNorm, int stepSamples)
+{
+    gateOpen = false;
+
+    if (envelopeStage == EnvelopeStage::Idle)
+        return;
+
+    if (releaseNorm <= 0.0001f || envelopeValue <= 0.0001f)
+    {
+        envelopeValue = 0.0f;
+        envelopeStage = EnvelopeStage::Idle;
+        releaseStep = 0.0f;
+        return;
+    }
+
+    const int releaseSamples = juce::jlimit(1, kMaxStepSamples,
+        static_cast<int>(std::round(static_cast<float>(stepSamples) * releaseNorm)));
+
+    releaseStep = envelopeValue / static_cast<float>(releaseSamples);
+    envelopeStage = EnvelopeStage::Release;
+}
+
+void StutterEngine::advanceSequenceStep(float attackNorm, float decayNorm,
+                                        float sustainNorm, float releaseNorm,
+                                        float swingNorm)
+{
+    const bool hadPreviousStep = sequencePrimed;
+    int previousStep = currentStep;
+
+    if (!sequencePrimed)
+    {
+        currentStep = 0;
+        sequencePrimed = true;
+    }
+    else
+    {
+        previousStep = currentStep;
+        currentStep = (currentStep + 1) % chunks;
+    }
+
+    const bool currentEnabled = isStepEnabled(currentStep);
+
+    bool tiedFromPrevious = false;
+    if (hadPreviousStep)
+    {
+        const bool wrapped = (previousStep == chunks - 1) && (currentStep == 0);
+        if (!wrapped)
+            tiedFromPrevious = isStepEnabled(previousStep) && isStepTied(previousStep) && currentEnabled;
+    }
+
+    if (currentEnabled)
+    {
+        if (!tiedFromPrevious)
+            startGateSegment(attackNorm, decayNorm, sustainNorm);
+    }
+    else
+    {
+        endGateSegment(releaseNorm, juce::jmax(1, currentStepDurationSamples));
+    }
+
+    currentStepDurationSamples = resolveStepDurationSamples(currentStep, swingNorm);
+    stepSamplesRemaining += static_cast<double>(currentStepDurationSamples);
+}
+
+float StutterEngine::renderEnvelopeSample(float attackNorm, float decayNorm,
+                                          float sustainNorm, float releaseNorm)
+{
+    const int stepSamples = juce::jmax(1, currentStepDurationSamples);
+    const int attackSamples = juce::jlimit(1, kMaxStepSamples,
+        static_cast<int>(std::round(static_cast<float>(stepSamples) * attackNorm)));
+    const int decaySamples = juce::jlimit(1, kMaxStepSamples,
+        static_cast<int>(std::round(static_cast<float>(stepSamples) * decayNorm)));
+    const int releaseSamples = juce::jlimit(1, kMaxStepSamples,
+        static_cast<int>(std::round(static_cast<float>(stepSamples) * releaseNorm)));
+
+    switch (envelopeStage)
+    {
+        case EnvelopeStage::Idle:
+            envelopeValue = 0.0f;
+            break;
+
+        case EnvelopeStage::Attack:
+        {
+            const float attackStep = 1.0f / static_cast<float>(attackSamples);
+            envelopeValue = juce::jmin(1.0f, envelopeValue + attackStep);
+            if (envelopeValue >= 0.9999f)
+                envelopeStage = decayNorm <= 0.0001f ? EnvelopeStage::Sustain : EnvelopeStage::Decay;
+            break;
+        }
+
+        case EnvelopeStage::Decay:
+        {
+            const float delta = 1.0f - sustainNorm;
+            const float decayStep = delta / static_cast<float>(decaySamples);
+            envelopeValue = juce::jmax(sustainNorm, envelopeValue - decayStep);
+            if (envelopeValue <= sustainNorm + 0.0001f)
+                envelopeStage = EnvelopeStage::Sustain;
+            break;
+        }
+
+        case EnvelopeStage::Sustain:
+            envelopeValue = sustainNorm;
+            break;
+
+        case EnvelopeStage::Release:
+        {
+            // Recompute when release time changes while releasing.
+            if (releaseNorm > 0.0001f)
+                releaseStep = envelopeValue / static_cast<float>(releaseSamples);
+
+            envelopeValue = juce::jmax(0.0f, envelopeValue - juce::jmax(1.0e-6f, releaseStep));
+            if (envelopeValue <= 0.0001f)
+            {
+                envelopeValue = 0.0f;
+                envelopeStage = EnvelopeStage::Idle;
+                releaseStep = 0.0f;
+            }
+            break;
+        }
+    }
+
+    return juce::jlimit(0.0f, 1.0f, envelopeValue);
+}
 
 void StutterEngine::process(juce::AudioBuffer<float>& buffer)
 {
@@ -38,74 +277,31 @@ void StutterEngine::process(juce::AudioBuffer<float>& buffer)
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const float rate = rateSmoothed.getNextValue();
+        const float attack = attackSmoothed.getNextValue();
         const float decay = decaySmoothed.getNextValue();
-        const float depth = depthSmoothed.getNextValue();
+        const float sustain = sustainSmoothed.getNextValue();
+        const float release = releaseSmoothed.getNextValue();
+        const float swing = swingSmoothed.getNextValue();
         const float mix = mixSmoothed.getNextValue();
 
-        // Update target slice length (latched at loop boundary)
-        sliceLengthSamples = juce::jlimit(64, kBufferSize - 1,
-            static_cast<int>(rate * static_cast<float>(sampleRate) / 1000.0f));
+        if (!sequencePrimed)
+            advanceSequenceStep(attack, decay, sustain, release, swing);
 
-        // Always write input to capture buffer
-        for (int ch = 0; ch < numChannels; ++ch)
-            captureBuffer[ch][writePos] = buffer.getSample(ch, i);
+        while (stepSamplesRemaining <= 0.0)
+            advanceSequenceStep(attack, decay, sustain, release, swing);
 
-        // Read stutter playback
-        float stutterOut[kMaxChannels] = {};
-        const int readIdx = (capturePos + readPos) & kBufferMask;
+        stepSamplesRemaining -= 1.0;
 
-        for (int ch = 0; ch < numChannels; ++ch)
-            stutterOut[ch] = captureBuffer[ch][readIdx];
+        const float env = renderEnvelopeSample(attack, decay, sustain, release);
 
-        // Crossfade at loop boundary to prevent clicks
-        const int distToEnd = latchedSliceLen - readPos;
-        if (distToEnd > 0 && distToEnd <= kCrossfadeLen)
-        {
-            const float fadeOut = crossfadeWindow[kCrossfadeLen - distToEnd]; // 1→0
-            const float fadeIn  = 1.0f - fadeOut;                             // 0→1
-            // Crossfade target: beginning of captured slice (readPos - latchedSliceLen + distToEnd == 0)
-            const int nextIdx = (capturePos) & kBufferMask;
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                const float nextSample = captureBuffer[ch][nextIdx];
-                stutterOut[ch] = stutterOut[ch] * fadeOut + nextSample * fadeIn;
-            }
-        }
-
-        // Apply decay
-        for (int ch = 0; ch < numChannels; ++ch)
-            stutterOut[ch] *= currentDecayGain;
-
-        // Advance read position
-        ++readPos;
-        if (readPos >= latchedSliceLen)
-        {
-            readPos = 0;
-            currentDecayGain *= decay;
-
-            // Re-capture when decay fades out
-            if (currentDecayGain < 0.001f)
-                currentDecayGain = 1.0f;
-
-            // Re-capture: grab the most recent slice
-            capturePos = (writePos - sliceLengthSamples + kBufferSize) & kBufferMask;
-            latchedSliceLen = sliceLengthSamples; // latch new rate at boundary
-        }
-
-        writePos = (writePos + 1) & kBufferMask;
-
-        // Depth blend: how much stutter replaces input
-        // Then constant-power dry/wet mix
         const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);
         const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const float dry = buffer.getSample(ch, i);
-            const float blended = dry * (1.0f - depth) + stutterOut[ch] * depth;
-            buffer.setSample(ch, i, dry * dryGain + blended * wetGain);
+            const float wet = dry * env;
+            buffer.setSample(ch, i, dry * dryGain + wet * wetGain);
         }
     }
 }

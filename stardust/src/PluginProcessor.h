@@ -31,6 +31,9 @@ using PresetLockGuard = std::lock_guard<std::recursive_mutex>;
 class StardustProcessor : public juce::AudioProcessor
 {
 public:
+    static constexpr int kGatePatternSlots = 1;
+    static constexpr int kGatePatternSteps = 64;
+
     StardustProcessor();
     ~StardustProcessor() override = default;
 
@@ -81,6 +84,16 @@ public:
     void deleteUserPreset(int index);
     void refreshPresets();
 
+    uint64_t getGatePatternEnabledMask(int slot) const;
+    uint64_t getGatePatternTieMask(int slot) const;
+    void setGatePatternMasks(int slot, uint64_t enabledMask, uint64_t tieMask);
+    bool getGatePatternStepEnabled(int slot, int step) const;
+    bool getGatePatternStepTied(int slot, int step) const;
+    void setGatePatternStepEnabled(int slot, int step, bool enabled);
+    void setGatePatternStepTied(int slot, int step, bool tied);
+    bool getGatePatternStepEnabled(int step) const { return getGatePatternStepEnabled(0, step); }
+    void setGatePatternStepEnabled(int step, bool enabled) { setGatePatternStepEnabled(0, step, enabled); }
+
     std::vector<juce::String> getUserBanks() const;
     void importBank(const juce::File& sourceFolder);
     void deleteUserBank(const juce::String& bankName);
@@ -111,8 +124,12 @@ private:
     std::vector<Preset> allPresets; // factory + user
     std::atomic<int> currentPresetIndex { 0 };
 
+    std::array<std::atomic<uint64_t>, kGatePatternSlots> gatePatternEnabledMasks {};
+    std::array<std::atomic<uint64_t>, kGatePatternSlots> gatePatternTieMasks {};
+
     void scanUserPresets();
     void rebuildAllPresets();
+    void resetGatePatternsToDefaults();
 
     // 2x oversampling for BitCrusher
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;

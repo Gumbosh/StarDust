@@ -113,6 +113,32 @@ private:
     void selectTab(Tab tab);
 };
 
+class GatePatternEditor : public juce::Component
+{
+public:
+    std::function<int()> getChunkCount;
+    std::function<bool(int)> getStepEnabled;
+    std::function<void(int, bool)> setStepEnabled;
+
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+
+private:
+    enum class DragMode
+    {
+        none,
+        toggle
+    };
+
+    int stepAt(juce::Point<float> p) const;
+
+    DragMode dragMode = DragMode::none;
+    int dragLastStep = -1;
+    bool dragToggleValue = false;
+};
+
 class StardustEditor : public juce::AudioProcessorEditor,
                        private juce::Timer,
                        private juce::AudioProcessorValueTreeState::Listener
@@ -251,8 +277,15 @@ private:
     juce::ToggleButton unisonToggle;
     std::unique_ptr<ButtonAttachment> unisonToggleAttach;
 
-    // STUTTER section
-    LabeledKnob stutterRateKnob, stutterDecayKnob, stutterDepthKnob;
+    // GATE section (slot 10)
+    LabeledKnob stutterAttackKnob, stutterDecayKnob, stutterSustainKnob,
+                stutterReleaseKnob, stutterSwingKnob;
+    juce::Slider stutterChunkSlider;
+    std::unique_ptr<SliderAttachment> stutterChunkAttach;
+    juce::Rectangle<int> stutterChunkDisplayBounds;
+    juce::ComboBox stutterResolutionCombo;
+    std::unique_ptr<ComboBoxAttachment> stutterResolutionAttach;
+    GatePatternEditor stutterPatternEditor;
     juce::ToggleButton stutterToggle;
     std::unique_ptr<ButtonAttachment> stutterToggleAttach;
     juce::Slider stutterMixStrip;

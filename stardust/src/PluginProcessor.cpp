@@ -5,6 +5,21 @@
 
 namespace
 {
+constexpr uint64_t kGateStepMask = 0xFFFFFFFFFFFFFFFFull;
+constexpr float kGateEnvMinMs = 5.0f;
+constexpr float kGateEnvMaxMs = 600.0f;
+constexpr float kGateSustainMinPct = 0.0f;
+constexpr float kGateSustainMaxPct = 100.0f;
+constexpr float kGateSwingMinPct = 10.0f;
+constexpr float kGateSwingMaxPct = 90.0f;
+
+std::array<uint64_t, StardustProcessor::kGatePatternSlots> defaultGateEnabledMasks()
+{
+    return {
+        0xAAAAAAAAAAAAAAAAull  // alternating
+    };
+}
+
 int sanitizeChainSlotValue(float value)
 {
     if (!std::isfinite(value))
@@ -21,6 +36,65 @@ int sanitizeChainSlotValue(float value)
 
 void sanitizePresetValuesForRemovedEffects(std::map<juce::String, float>& values)
 {
+    // Legacy stutter presets stored rate in milliseconds; slot 10 now uses chunks.
+    if (const auto it = values.find("stutterRate"); it != values.end())
+    {
+        if (!std::isfinite(it->second) || it->second < 2.0f)
+            values["stutterRate"] = 16.0f;
+        else if (it->second > 64.0f)
+            values["stutterRate"] = 16.0f;
+    }
+
+    // Legacy gate envelope/swing presets stored normalized 0..1 values.
+    const auto looksLikeLegacyGatePreset = [&values]() -> bool
+    {
+        static constexpr const char* kEnvelopeKeys[] = {
+            "stutterAttack", "stutterDecay", "stutterRelease"
+        };
+
+        for (const auto* key : kEnvelopeKeys)
+        {
+            const auto it = values.find(key);
+            if (it == values.end())
+                continue;
+
+            const float v = it->second;
+            if (std::isfinite(v) && v >= 0.0f && v <= 1.0f)
+                return true;
+        }
+
+        return false;
+    }();
+
+    auto remapLegacyNorm = [&values](const char* key, float minValue, float maxValue, float fallback)
+    {
+        if (const auto it = values.find(key); it != values.end())
+        {
+            const float v = it->second;
+            if (!std::isfinite(v))
+                values[key] = fallback;
+            else if (v >= 0.0f && v <= 1.0f)
+                values[key] = juce::jmap(v, 0.0f, 1.0f, minValue, maxValue);
+        }
+    };
+
+    remapLegacyNorm("stutterAttack",  kGateEnvMinMs,      kGateEnvMaxMs,      35.0f);
+    remapLegacyNorm("stutterDecay",   kGateEnvMinMs,      kGateEnvMaxMs,      124.0f);
+    remapLegacyNorm("stutterRelease", kGateEnvMinMs,      kGateEnvMaxMs,      65.0f);
+    remapLegacyNorm("stutterSwing",   kGateSwingMinPct,   kGateSwingMaxPct,   10.0f);
+
+    if (looksLikeLegacyGatePreset)
+    {
+        if (const auto it = values.find("stutterDepth"); it != values.end())
+        {
+            const float v = it->second;
+            if (!std::isfinite(v))
+                values["stutterDepth"] = 100.0f;
+            else if (v >= 0.0f && v <= 1.0f)
+                values["stutterDepth"] = v * 100.0f;
+        }
+    }
+
     for (int slot = 0; slot < 4; ++slot)
     {
         const juce::String key = "chainSlot" + juce::String(slot);
@@ -48,6 +122,19 @@ void sanitizeChainSlotParameters(juce::AudioProcessorValueTreeState& apvts)
             param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(sanitized)));
     }
 }
+
+void sanitizeGateParameters(juce::AudioProcessorValueTreeState& apvts)
+{
+    auto* raw = apvts.getRawParameterValue("stutterRate");
+    auto* param = dynamic_cast<juce::AudioParameterInt*>(apvts.getParameter("stutterRate"));
+    if (raw == nullptr || param == nullptr)
+        return;
+
+    const int current = juce::roundToInt(raw->load(std::memory_order_relaxed));
+    const int sanitized = (current < 2 || current > 64) ? 16 : current;
+    if (sanitized != current)
+        param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(sanitized)));
+}
 }
 
 StardustProcessor::StardustProcessor()
@@ -56,6 +143,7 @@ StardustProcessor::StardustProcessor()
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, &undoManager, "Parameters", createParameterLayout())
 {
+    resetGatePatternsToDefaults();
     initFactoryPresets();
     refreshPresets();
     loadPreset(0);
@@ -206,7 +294,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
 
     // FX chain slot assignments (0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE,
-    // 6=REVERB, 7=NOISE, 8=MULTIPLY, 10=STUTTER, 11=SHIFT, 12=REVERSER, 13=HALFTIME)
+    // 6=REVERB, 7=NOISE, 8=MULTIPLY, 10=GATE, 11=SHIFT, 12=REVERSER, 13=HALFTIME)
     for (int i = 0; i < 4; ++i)
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID("chainSlot" + juce::String(i), 1),
@@ -281,23 +369,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("unisonInner", 1), "Multiply 3+4",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
 
-    // STUTTER: buffer repeat/glitch (slot 10)
-    {
-        juce::NormalisableRange<float> rateRange(10.0f, 1000.0f, 0.1f);
-        rateRange.setSkewForCentre(100.0f);
-        params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID("stutterRate", 1), "Stutter Rate", rateRange, 125.0f));
-    }
+    // GATE: trance-gate sequencer (slot 10)
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID("stutterRate", 1), "Gate Chunks", 2, 64, 16));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("stutterDecay", 1), "Stutter Decay",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.8f));
+        juce::ParameterID("stutterAttack", 1), "Gate Attack",
+        juce::NormalisableRange<float>(kGateEnvMinMs, kGateEnvMaxMs, 1.0f), 35.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("stutterDepth", 1), "Stutter Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+        juce::ParameterID("stutterDecay", 1), "Gate Decay",
+        juce::NormalisableRange<float>(kGateEnvMinMs, kGateEnvMaxMs, 1.0f), 124.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterDepth", 1), "Gate Sustain",
+        juce::NormalisableRange<float>(kGateSustainMinPct, kGateSustainMaxPct, 1.0f), 100.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterRelease", 1), "Gate Release",
+        juce::NormalisableRange<float>(kGateEnvMinMs, kGateEnvMaxMs, 1.0f), 65.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("stutterSwing", 1), "Gate Swing",
+        juce::NormalisableRange<float>(kGateSwingMinPct, kGateSwingMaxPct, 1.0f), 10.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("stutterResolution", 1), "Gate Resolution",
+        juce::StringArray{"1/8", "1/8T", "1/16", "1/32", "1/32T", "1/64"}, 2));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("stutterEnabled", 1), "Stutter Enabled", false));
+        juce::ParameterID("stutterEnabled", 1), "Gate Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("stutterMix", 1), "Stutter Mix",
+        juce::ParameterID("stutterMix", 1), "Gate Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
 
     // SHIFT: pitch shifter (slot 11)
@@ -894,12 +990,40 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 multiplyEngine.process(buffer);
                 break;
             }
-            case 10: // STUTTER — buffer repeat/glitch
+            case 10: // GATE — trance-gate sequencer
             {
                 if (!(*apvts.getRawParameterValue("stutterEnabled") >= 0.5f)) break;
-                stutterEngine.setRate(*apvts.getRawParameterValue("stutterRate"));
-                stutterEngine.setDecay(*apvts.getRawParameterValue("stutterDecay"));
-                stutterEngine.setDepth(*apvts.getRawParameterValue("stutterDepth"));
+
+                double hostBPM = 120.0;
+                if (auto* playHead = getPlayHead())
+                    if (auto pos = playHead->getPosition())
+                        if (auto bpm = pos->getBpm())
+                            hostBPM = *bpm;
+
+                stutterEngine.setBPM(hostBPM);
+                stutterEngine.setChunks(juce::roundToInt(apvts.getRawParameterValue("stutterRate")->load(std::memory_order_relaxed)));
+                const float attackMs = apvts.getRawParameterValue("stutterAttack")->load(std::memory_order_relaxed);
+                const float decayMs = apvts.getRawParameterValue("stutterDecay")->load(std::memory_order_relaxed);
+                const float sustainPct = apvts.getRawParameterValue("stutterDepth")->load(std::memory_order_relaxed);
+                const float releaseMs = apvts.getRawParameterValue("stutterRelease")->load(std::memory_order_relaxed);
+                const float swingPct = apvts.getRawParameterValue("stutterSwing")->load(std::memory_order_relaxed);
+
+                const float attackNorm = juce::jmap(attackMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
+                const float decayNorm = juce::jmap(decayMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
+                const float sustainNorm = juce::jlimit(0.0f, 1.0f, sustainPct * 0.01f);
+                const float releaseNorm = juce::jmap(releaseMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
+                const float swingNorm = juce::jlimit(0.0f, 1.0f,
+                    (swingPct - kGateSwingMinPct) / (kGateSwingMaxPct - kGateSwingMinPct));
+
+                stutterEngine.setAttack(attackNorm);
+                stutterEngine.setDecay(decayNorm);
+                stutterEngine.setSustain(sustainNorm);
+                stutterEngine.setRelease(releaseNorm);
+                stutterEngine.setSwing(swingNorm);
+                stutterEngine.setResolution(juce::roundToInt(apvts.getRawParameterValue("stutterResolution")->load(std::memory_order_relaxed)));
+                stutterEngine.setPattern(
+                    gatePatternEnabledMasks[0].load(std::memory_order_relaxed),
+                    gatePatternTieMasks[0].load(std::memory_order_relaxed));
                 stutterEngine.setMix(*apvts.getRawParameterValue("stutterMix"));
                 stutterEngine.process(buffer);
                 break;
@@ -1295,6 +1419,97 @@ void StardustProcessor::refreshPresets()
         currentPresetIndex.store(0);
 }
 
+uint64_t StardustProcessor::getGatePatternEnabledMask(int slot) const
+{
+    const int safeSlot = juce::jlimit(0, kGatePatternSlots - 1, slot);
+    return gatePatternEnabledMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+}
+
+uint64_t StardustProcessor::getGatePatternTieMask(int slot) const
+{
+    const int safeSlot = juce::jlimit(0, kGatePatternSlots - 1, slot);
+    return gatePatternTieMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+}
+
+void StardustProcessor::setGatePatternMasks(int slot, uint64_t enabledMask, uint64_t tieMask)
+{
+    const int safeSlot = juce::jlimit(0, kGatePatternSlots - 1, slot);
+    const uint64_t clippedEnabled = enabledMask & kGateStepMask;
+    gatePatternEnabledMasks[static_cast<size_t>(safeSlot)].store(clippedEnabled, std::memory_order_relaxed);
+    gatePatternTieMasks[static_cast<size_t>(safeSlot)].store(tieMask & clippedEnabled & kGateStepMask, std::memory_order_relaxed);
+    presetDirty.store(true);
+}
+
+bool StardustProcessor::getGatePatternStepEnabled(int slot, int step) const
+{
+    const int safeStep = juce::jlimit(0, kGatePatternSteps - 1, step);
+    const uint64_t mask = getGatePatternEnabledMask(slot);
+    return (mask & (uint64_t(1) << static_cast<uint32_t>(safeStep))) != 0u;
+}
+
+bool StardustProcessor::getGatePatternStepTied(int slot, int step) const
+{
+    const int safeStep = juce::jlimit(0, kGatePatternSteps - 1, step);
+    const uint64_t mask = getGatePatternTieMask(slot);
+    return (mask & (uint64_t(1) << static_cast<uint32_t>(safeStep))) != 0u;
+}
+
+void StardustProcessor::setGatePatternStepEnabled(int slot, int step, bool enabled)
+{
+    const int safeSlot = juce::jlimit(0, kGatePatternSlots - 1, slot);
+    const int safeStep = juce::jlimit(0, kGatePatternSteps - 1, step);
+    const uint64_t bit = (uint64_t(1) << static_cast<uint32_t>(safeStep));
+
+    auto enabledMask = gatePatternEnabledMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+    enabledMask = enabled ? (enabledMask | bit) : (enabledMask & ~bit);
+    gatePatternEnabledMasks[static_cast<size_t>(safeSlot)].store(enabledMask & kGateStepMask, std::memory_order_relaxed);
+
+    auto tieMask = gatePatternTieMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+    // If a step is disabled, ties to and from that step are cleared.
+    if (!enabled)
+    {
+        tieMask &= ~bit;
+        if (safeStep > 0)
+            tieMask &= ~(uint64_t(1) << static_cast<uint32_t>(safeStep - 1));
+    }
+    gatePatternTieMasks[static_cast<size_t>(safeSlot)].store(tieMask & enabledMask & kGateStepMask, std::memory_order_relaxed);
+    presetDirty.store(true);
+}
+
+void StardustProcessor::setGatePatternStepTied(int slot, int step, bool tied)
+{
+    const int safeSlot = juce::jlimit(0, kGatePatternSlots - 1, slot);
+    const int safeStep = juce::jlimit(0, kGatePatternSteps - 1, step);
+    const uint64_t bit = (uint64_t(1) << static_cast<uint32_t>(safeStep));
+
+    auto tieMask = gatePatternTieMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+    const auto enabledMask = gatePatternEnabledMasks[static_cast<size_t>(safeSlot)].load(std::memory_order_relaxed);
+
+    // Tie means "hold into next step", so we require source and next step enabled.
+    const bool hasNext = safeStep < (kGatePatternSteps - 1);
+    const uint64_t nextBit = hasNext ? (uint64_t(1) << static_cast<uint32_t>(safeStep + 1)) : 0u;
+    const bool canTie = hasNext && ((enabledMask & bit) != 0u) && ((enabledMask & nextBit) != 0u);
+
+    if (tied && canTie)
+        tieMask |= bit;
+    else
+        tieMask &= ~bit;
+
+    gatePatternTieMasks[static_cast<size_t>(safeSlot)].store(tieMask & enabledMask & kGateStepMask, std::memory_order_relaxed);
+    presetDirty.store(true);
+}
+
+void StardustProcessor::resetGatePatternsToDefaults()
+{
+    const auto defaults = defaultGateEnabledMasks();
+    for (int slot = 0; slot < kGatePatternSlots; ++slot)
+    {
+        gatePatternEnabledMasks[static_cast<size_t>(slot)].store(defaults[static_cast<size_t>(slot)] & kGateStepMask,
+                                                                  std::memory_order_relaxed);
+        gatePatternTieMasks[static_cast<size_t>(slot)].store(0ull, std::memory_order_relaxed);
+    }
+}
+
 std::vector<juce::String> StardustProcessor::getUserBanks() const
 {
     std::vector<juce::String> banks;
@@ -1375,6 +1590,17 @@ void StardustProcessor::getStateInformation(juce::MemoryBlock& destData)
         if (idx >= 0 && idx < static_cast<int>(allPresets.size()))
             state.setProperty("presetName", allPresets[static_cast<size_t>(idx)].name, nullptr);
     }
+
+    for (int slot = 0; slot < kGatePatternSlots; ++slot)
+    {
+        state.setProperty("gatePatternOn" + juce::String(slot),
+            static_cast<juce::int64>(gatePatternEnabledMasks[static_cast<size_t>(slot)].load(std::memory_order_relaxed)),
+            nullptr);
+        state.setProperty("gatePatternTie" + juce::String(slot),
+            static_cast<juce::int64>(gatePatternTieMasks[static_cast<size_t>(slot)].load(std::memory_order_relaxed)),
+            nullptr);
+    }
+
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -1390,6 +1616,23 @@ void StardustProcessor::setStateInformation(const void* data, int sizeInBytes)
 
         apvts.replaceState(tree);
         sanitizeChainSlotParameters(apvts);
+        sanitizeGateParameters(apvts);
+
+        resetGatePatternsToDefaults();
+        for (int slot = 0; slot < kGatePatternSlots; ++slot)
+        {
+            const auto onKey = "gatePatternOn" + juce::String(slot);
+            const auto tieKey = "gatePatternTie" + juce::String(slot);
+            const auto defaultMasks = defaultGateEnabledMasks();
+
+            const uint64_t enabledMask = static_cast<uint64_t>(
+                static_cast<juce::uint64>(static_cast<juce::int64>(tree.getProperty(onKey, static_cast<juce::int64>(defaultMasks[static_cast<size_t>(slot)])))));
+            const uint64_t tieMask = static_cast<uint64_t>(
+                static_cast<juce::uint64>(static_cast<juce::int64>(tree.getProperty(tieKey, static_cast<juce::int64>(0)))));
+
+            gatePatternEnabledMasks[static_cast<size_t>(slot)].store(enabledMask & kGateStepMask, std::memory_order_relaxed);
+            gatePatternTieMasks[static_cast<size_t>(slot)].store(tieMask & enabledMask & kGateStepMask, std::memory_order_relaxed);
+        }
 
         refreshPresets();
         {
