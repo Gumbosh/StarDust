@@ -98,13 +98,13 @@ cat > "$STAGING/distribution.xml" << DIST
         <line choice="vst3"/>
         <line choice="app"/>
     </choices-outline>
-    <choice id="au" title="Audio Unit (AU)" description="Install Stardust AU plugin for Logic Pro, GarageBand, and other AU hosts.">
+    <choice id="au" title="Audio Unit (AU)" description="Install Stardust Character Engine AU plugin for Logic Pro, GarageBand, and other AU hosts.">
         <pkg-ref id="com.stardust.au"/>
     </choice>
-    <choice id="vst3" title="VST3" description="Install Stardust VST3 plugin for Ableton Live, FL Studio, Reaper, and other VST3 hosts.">
+    <choice id="vst3" title="VST3" description="Install Stardust Character Engine VST3 plugin for Ableton Live, FL Studio, Reaper, and other VST3 hosts.">
         <pkg-ref id="com.stardust.vst3"/>
     </choice>
-    <choice id="app" title="Standalone App" description="Install Stardust standalone application.">
+    <choice id="app" title="Standalone App" description="Install Stardust Character Engine standalone application.">
         <pkg-ref id="com.stardust.app"/>
     </choice>
     <pkg-ref id="com.stardust.au" version="$VERSION">Stardust-AU.pkg</pkg-ref>
@@ -117,17 +117,19 @@ DIST
 cat > "$STAGING/welcome.txt" << WELCOME
 Welcome to Stardust
 
-A creative audio processor featuring four DSP sections you can chain,
-reorder, and remove in any configuration:
+Stardust is a fast character-shaping audio processor built around
+GRIT and EXCITER working together through one musical macro workflow.
 
-  - Destroy:   SP-950 style 12-bit sampler emulation with bit-crusher,
-               sample-rate reduction, and 6th-order Butterworth filter
-  - Granular:  256-voice granular engine with Dattorro plate reverb,
-               pitch morphing, BPM-synced grain size, and freeze
-  - Multiply:  4-voice ensemble chorus with allpass phase diffusion
-               and stereo spread control
-  - Tape:      Jiles-Atherton hysteresis reel-to-reel emulation with
-               wow, flutter, hiss, and NAB/IEC emphasis
+Choose a Flavor:
+  - Dust:    dusty sampler color and soft top-end texture
+  - Glass:   clean air and polished presence
+  - Rust:    darker crunch and worn-machine grit
+  - Heat:    warm saturation and musical density
+  - Broken:  aggressive bit-reduced sampler damage
+  - Glow:    smooth presence for vocals, drums, synths, and loops
+
+Then raise Character to blend the flavor into your sound without
+chasing technical settings.
 
 This installer will place:
   - AU plugin in /Library/Audio/Plug-Ins/Components/

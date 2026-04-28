@@ -1,11 +1,11 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include <array>
 #include <set>
 
 namespace
 {
-constexpr float kEffectCardSeparatorAlpha = 0.62f;
-constexpr int kEffectCardSeparatorW = 1;
+constexpr int kFixedSectionCount = 2;
 }
 
 // ============================================================================
@@ -71,7 +71,7 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
         juce::Path bgArc;
         bgArc.addCentredArc(centreX, centreY, radius, radius, 0.0f,
                              rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour(isHovered ? kFgGhost.withAlpha(0.7f) : kFgGhost.withAlpha(0.45f));
+        g.setColour(isHovered ? kFgGhost.withAlpha(0.82f) : kFgGhost.withAlpha(0.62f));
         g.strokePath(bgArc, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved,
                                                    juce::PathStrokeType::rounded));
     }
@@ -99,7 +99,7 @@ void StardustLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y,
     {
         const float tickOuter = radius + 5.0f;
         const float tickInner = radius + 2.0f;
-        g.setColour(kFgGhost.withAlpha(isHovered ? 0.4f : 0.25f));
+        g.setColour(kFgGhost.withAlpha(isHovered ? 0.50f : 0.34f));
         for (int i = 0; i < 3; ++i)
         {
             const float tickAngle = rotaryStartAngle
@@ -279,7 +279,7 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
     if (style != juce::Slider::LinearHorizontal)
         return;
 
-    // Sidebar mix strip — compact left-fill bar with small dot thumb
+    // Compact horizontal bars used by sidebar mix strips.
     if (slider.getComponentID() == "sidebarMix")
     {
         const float fx = static_cast<float>(x);
@@ -287,28 +287,49 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
         const float fw = static_cast<float>(width);
         const float fh = static_cast<float>(height);
         const float trackY2 = fy + fh * 0.5f;
-        const float trackLeft2  = fx + 5.0f;
-        const float trackRight2 = fx + fw - 5.0f;
+        const float trackLeft2  = fx + 7.0f;
+        const float trackRight2 = fx + fw - 7.0f;
         const float trackW2 = trackRight2 - trackLeft2;
 
         const bool active = slider.isMouseOver(true) || slider.isMouseButtonDown();
 
-        // Background track
-        g.setColour(kFgGhost.withAlpha(0.22f));
-        g.fillRoundedRectangle(trackLeft2, trackY2 - 1.5f, trackW2, 3.0f, 1.5f);
+        const double min = slider.getMinimum();
+        const double max = slider.getMaximum();
+        const float norm = max > min
+            ? juce::jlimit(0.0f, 1.0f, static_cast<float>((slider.getValue() - min) / (max - min)))
+            : 0.0f;
+        const float thumbPos = trackLeft2 + norm * trackW2;
+        const bool atMinimum = norm <= 0.001f;
 
-        // Value fill — from left
-        const float fillW = sliderPos - trackLeft2;
-        if (fillW > 0.0f)
+        // Value fill. Bipolar gain controls fill from centre; macro/mix fill from left.
+        const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+        const float fillStart = bipolar ? (trackLeft2 + trackW2 * 0.5f) : trackLeft2;
+        const float left = std::min(fillStart, thumbPos);
+        const float right = std::max(fillStart, thumbPos);
+
+        if (!atMinimum)
         {
-            g.setColour(kAccent.withAlpha(active ? 0.75f : 0.55f));
-            g.fillRoundedRectangle(trackLeft2, trackY2 - 1.5f, fillW, 3.0f, 1.5f);
+            g.setColour(kFgGhost.withAlpha(0.14f));
+            g.fillRoundedRectangle(trackLeft2, trackY2 - 1.5f, trackW2, 3.0f, 1.5f);
+        }
+
+        if (!atMinimum && right > left)
+        {
+            g.setColour(kAccent);
+            g.fillRoundedRectangle(left, trackY2 - 1.5f, right - left, 3.0f, 1.5f);
+        }
+
+        if (bipolar)
+        {
+            const float centre = trackLeft2 + trackW2 * 0.5f;
+            g.setColour(kFgDim.withAlpha(0.45f));
+            g.fillRect(centre - 0.5f, trackY2 - 5.0f, 1.0f, 10.0f);
         }
 
         // Thumb dot
-        const float dotR = active ? 4.5f : 3.5f;
+        const float dotR = active ? 4.2f : 3.4f;
         g.setColour(active ? kAccent : kAccent.withAlpha(0.80f));
-        g.fillEllipse(sliderPos - dotR, trackY2 - dotR, dotR * 2.0f, dotR * 2.0f);
+        g.fillEllipse(thumbPos - dotR, trackY2 - dotR, dotR * 2.0f, dotR * 2.0f);
 
         return;
     }
@@ -441,6 +462,25 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
         return;
     }
 
+    if (button.getComponentID() == "characterFlavorBtn")
+    {
+        const float cornerR = bounds.getHeight() * 0.5f;
+        const bool isOn = button.getToggleState();
+        const float hover = shouldDrawButtonAsHighlighted ? 1.0f : 0.0f;
+
+        g.setColour(isOn ? juce::Colour(0xFF151515) : juce::Colours::black.withAlpha(0.86f));
+        g.fillRoundedRectangle(bounds.reduced(1.0f), cornerR);
+        g.setColour(isOn ? kAccent.withAlpha(0.70f) : kFgGhost.withAlpha(0.32f + hover * 0.20f));
+        g.drawRoundedRectangle(bounds.reduced(1.0f), cornerR, isOn ? 1.5f : 1.0f);
+
+        if (hover > 0.0f)
+        {
+            g.setColour(kAccent.withAlpha(0.08f));
+            g.fillRoundedRectangle(bounds.reduced(2.0f), cornerR);
+        }
+        return;
+    }
+
     // Noise-speed segmented radio buttons
     if (button.getComponentID() == "tapeNoiseSpeedBtn")
     {
@@ -548,6 +588,14 @@ void StardustLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& bu
         g.fillEllipse(cx - spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
         g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
         g.fillEllipse(cx + spacing - dotR, cy - dotR, dotR * 2, dotR * 2);
+    }
+    else if (button.getComponentID() == "characterFlavorBtn")
+    {
+        const bool isOn = button.getToggleState();
+        g.setColour(isOn ? kAccent : (shouldDrawButtonAsHighlighted ? kFg : kFgDim));
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f,
+                                    isOn ? juce::Font::bold : juce::Font::plain));
+        g.drawText(button.getButtonText(), bounds, juce::Justification::centred);
     }
     else if (button.getComponentID() == "tapeNoiseSpeedBtn")
     {
@@ -1288,22 +1336,25 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     starfield(p.apvts)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(860, 720);
+    setSize(620, 560);
 
     addAndMakeVisible(starfield);
+    starfield.setInterceptsMouseClicks(false, false);
     starfield.setExcludeRect({});
     starfield.toBack();
 
 
 
-    setupKnob(destroyDriveKnob, "destroyIn", "Saturation");
-    setupKnob(destroyColorKnob, "destroyOut", "Output");
-    setupKnob(destroyBitsKnob, "destroyBits", "Bits");
+    setupKnob(destroyDriveKnob, "destroyIn", "Air Heat");
+    setupKnob(destroyBitsKnob, "destroyBits", "Bit");
     setupKnob(hazeColorKnob, "hazeColor", "Color");
-    setupKnob(destroyJitterKnob, "destroyJitter", "Jitter");
+    setupKnob(destroyJitterKnob, "destroyJitter", "Grit");
+
+    setupKnob(exciterDriveKnob, "exciterDrive", "Spark");
+    setupKnob(exciterToneKnob, "exciterTone", "Air");
 
     // Rate knob — rotary attached to destroyFader param, integer Hz steps
-    setupKnob(destroyRateKnob, "destroyFader", "Rate");
+    setupKnob(destroyRateKnob, "destroyFader", "Sample Rate");
     destroyRateKnob.slider.setNumDecimalPlacesToDisplay(0);
     destroyRateKnob.slider.textFromValueFunction = [](double v) {
         return juce::String(juce::roundToInt(v)) + " Hz";
@@ -1405,114 +1456,9 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     };
     addAndMakeVisible(stutterPatternEditor);
 
-    // SHIFT knobs
-    setupKnob(shiftPitchKnob, "shiftPitch", "Pitch");
-    setupKnob(shiftFeedbackKnob, "shiftFeedback", "Feedback");
-    setupKnob(shiftToneKnob, "shiftTone", "Tone");
+    // SHIFT removed from redesigned UI.
 
-    // REVERSER: kHs-style value/value display (drag up/down to change)
-    setupKnob(reverserCrossfadeKnob, "reverserCrossfade", "Crossfade");
-    {
-        // Left: repeat count (1-64) — drag only, no click-to-jump
-        reverserRepeatSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        reverserRepeatSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        reverserRepeatSlider.setRotaryParameters(0.0f, juce::MathConstants<float>::twoPi, true);
-        reverserRepeatSlider.setMouseDragSensitivity(200);
-        reverserRepeatSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
-        reverserRepeatSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
-        reverserRepeatSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
-        reverserRepeatSlider.onValueChange = [this]() { repaint(reverserDisplayBounds); };
-        reverserRepeatAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "reverserRepeat", reverserRepeatSlider);
-        addAndMakeVisible(reverserRepeatSlider);
-
-        // Right: division (0-7) — drag only, no click-to-jump
-        reverserDivSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        reverserDivSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        reverserDivSlider.setRotaryParameters(0.0f, juce::MathConstants<float>::twoPi, true);
-        reverserDivSlider.setMouseDragSensitivity(150);
-        reverserDivSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
-        reverserDivSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
-        reverserDivSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
-        reverserDivSlider.onValueChange = [this]() { repaint(reverserDisplayBounds); };
-        reverserDivAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "reverserDivision", reverserDivSlider);
-        addAndMakeVisible(reverserDivSlider);
-
-        // "/" separator label
-        reverserSlashLabel.setText("/", juce::dontSendNotification);
-        reverserSlashLabel.setJustificationType(juce::Justification::centred);
-        reverserSlashLabel.setFont(juce::FontOptions(20.0f, juce::Font::bold));
-        reverserSlashLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-        addAndMakeVisible(reverserSlashLabel);
-    }
-
-    // HALFTIME knobs + buttons
-    setupKnob(halftimeFadeKnob, "halftimeFade", "Fade");
-    {
-        static const char* divLabels[] = {"1/16","1/8T","1/8","1/4","1/2","1 Bar","2 Bar","4 Bar"};
-        auto* halftimeDivParam = dynamic_cast<juce::AudioParameterChoice*>(
-            processorRef.apvts.getParameter("halftimeDivision"));
-        auto updateDivButtons = [this, halftimeDivParam]() {
-            int sel = halftimeDivParam ? halftimeDivParam->getIndex() : 2;
-            for (int i = 0; i < 8; ++i)
-                halftimeDivBtn[i].setToggleState(i == sel, juce::dontSendNotification);
-        };
-        for (int i = 0; i < 8; ++i)
-        {
-            halftimeDivBtn[i].setButtonText(divLabels[i]);
-            halftimeDivBtn[i].setClickingTogglesState(false);
-            halftimeDivBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
-            halftimeDivBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
-            halftimeDivBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
-            halftimeDivBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
-            halftimeDivBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            halftimeDivBtn[i].onClick = [i, updateDivButtons, halftimeDivParam]() {
-                if (halftimeDivParam)
-                    halftimeDivParam->setValueNotifyingHost(halftimeDivParam->convertTo0to1(static_cast<float>(i)));
-                updateDivButtons();
-            };
-            addAndMakeVisible(halftimeDivBtn[i]);
-        }
-        updateDivButtons();
-        processorRef.apvts.addParameterListener("halftimeDivision", this);
-        halftimeDivLabel.setText("Division", juce::dontSendNotification);
-        halftimeDivLabel.setJustificationType(juce::Justification::centred);
-        halftimeDivLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
-        halftimeDivLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-        addAndMakeVisible(halftimeDivLabel);
-    }
-    {
-        static const char* speedLabels[] = {"2x", "4x"};
-        auto* halftimeSpeedParam = dynamic_cast<juce::AudioParameterChoice*>(
-            processorRef.apvts.getParameter("halftimeSpeed"));
-        auto updateSpeedButtons = [this, halftimeSpeedParam]() {
-            int sel = halftimeSpeedParam ? halftimeSpeedParam->getIndex() : 0;
-            for (int i = 0; i < 2; ++i)
-                halftimeSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
-        };
-        for (int i = 0; i < 2; ++i)
-        {
-            halftimeSpeedBtn[i].setButtonText(speedLabels[i]);
-            halftimeSpeedBtn[i].setClickingTogglesState(false);
-            halftimeSpeedBtn[i].setColour(juce::TextButton::buttonColourId,   juce::Colours::transparentBlack);
-            halftimeSpeedBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.15f));
-            halftimeSpeedBtn[i].setColour(juce::TextButton::textColourOffId,  StardustLookAndFeel::kFgDim);
-            halftimeSpeedBtn[i].setColour(juce::TextButton::textColourOnId,   StardustLookAndFeel::kAccent);
-            halftimeSpeedBtn[i].setComponentID("tapeNoiseSpeedBtn");
-            halftimeSpeedBtn[i].onClick = [i, updateSpeedButtons, halftimeSpeedParam]() {
-                if (halftimeSpeedParam)
-                    halftimeSpeedParam->setValueNotifyingHost(halftimeSpeedParam->convertTo0to1(static_cast<float>(i)));
-                updateSpeedButtons();
-            };
-            addAndMakeVisible(halftimeSpeedBtn[i]);
-        }
-        updateSpeedButtons();
-        processorRef.apvts.addParameterListener("halftimeSpeed", this);
-        halftimeSpeedLabel.setText("Speed", juce::dontSendNotification);
-        halftimeSpeedLabel.setJustificationType(juce::Justification::centred);
-        halftimeSpeedLabel.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
-        halftimeSpeedLabel.setColour(juce::Label::textColourId, StardustLookAndFeel::kFgDim);
-        addAndMakeVisible(halftimeSpeedLabel);
-    }
+    
 
     setupKnob(chorusMixKnob, "chorusMix", "Mix");
 
@@ -1648,10 +1594,45 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         addAndMakeVisible(distortionModeLabel);
     }
 
-    // Right side knobs: Input, Output, Dry/Wet
-    setupKnob(inputGainKnob, "inputGain", "Input");
-    setupKnob(outputGainKnob, "outputGain", "Output");
-    setupKnob(masterMixKnob, "masterMix", "Dry/Wet");
+    {
+        static const char* kCharacterModes[] = { "Dust", "Glass", "Rust", "Heat", "Broken", "Glow" };
+        auto* characterModeParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("characterMode"));
+        auto updateFlavorButtons = [this, characterModeParam]() {
+            const int sel = characterModeParam ? characterModeParam->getIndex() : 0;
+            for (int i = 0; i < 6; ++i)
+                characterFlavorBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+        };
+        for (int i = 0; i < 6; ++i)
+        {
+            characterModeCombo.addItem(kCharacterModes[i], i + 1);
+            characterFlavorBtn[i].setButtonText(kCharacterModes[i]);
+            characterFlavorBtn[i].setClickingTogglesState(false);
+            characterFlavorBtn[i].setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            characterFlavorBtn[i].setColour(juce::TextButton::buttonOnColourId, StardustLookAndFeel::kAccent.withAlpha(0.16f));
+            characterFlavorBtn[i].setColour(juce::TextButton::textColourOffId, StardustLookAndFeel::kFgDim);
+            characterFlavorBtn[i].setColour(juce::TextButton::textColourOnId, StardustLookAndFeel::kAccent);
+            characterFlavorBtn[i].setComponentID("characterFlavorBtn");
+            characterFlavorBtn[i].setInterceptsMouseClicks(false, false);
+            characterFlavorBtn[i].onClick = [i, updateFlavorButtons, characterModeParam]() {
+                if (characterModeParam != nullptr)
+                    characterModeParam->setValueNotifyingHost(characterModeParam->convertTo0to1(static_cast<float>(i)));
+                updateFlavorButtons();
+            };
+            addAndMakeVisible(characterFlavorBtn[i]);
+        }
+        characterModeCombo.setJustificationType(juce::Justification::centred);
+        characterModeCombo.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xFF151515));
+        characterModeCombo.setColour(juce::ComboBox::textColourId, StardustLookAndFeel::kAccent);
+        characterModeCombo.setColour(juce::ComboBox::outlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.35f));
+        characterModeCombo.setColour(juce::ComboBox::focusedOutlineColourId, StardustLookAndFeel::kAccent.withAlpha(0.4f));
+        characterModeCombo.setColour(juce::ComboBox::arrowColourId, StardustLookAndFeel::kFgDim);
+        characterModeAttach = std::make_unique<ComboBoxAttachment>(processorRef.apvts, "characterMode", characterModeCombo);
+        addAndMakeVisible(characterModeCombo);
+        updateFlavorButtons();
+    }
+
+    advancedToggleBtn.setVisible(false);
 
     // Sidebar mix strip sliders (LinearHorizontal, positioned below name pill in each row)
     auto setupMixStrip = [&](juce::Slider& s, std::unique_ptr<SliderAttachment>& a, const juce::String& paramId)
@@ -1667,6 +1648,18 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         addAndMakeVisible(s);
     };
     setupMixStrip(destroyMixStrip,      destroyMixStripAttach,      "destroyMix");
+    setupMixStrip(exciterMixStrip,      exciterMixStripAttach,      "exciterMix");
+    for (auto* mixKnob : { &destroyMixStrip, &exciterMixStrip })
+    {
+        mixKnob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        mixKnob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 18);
+        mixKnob->setComponentID("");
+        mixKnob->setMouseDragSensitivity(180);
+        mixKnob->setPopupDisplayEnabled(false, false, nullptr);
+        mixKnob->setColour(juce::Slider::textBoxTextColourId,       StardustLookAndFeel::kFg);
+        mixKnob->setColour(juce::Slider::textBoxOutlineColourId,    StardustLookAndFeel::kFgGhost.withAlpha(0.22f));
+        mixKnob->setColour(juce::Slider::textBoxBackgroundColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
+    }
     setupMixStrip(multiplyMixStrip,     multiplyMixStripAttach,     "chorusMix");
     setupMixStrip(tapeMixStrip,         tapeMixStripAttach,         "tapeMix");
     setupMixStrip(distortionMixStrip,   distortionMixStripAttach,   "distortionMix");
@@ -1675,8 +1668,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupMixStrip(reverbMixStrip,       reverbMixStripAttach,       "reverbMix");
     setupMixStrip(stutterMixStrip,      stutterMixStripAttach,      "stutterMix");
     setupMixStrip(shiftMixStrip,        shiftMixStripAttach,        "shiftMix");
-    setupMixStrip(reverserMixStrip,     reverserMixStripAttach,     "reverserMix");
-    setupMixStrip(halftimeMixStrip,    halftimeMixStripAttach,    "halftimeMix");
 
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
@@ -1872,6 +1863,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         addAndMakeVisible(btn);
     };
     setupToggle(destroyToggle, destroyToggleAttach, "destroyEnabled");
+    setupToggle(exciterToggle, exciterToggleAttach, "exciterEnabled");
     setupToggle(multiplyToggle, multiplyToggleAttach, "multiplyEnabled");
     setupToggle(tapeToggle, tapeToggleAttach, "tapeEnabled");
     setupToggle(distortionToggle, distortionToggleAttach, "distortionEnabled");
@@ -1880,8 +1872,6 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupToggle(unisonToggle, unisonToggleAttach, "unisonEnabled");
     setupToggle(stutterToggle, stutterToggleAttach, "stutterEnabled");
     setupToggle(shiftToggle, shiftToggleAttach, "shiftEnabled");
-    setupToggle(reverserToggle, reverserToggleAttach, "reverserEnabled");
-    setupToggle(halftimeToggle, halftimeToggleAttach, "halftimeEnabled");
 
     // Disable and dim knobs when their section toggle is off
     auto dimSection = [](juce::ToggleButton& toggle, std::initializer_list<LabeledKnob*> knobList) {
@@ -1896,7 +1886,22 @@ StardustEditor::StardustEditor(StardustProcessor& p)
             }
         };
     };
-    dimSection(destroyToggle, { &destroyDriveKnob, &destroyBitsKnob, &destroyRateKnob, &destroyJitterKnob, &destroyColorKnob });
+    destroyToggle.onClick = [this]() {
+        for (auto* k : { &destroyDriveKnob, &destroyBitsKnob, &destroyRateKnob, &destroyJitterKnob })
+        {
+            k->slider.setEnabled(true);
+            k->slider.setAlpha(1.0f);
+            k->label.setAlpha(1.0f);
+        }
+    };
+    exciterToggle.onClick = [this]() {
+        for (auto* k : { &exciterDriveKnob, &exciterToneKnob })
+        {
+            k->slider.setEnabled(true);
+            k->slider.setAlpha(1.0f);
+            k->label.setAlpha(1.0f);
+        }
+    };
     dimSection(multiplyToggle, {});
     dimSection(tapeToggle, { &tapeInputKnob, &tapeDriveKnob, &tapeGlueKnob, &tapeNoiseKnob, &tapeMixKnob, &tapeWowKnob, &tapeOutputKnob });
     {
@@ -1936,6 +1941,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     // Apply initial dim state
     destroyToggle.onClick();
+    exciterToggle.onClick();
     multiplyToggle.onClick();
     tapeToggle.onClick();
     distortionToggle.onClick();
@@ -1978,24 +1984,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
         };
     }
     stutterToggle.onClick();
-    dimSection(shiftToggle, { &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob });
-    shiftToggle.onClick();
-    dimSection(reverserToggle, { &reverserCrossfadeKnob });
-    reverserToggle.onClick();
-    dimSection(halftimeToggle, { &halftimeFadeKnob });
-    {
-        auto origOnClick = halftimeToggle.onClick;
-        halftimeToggle.onClick = [this, origOnClick]() {
-            if (origOnClick) origOnClick();
-            const bool on = halftimeToggle.getToggleState();
-            const float alpha = on ? 1.0f : 0.4f;
-            halftimeDivLabel.setAlpha(alpha);
-            halftimeSpeedLabel.setAlpha(alpha);
-            for (auto& b : halftimeDivBtn) { b.setEnabled(on); b.setAlpha(alpha); }
-            for (auto& b : halftimeSpeedBtn) { b.setEnabled(on); b.setAlpha(alpha); }
-        };
-    }
-    halftimeToggle.onClick();
+    
 
     logoImage = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
@@ -2092,6 +2081,19 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return t.getDoubleValue(); // "+3.5 dB" → 3.5 via getDoubleValue stops at space
         };
     }
+    else if (paramId == "exciterTone")
+    {
+        knob.slider.textFromValueFunction = [](double v) {
+            if (v >= 1000.0) return juce::String(v / 1000.0, 1) + " kHz";
+            return juce::String(juce::roundToInt(v)) + " Hz";
+        };
+        knob.slider.valueFromTextFunction = [](const juce::String& t) {
+            auto text = t.trim().toLowerCase();
+            if (text.endsWith("khz"))
+                return juce::jlimit(800.0, 16000.0, text.upToLastOccurrenceOf("k", false, false).getDoubleValue() * 1000.0);
+            return juce::jlimit(800.0, 16000.0, text.getDoubleValue());
+        };
+    }
     else if (paramId == "filterCutoff")
     {
         knob.slider.textFromValueFunction = [](double v) {
@@ -2101,19 +2103,13 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return t.getDoubleValue() / 99.0;
         };
     }
-    else if (paramId == "shiftTone")
+    else if (paramId == "shiftGrainSize")
     {
         knob.slider.textFromValueFunction = [](double v) {
-            if (v >= 1000.0)
-                return juce::String(v / 1000.0, 1) + " kHz";
-            return juce::String(v, 1) + " Hz";
+            return juce::String(juce::roundToInt(v)) + " ms";
         };
         knob.slider.valueFromTextFunction = [](const juce::String& t) {
-            auto text = t.trim();
-            double value = text.getDoubleValue();
-            if (text.containsIgnoreCase("k"))
-                value *= 1000.0;
-            return juce::jlimit(20.0, 22000.0, value);
+            return juce::jlimit(20.0, 200.0, t.getDoubleValue());
         };
     }
     else if (paramId == "stutterAttack" || paramId == "stutterDecay" || paramId == "stutterRelease")
@@ -2149,10 +2145,13 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
     else if (paramId == "destroyMix" || paramId == "filterLfo"
              || paramId == "stereoWidth"
              || paramId == "chorusMix"
+             || paramId == "characterAmount"
+             || paramId == "exciterDrive" || paramId == "exciterMix"
              || paramId == "multiplyPanOuter" || paramId == "multiplyPanInner"
              || paramId == "masterMix"
              || paramId == "tapeDrive" || paramId == "tapeInput" || paramId == "tapeGlue"
-             || paramId == "tapeNoise" || paramId == "tapeMix")
+             || paramId == "tapeNoise" || paramId == "tapeMix"
+             || paramId == "shiftJitter")
     {
         knob.slider.textFromValueFunction = [](double v) {
             return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
@@ -2172,7 +2171,7 @@ void StardustEditor::setupKnob(LabeledKnob& knob, const juce::String& paramId,
             return static_cast<double>(juce::jlimit(1.0f, 24.0f, t.getFloatValue()));
         };
     }
-    else if (paramId == "shiftPitch")
+    else if (paramId == "shiftAmount")
     {
         knob.slider.setNumDecimalPlacesToDisplay(0);
         knob.slider.textFromValueFunction = [](double v) {
@@ -2239,8 +2238,7 @@ void StardustEditor::showPresetDropdown()
 
     // Factory bank sub-menus (Init stays at top level)
     juce::PopupMenu factoryMenu;
-    const juce::String factoryBankOrder[] = { "Lo-Fi", "Glitch", "Tape", "Atmosphere" };
-    for (const auto& bankName : factoryBankOrder)
+    for (const auto& bankName : PresetLibraryPanel::kFactoryBankOrder)
     {
         juce::PopupMenu bankMenu;
         for (int i = 0; i < static_cast<int>(presetInfos.size()); ++i)
@@ -2318,9 +2316,8 @@ void StardustEditor::refreshPresetList()
         if (presets[static_cast<size_t>(i)].isFactory && presets[static_cast<size_t>(i)].bank.isEmpty())
             rootMenu->addItem(i + 1, presets[static_cast<size_t>(i)].name);
 
-    // Factory banks as sub-menus (curated order)
-    const juce::String factoryBankOrder[] = { "Lo-Fi", "Glitch", "Tape", "Atmosphere" };
-    for (const auto& bankName : factoryBankOrder)
+    // Factory banks as sub-menus (fisheye character order)
+    for (const auto& bankName : PresetLibraryPanel::kFactoryBankOrder)
     {
         juce::PopupMenu subMenu;
         for (int i = 0; i < static_cast<int>(presets.size()); ++i)
@@ -2500,9 +2497,9 @@ void StardustEditor::showPresetLibrary()
                                       std::move(user), std::move(bankItems));
     presetLibraryPanel->setCurrentPresetIndex(processorRef.getCurrentProgram());
 
-    // Position: overlay on left side, from galaxy top to controls bottom
+    // Position: overlay on left side using stable editor bounds.
     const int panelW = 300;
-    const int panelH = controlsBounds.getBottom() - galaxyBounds.getY();
+    const int panelH = bottomBarBounds.getY() - galaxyBounds.getY();
     presetLibraryPanel->setBounds(galaxyBounds.getX(), galaxyBounds.getY(), panelW, panelH);
 
     addAndMakeVisible(presetLibraryPanel.get());
@@ -2598,19 +2595,21 @@ void StardustEditor::updateDoubleClickDefaults()
 
 juce::Rectangle<int> StardustEditor::stripRowBounds(int row) const
 {
-    const int sH = controlsBounds.getHeight() / 4;
-    return { controlsBounds.getX(), controlsBounds.getY() + row * sH,
+    const int safeRow = juce::jlimit(0, kFixedSectionCount - 1, row);
+    const int sH = controlsBounds.getHeight() / kFixedSectionCount;
+    return { controlsBounds.getX(), controlsBounds.getY() + safeRow * sH,
              controlsBounds.getWidth(), sH };
 }
 
 juce::Rectangle<int> StardustEditor::sectionKnobBounds(int row) const
 {
-    // Center knob area: left sidebar (name pill) + right drag column
+    // Center knob area: left sidebar (name pill) + full-width control zone.
     static constexpr int kLeftW  = 118; // badge + name pill
-    static constexpr int kDragW  =  30; // right drag handle column
-    const int sH = controlsBounds.getHeight() / 4;
+    static constexpr int kDragW  =   0;
+    const int safeRow = juce::jlimit(0, kFixedSectionCount - 1, row);
+    const int sH = controlsBounds.getHeight() / kFixedSectionCount;
     return { controlsBounds.getX() + kLeftW,
-             controlsBounds.getY() + row * sH,
+             controlsBounds.getY() + safeRow * sH,
              controlsBounds.getWidth() - kLeftW - kDragW,
              sH };
 }
@@ -2620,120 +2619,32 @@ juce::ToggleButton& StardustEditor::toggleForSection(int fxId)
     switch (fxId)
     {
         case 1: return destroyToggle;
-        case 3: return multiplyToggle;
-        case 4: return tapeToggle;
-        case 5: return distortionToggle;
-        case 6: return reverbToggle;
-        case 7: return hazeToggle;
-        case 8: return unisonToggle;
-        case 10: return stutterToggle;
-        case 11: return shiftToggle;
-        case 12: return reverserToggle;
-        case 13: return halftimeToggle;
+        case 2: return exciterToggle;
         default: return destroyToggle;
     }
-}
-
-int StardustEditor::firstNonEmptyRow() const
-{
-    for (int r = 0; r < 4; ++r)
-        if (chainSlots[r] != 0) return r;
-    return 0;
 }
 
 void StardustEditor::syncChainSlots()
 {
     for (int i = 0; i < 4; ++i)
-    {
-        const juce::String id = "chainSlot" + juce::String(i);
-        chainSlots[i] = static_cast<int>(*processorRef.apvts.getRawParameterValue(id));
-    }
+        chainSlots[i] = 0;
 
-    // Deduplicate: clear any later duplicate of the same effect type so the
-    // UI only shows each effect once (matching the single-instance DSP design)
-    std::set<int> seen;
-    for (int i = 0; i < 4; ++i)
-    {
-        if (chainSlots[i] == 0) continue;
-        if (!seen.insert(chainSlots[i]).second)
-            chainSlots[i] = 0; // duplicate → treat as empty
-    }
+    chainSlots[0] = 1;
+    chainSlots[1] = 2;
 
-    // Keep activeSection valid for cosmetic highlighting
-    if (activeSection >= 4 || chainSlots[activeSection] == 0)
-        activeSection = firstNonEmptyRow();
+    if (activeSection < 0 || activeSection >= kFixedSectionCount)
+        activeSection = 0;
 }
 
 void StardustEditor::commitChainSlots()
 {
+    syncChainSlots();
     for (int i = 0; i < 4; ++i)
     {
         const juce::String id = "chainSlot" + juce::String(i);
         if (auto* p = dynamic_cast<juce::AudioParameterInt*>(processorRef.apvts.getParameter(id)))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(chainSlots[i])));
     }
-}
-
-void StardustEditor::showAddEffectMenu(int row)
-{
-    // Which effect types are already present in other slots?
-    std::set<int> usedFx;
-    for (int i = 0; i < 4; ++i)
-        if (i != row && chainSlots[i] != 0)
-            usedFx.insert(chainSlots[i]);
-
-    // Submenus with arrow — matches preset selector style
-    // Items are disabled if that effect type is already in the chain
-    juce::PopupMenu distortionMenu, modulationMenu, reverbMenu, textureMenu;
-    distortionMenu.addItem(1, "GRIT",      !usedFx.count(1));
-    distortionMenu.addItem(4, "OXIDE-456", !usedFx.count(4));
-    distortionMenu.addItem(5, "DIST",      !usedFx.count(5));
-    modulationMenu.addItem(3, "JU-60",     !usedFx.count(3));
-    modulationMenu.addItem(8, "MULTIPLY",  !usedFx.count(8));
-    reverbMenu.addItem(6,     "VOID",      !usedFx.count(6));
-    textureMenu.addItem(7,    "NOISE",     !usedFx.count(7));
-
-    juce::PopupMenu creativeMenu;
-    creativeMenu.addItem(10, "TRANCE GATE", !usedFx.count(10));
-    creativeMenu.addItem(11, "SHIFT", !usedFx.count(11));
-    creativeMenu.addItem(12, "REVERSER", !usedFx.count(12));
-    creativeMenu.addItem(13, "HALFTIME", !usedFx.count(13));
-
-    juce::PopupMenu menu;
-    menu.addSubMenu("Distortion", distortionMenu);
-    menu.addSubMenu("Chorus", modulationMenu);
-    menu.addSubMenu("Reverb",     reverbMenu);
-    menu.addSubMenu("Texture",    textureMenu);
-    menu.addSubMenu("Creative",   creativeMenu);
-
-    menu.setLookAndFeel(&lookAndFeel);
-    distortionMenu.setLookAndFeel(&lookAndFeel);
-    modulationMenu.setLookAndFeel(&lookAndFeel);
-    reverbMenu.setLookAndFeel(&lookAndFeel);
-    textureMenu.setLookAndFeel(&lookAndFeel);
-    creativeMenu.setLookAndFeel(&lookAndFeel);
-    // Anchor to centre of full 92px section
-    const int sH = controlsBounds.getHeight() / 4;
-    const auto rb = stripRowBounds(row);
-    const int cx = getScreenX() + rb.getCentreX();
-    const int cy = getScreenY() + rb.getY() + sH / 2;
-    const auto targetScreen = juce::Rectangle<int>(cx - 1, cy, 2, 1);
-    menu.showMenuAsync(juce::PopupMenu::Options()
-                           .withTargetComponent(this)
-                           .withTargetScreenArea(targetScreen)
-                           .withPreferredPopupDirection(juce::PopupMenu::Options::PopupDirection::downwards),
-        [this, row](int result) {
-            if (result > 0)
-            {
-                chainSlots[row] = result;
-                activeSection = row;
-                commitChainSlots();
-                // Ensure the toggle is ON when an effect is added to the chain
-                toggleForSection(result).setToggleState(true, juce::sendNotification);
-                resized();
-                repaint();
-            }
-        });
 }
 
 // ============================================================================
@@ -2747,285 +2658,29 @@ void StardustEditor::layoutCrushSection(juce::Rectangle<int> ap)
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 5;
+    const int kw = availW / 4;
 
-    // Jitter | Rate | Bits | Saturation | Output
+    // Jitter | Rate | Bits | Saturation
     layoutKnobInBounds(destroyJitterKnob,  { ox + kw * 0, ky, kw, kKnobH });
     layoutKnobInBounds(destroyRateKnob,    { ox + kw * 1, ky, kw, kKnobH });
     layoutKnobInBounds(destroyBitsKnob,    { ox + kw * 2, ky, kw, kKnobH });
     layoutKnobInBounds(destroyDriveKnob,   { ox + kw * 3, ky, kw, kKnobH });
-    layoutKnobInBounds(destroyColorKnob,   { ox + kw * 4, ky, availW - kw * 4, kKnobH });
 }
 
-void StardustEditor::layoutHazeSection(juce::Rectangle<int> ap)
+void StardustEditor::layoutExciterSection(juce::Rectangle<int> ap)
 {
     static constexpr int kKnobH = 68;
     const int padX = 8;
     const int availW = ap.getWidth() - padX * 2;
     const int ox = ap.getX() + padX;
     const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 5;
+    const int kw = availW / 2;
 
-    // Color | [Type buttons]
-    layoutKnobInBounds(hazeColorKnob, { ox + kw * 0, ky, kw, kKnobH });
-
-    hazeTypeLabel.setVisible(true);
-    hazeTypeLabel.setBounds(ox + kw * 1, ky, kw * 2, 12);
-    const int bh = (kKnobH - 12) / 3;
-    for (int i = 0; i < 3; ++i)
-    {
-        hazeTypeBtn[i].setVisible(true);
-        hazeTypeBtn[i].setBounds(ox + kw * 1, ky + 12 + i * bh, kw * 2, bh);
-    }
+    layoutKnobInBounds(exciterDriveKnob, { ox + kw * 0, ky, kw, kKnobH });
+    layoutKnobInBounds(exciterToneKnob,  { ox + kw * 1, ky, kw, kKnobH });
 }
 
-void StardustEditor::layoutUnisonSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX   = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox     = ap.getX() + padX;
-    const int ky     = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw     = availW / 3;
 
-    // Speed | 1+2 | 3+4
-    layoutKnobInBounds(unisonSpeedKnob, { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(unisonOuterKnob, { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(unisonInnerKnob, { ox + kw * 2, ky, kw, kKnobH });
-}
-
-void StardustEditor::layoutMultiplySection(juce::Rectangle<int> ap)
-{
-    // Juno-60 chorus: 3 mode buttons (I / II / I+II) laid out horizontally, centred
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int cy = ap.getCentreY();
-
-    static constexpr int kBtnH = 22;
-    static constexpr int kBtnW = 48;
-    static constexpr int kGap  = 6;
-    const int totalW = kBtnW * 3 + kGap * 2;
-    const int startX = ox + (availW - totalW) / 2;
-
-    multiplyLfoLabel.setVisible(true);
-    multiplyLfoLabel.setBounds(startX, cy - kBtnH / 2 - 14, totalW, 12);
-    for (int i = 0; i < 3; ++i)
-    {
-        multiplyLfoBtn[i].setVisible(true);
-        multiplyLfoBtn[i].setBounds(startX + i * (kBtnW + kGap), cy - kBtnH / 2, kBtnW, kBtnH);
-    }
-}
-
-void StardustEditor::layoutTapeSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 7; // Input | Drive | Wobble | Glue | Noise | Output | IPS
-
-    layoutKnobInBounds(tapeInputKnob,  { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(tapeDriveKnob,  { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(tapeWowKnob,    { ox + kw * 2, ky, kw, kKnobH });
-    layoutKnobInBounds(tapeGlueKnob,   { ox + kw * 3, ky, kw, kKnobH });
-    layoutKnobInBounds(tapeNoiseKnob,  { ox + kw * 4, ky, kw, kKnobH });
-    layoutKnobInBounds(tapeOutputKnob, { ox + kw * 5, ky, kw, kKnobH });
-
-    // IPS speed buttons in col 6
-    tapeNoiseSpeedLabel.setVisible(true);
-    tapeNoiseSpeedLabel.setBounds(ox + kw * 6, ky, kw, 12);
-    const int bh3 = (kKnobH - 12) / 3;
-    for (int i = 0; i < 3; ++i)
-    {
-        tapeNoiseSpeedBtn[i].setVisible(true);
-        tapeNoiseSpeedBtn[i].setBounds(ox + kw * 6, ky + 12 + i * bh3, kw, bh3);
-    }
-
-    // Tape formulation hardcoded to 456 — no UI buttons
-}
-
-void StardustEditor::layoutDistortionSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 4;
-    // Drive | Tone | [Mode buttons x2 cols]
-    const int startX = ox;
-
-    layoutKnobInBounds(distortionDriveKnob, { startX,      ky, kw, kKnobH });
-    layoutKnobInBounds(distortionToneKnob,  { startX + kw, ky, kw, kKnobH });
-
-    // Mode buttons: Soft/Tube/Hard stacked in remaining space
-    const int modeX = startX + kw * 2;
-    const int modeW = kw * 2;
-    distortionModeLabel.setVisible(true);
-    distortionModeLabel.setBounds(modeX, ky, modeW, 12);
-    const int bh = (kKnobH - 12) / 3;
-    for (int i = 0; i < 3; ++i)
-    {
-        distortionModeBtn[i].setVisible(true);
-        distortionModeBtn[i].setBounds(modeX, ky + 12 + i * bh, modeW, bh);
-    }
-}
-
-void StardustEditor::layoutReverbSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 3;
-    // Decay | Pre-Dly | Width (Mix moved to sidebar strip)
-    const int startX = ox + (availW - kw * 3) / 2;
-
-    layoutKnobInBounds(reverbDecayKnob,     { startX,          ky, kw, kKnobH });
-    layoutKnobInBounds(reverbPreDelayKnob,  { startX + kw,     ky, kw, kKnobH });
-    layoutKnobInBounds(reverbWidthKnob,     { startX + kw * 2, ky, kw, kKnobH });
-}
-
-void StardustEditor::layoutStutterSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 72;
-    auto inner = ap.reduced(8, 4);
-
-    // Top row: chunk editor takes the full section width.
-    const int editorH = juce::jlimit(15, 21, inner.getHeight() / 4);
-    auto editorArea = inner.removeFromTop(editorH);
-    stutterPatternEditor.setVisible(true);
-    stutterPatternEditor.setBounds(editorArea);
-
-    inner.removeFromTop(4);
-    auto bottom = inner;
-
-    // Bottom row: chunk count + resolution controls on the left, knobs on the right.
-    const int controlsW = juce::jlimit(190, 270, bottom.getWidth() / 3);
-    auto controls = bottom.removeFromLeft(controlsW);
-    auto knobsArea = bottom.reduced(4, 0);
-
-    const int controlH = 22;
-    const int controlY = controls.getY() + (controls.getHeight() - controlH) / 2;
-    const int chunkW = 84;
-    const int comboGap = 8;
-    stutterChunkSlider.setVisible(true);
-    stutterChunkSlider.setBounds(controls.getX(), controlY + 1, chunkW, controlH - 1);
-    stutterChunkDisplayBounds = stutterChunkSlider.getBounds().expanded(4, 4);
-
-    const int comboX = controls.getX() + chunkW + comboGap;
-    stutterResolutionCombo.setVisible(true);
-    stutterResolutionCombo.setBounds(comboX, controlY, juce::jmax(80, controls.getRight() - comboX), controlH + 1);
-
-    // Bottom-right: A/D/S/R + Swing knobs.
-    const int kw = juce::jmax(44, knobsArea.getWidth() / 5);
-    const int knobH = juce::jmin(kKnobH, knobsArea.getHeight());
-    const int ky = knobsArea.getY() + (knobsArea.getHeight() - knobH) / 2;
-    layoutKnobInBounds(stutterAttackKnob,  { knobsArea.getX() + kw * 0, ky, kw, knobH });
-    layoutKnobInBounds(stutterDecayKnob,   { knobsArea.getX() + kw * 1, ky, kw, knobH });
-    layoutKnobInBounds(stutterSustainKnob, { knobsArea.getX() + kw * 2, ky, kw, knobH });
-    layoutKnobInBounds(stutterReleaseKnob, { knobsArea.getX() + kw * 3, ky, kw, knobH });
-    layoutKnobInBounds(stutterSwingKnob,   { knobsArea.getX() + kw * 4, ky, knobsArea.getRight() - (knobsArea.getX() + kw * 4), knobH });
-}
-
-void StardustEditor::layoutShiftSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    const int kw = availW / 3;
-    layoutKnobInBounds(shiftPitchKnob,    { ox + kw * 0, ky, kw, kKnobH });
-    layoutKnobInBounds(shiftFeedbackKnob, { ox + kw * 1, ky, kw, kKnobH });
-    layoutKnobInBounds(shiftToneKnob,     { ox + kw * 2, ky, kw, kKnobH });
-}
-
-void StardustEditor::layoutReverserSection(juce::Rectangle<int> ap)
-{
-    static constexpr int kKnobH = 68;
-    const int padX = 8;
-    const int availW = ap.getWidth() - padX * 2;
-    const int ox = ap.getX() + padX;
-    const int cy = ap.getY() + ap.getHeight() / 2;
-
-    const int slashW = 16;
-    const int valW = 52;
-    const int displayW = valW * 2 + slashW;
-    const int displayH = 44;
-    const int knobW = availW / 3;
-
-    // Center the display in the full panel width
-    const int totalW = displayW + 16 + knobW; // display + gap + knob
-    const int startX = ox + (availW - totalW) / 2;
-    const int displayY = cy - displayH / 2;
-
-    reverserRepeatSlider.setBounds(startX, displayY, valW, displayH);
-    reverserRepeatSlider.setVisible(true);
-    reverserRepeatSlider.setAlpha(0.0f); // invisible — text drawn in paintOverChildren
-
-    reverserSlashLabel.setVisible(false); // drawn manually in paintOverChildren
-
-    reverserDivSlider.setBounds(startX + valW + slashW, displayY, valW, displayH);
-    reverserDivSlider.setVisible(true);
-    reverserDivSlider.setAlpha(0.0f); // invisible — text drawn in paintOverChildren
-
-    // Border around display (6px padding)
-    reverserDisplayBounds = { startX - 6, displayY - 6, displayW + 12, displayH + 12 };
-
-    // Crossfade knob
-    const int ky = ap.getY() + (ap.getHeight() - kKnobH) / 2;
-    layoutKnobInBounds(reverserCrossfadeKnob, { startX + displayW + 16, ky, knobW, kKnobH });
-}
-
-void StardustEditor::layoutHalfTimeSection(juce::Rectangle<int> ap)
-{
-    const int padX = 6;
-    const int padY = 4;
-    const int availW = ap.getWidth() - padX * 2;
-    const int availH = ap.getHeight() - padY * 2;
-    const int ox = ap.getX() + padX;
-    const int oy = ap.getY() + padY;
-
-    // ── Row 1: 8 division buttons across full width ──
-    const int btnH = 20;
-    const int divGap = 2;
-    const int divBtnW = (availW - divGap * 7) / 8;
-    const int row1Y = oy + 2;
-    for (int i = 0; i < 8; ++i)
-    {
-        halftimeDivBtn[i].setBounds(ox + i * (divBtnW + divGap), row1Y, divBtnW, btnH);
-        halftimeDivBtn[i].setVisible(true);
-    }
-    halftimeDivLabel.setVisible(false);
-
-    // ── Row 2: Speed (2x/4x) left + Fade knob right, vertically centered ──
-    const int row2Y = row1Y + btnH + 6;
-    const int row2H = availH - (row2Y - oy) - 2;
-
-    // Speed buttons — compact, left side
-    const int speedBtnW = 36;
-    const int speedGap = 3;
-    const int speedX = ox;
-    const int speedY = row2Y + (row2H - btnH - 12) / 2;
-    for (int i = 0; i < 2; ++i)
-    {
-        halftimeSpeedBtn[i].setBounds(speedX + i * (speedBtnW + speedGap), speedY, speedBtnW, btnH);
-        halftimeSpeedBtn[i].setVisible(true);
-    }
-    halftimeSpeedLabel.setBounds(speedX, speedY + btnH + 1, speedBtnW * 2 + speedGap, 11);
-    halftimeSpeedLabel.setVisible(true);
-
-    // Fade knob — right side, vertically centered in remaining row2 space
-    const int knobW = std::min(availW / 3, 72);
-    const int knobH = std::min(row2H, 62);
-    const int fadeX = ox + availW - knobW;
-    const int fadeY = row2Y + (row2H - knobH) / 2;
-    layoutKnobInBounds(halftimeFadeKnob, { fadeX, fadeY, knobW, knobH });
-}
 
 void StardustEditor::generateBackgroundTexture()
 {
@@ -3050,158 +2705,86 @@ void StardustEditor::generateBackgroundTexture()
 
 void StardustEditor::paint(juce::Graphics& g)
 {
+    auto deg = [](float degrees) {
+        return degrees * juce::MathConstants<float>::pi / 180.0f;
+    };
+    static constexpr float kFlavorAnglesDeg[6] = { -90.0f, -30.0f, 30.0f, 90.0f, 150.0f, 210.0f };
+
     // Static black background
     g.fillAll(juce::Colours::black);
 
-    // ---- Background texture (excludes visualizer screen and bottom bar) ----
-    if (backgroundTexture.isValid())
+    // ---- Advanced controls panel ----
+    if (!controlsBounds.isEmpty())
     {
-        const auto totalBounds = getLocalBounds();
+        auto drawMixLabel = [&](const juce::Slider& slider, const juce::String& title) {
+            const auto b = slider.getBounds();
+            if (b.isEmpty())
+                return;
 
-        // Dots in the background gaps between sections (not inside panels)
-        juce::RectangleList<int> clipRegion(totalBounds);
-        clipRegion.subtract(galaxyBounds);
-        clipRegion.subtract(controlsBounds);
-        clipRegion.subtract(bottomBarBounds);
-
-        juce::Graphics::ScopedSaveState saveState(g);
-        g.reduceClipRegion(clipRegion);
-
-        const int texW = backgroundTexture.getWidth();
-        const int texH = backgroundTexture.getHeight();
-
-        for (int ty = 0; ty < totalBounds.getHeight(); ty += texH)
-        {
-            for (int tx = 0; tx < totalBounds.getWidth(); tx += texW)
-            {
-                g.drawImageAt(backgroundTexture, tx, ty);
-            }
-        }
+            g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+            g.setColour(StardustLookAndFeel::kFg);
+            g.drawText(title, b.getX(), b.getY() - 14, b.getWidth(), 14, juce::Justification::centred);
+        };
+        drawMixLabel(destroyMixStrip, "Grit mix");
+        drawMixLabel(exciterMixStrip, "Air mix");
     }
 
-    // ---- Controls panel — border only, black bg shows through with dot texture ----
-    const auto cpf = controlsBounds.toFloat();
-
-    g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.65f));
-    g.drawRoundedRectangle(cpf, 4.0f, 2.0f);
-
-    // ---- Chain strip rows ----
-    const auto monoFont10 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold);
-    const auto monoFont12 = juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold);
-
-    static constexpr int kLeftW  = 118; // left sidebar: badge + name pill
-    static constexpr int kDragW  =  30; // right drag column
-    static constexpr int kPillX  =  18; // pill x offset from row left (after badge)
-    static constexpr int kPillW  =  92; // name pill width
-    static constexpr int kPillH  =  28; // name pill height
-
-    // Compact effect names for the pill
-    static const juce::String kPillNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "GATE", "SHIFT", "REVERSER", "HALFTIME" };
-    const auto effectCardSeparatorColour = StardustLookAndFeel::kFgDim.withAlpha(kEffectCardSeparatorAlpha);
-
-    for (int row = 0; row < 4; ++row)
-    {
-        const auto rb = stripRowBounds(row); // full 92px row
-        const int fx = chainSlots[row];
-        const bool isActive = (row == activeSection && fx != 0);
-        const bool isEmpty  = (fx == 0);
-        const bool isHovered = (row == hoverRow);
-
-        // Section background
-        g.setColour(isActive ? StardustLookAndFeel::kAccent.withAlpha(0.07f)
-                             : StardustLookAndFeel::kFgGhost.withAlpha(0.03f));
-        g.fillRect(rb);
-
-        if (isEmpty)
-        {
-            if (isHovered)
-            {
-                g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.04f));
-                g.fillRect(rb);
-            }
-            g.setFont(monoFont12);
-            g.setColour(isHovered ? StardustLookAndFeel::kAccent
-                                  : StardustLookAndFeel::kFg.withAlpha(0.75f));
-            g.drawText("+ ADD EFFECT", rb.reduced(40, 0), juce::Justification::centred);
-        }
-        else
-        {
-            // ---- Left sidebar: name pill ----
-            const bool effectOn = toggleForSection(fx).getToggleState();
-
-            // Name pill — bordered rectangle, lights up when enabled
-            const int pillY = rb.getCentreY() - kPillH / 2;
-            const auto pillRect = juce::Rectangle<float>(
-                static_cast<float>(rb.getX() + kPillX), static_cast<float>(pillY),
-                static_cast<float>(kPillW),              static_cast<float>(kPillH));
-
-            g.setColour(effectOn ? StardustLookAndFeel::kAccent.withAlpha(0.10f)
-                                 : StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
-            g.fillRoundedRectangle(pillRect, 3.0f);
-
-            g.setColour(effectOn ? StardustLookAndFeel::kAccent.withAlpha(0.75f)
-                                 : StardustLookAndFeel::kFgGhost.withAlpha(0.45f));
-            g.drawRoundedRectangle(pillRect, 3.0f, 1.0f);
-
-            g.setFont(monoFont10);
-            g.setColour(effectOn ? StardustLookAndFeel::kAccent : StardustLookAndFeel::kFgDim);
-            g.drawText(kPillNames[fx], static_cast<int>(pillRect.getX()),
-                       static_cast<int>(pillRect.getY()),
-                       static_cast<int>(pillRect.getWidth()),
-                       static_cast<int>(pillRect.getHeight()),
-                       juce::Justification::centred);
-
-            // Left divider between sidebar and knobs
-            g.setColour(effectCardSeparatorColour);
-            g.fillRect(rb.getX() + kLeftW - (kEffectCardSeparatorW / 2), rb.getY(),
-                       kEffectCardSeparatorW, rb.getHeight());
-
-            // ---- Right drag column ----
-            // Subtle background tint
-            g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.05f));
-            g.fillRect(rb.getRight() - kDragW, rb.getY(), kDragW, rb.getHeight());
-
-            // Right divider
-            g.setColour(effectCardSeparatorColour);
-            g.fillRect(rb.getRight() - kDragW - (kEffectCardSeparatorW / 2), rb.getY(),
-                       kEffectCardSeparatorW, rb.getHeight());
-
-            // ≡ drag handle centered in right column
-            g.setColour(StardustLookAndFeel::kFg.withAlpha(0.65f));
-            const int dragColCx = rb.getRight() - kDragW / 2;
-            for (int i = 0; i < 3; ++i)
-                g.fillRect(dragColCx - 5, rb.getCentreY() - 4 + i * 4, 10, 1);
-        }
-
-        // Section separator at bottom of row (skip last row)
-        if (row < 3)
-        {
-            g.setColour(effectCardSeparatorColour);
-            g.fillRect(rb.getX() + 4, rb.getBottom() - (kEffectCardSeparatorW / 2),
-                       rb.getWidth() - 8, kEffectCardSeparatorW);
-        }
-    }
-
-    // ---- Galaxy viewport: VHS display with padded visuals + depth lines ----
-    const auto gvf = galaxyBounds.toFloat();
+    // ---- Center fisheye visualizer ----
     const auto screenf = screenBounds.toFloat();
 
-    // 1. Galaxy background — dot texture shows through from paint()
+    g.setColour(juce::Colours::black);
+    g.fillEllipse(screenf.expanded(2.0f));
 
-    // 2. Padding trapezoids removed — dot texture shows through from paint()
+    const auto lensCentre = screenf.getCentre();
+    const float selectorRadius = screenf.getWidth() * 0.5f + 44.0f;
+    {
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.28f));
+        g.drawEllipse(lensCentre.x - selectorRadius, lensCentre.y - selectorRadius,
+                      selectorRadius * 2.0f, selectorRadius * 2.0f, 1.2f);
+    }
 
-    // 3. Draw ALL borders and lines ON TOP of fills
-    const auto borderCol = StardustLookAndFeel::kFgGhost.withAlpha(0.65f);
+    for (int i = 0; i < 6; ++i)
+    {
+        const auto b = characterFlavorBtn[i].getBounds().toFloat();
+        if (b.isEmpty())
+            continue;
 
-    // Outer border
-    g.setColour(borderCol);
-    g.drawRoundedRectangle(gvf, 4.0f, 2.0f);
+        const float angle = deg(kFlavorAnglesDeg[i]);
+        const bool isSelected = characterFlavorBtn[i].getToggleState();
+        const float active = isSelected ? characterFlavorAnim[i] : 0.0f;
+        const float hover = (i == hoverCharacter) ? 1.0f : 0.0f;
+        const float alpha = juce::jlimit(0.0f, 1.0f, active * 0.45f + hover * 0.18f);
+        const float px = lensCentre.x + std::cos(angle) * selectorRadius;
+        const float py = lensCentre.y + std::sin(angle) * selectorRadius;
 
-    // Depth lines
-    g.drawLine(gvf.getX(), gvf.getY(), screenf.getX(), screenf.getY(), 2.0f);
-    g.drawLine(gvf.getRight(), gvf.getY(), screenf.getRight(), screenf.getY(), 2.0f);
-    g.drawLine(gvf.getX(), gvf.getBottom(), screenf.getX(), screenf.getBottom(), 2.0f);
-    g.drawLine(gvf.getRight(), gvf.getBottom(), screenf.getRight(), screenf.getBottom(), 2.0f);
+        if (isSelected || hover > 0.0f)
+        {
+            g.setColour(isSelected ? StardustLookAndFeel::kAccent.withAlpha(0.70f)
+                                   : StardustLookAndFeel::kFgGhost.withAlpha(0.38f));
+            g.fillEllipse(px - 1.8f, py - 1.8f, 3.6f, 3.6f);
+        }
+
+        if (alpha > 0.001f)
+        {
+            const float glowR = 8.0f + active * 4.0f;
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(alpha * 0.12f));
+            g.fillEllipse(px - glowR, py - glowR, glowR * 2.0f, glowR * 2.0f);
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(alpha * 0.60f));
+            g.drawEllipse(px - glowR * 0.55f, py - glowR * 0.55f, glowR * 1.1f, glowR * 1.1f, 1.1f);
+        }
+
+        if (active > 0.01f)
+        {
+            juce::Path activeArc;
+            const float juceAngle = angle + juce::MathConstants<float>::halfPi;
+            activeArc.addCentredArc(lensCentre.x, lensCentre.y,
+                                    selectorRadius, selectorRadius, 0.0f,
+                                    juceAngle - deg(20.0f), juceAngle + deg(20.0f), true);
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.22f + active * 0.45f));
+            g.strokePath(activeArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+        }
+    }
 
     // Preset bar background — drawn here (before children) so icons render on top
     {
@@ -3237,7 +2820,7 @@ void StardustEditor::paint(juce::Graphics& g)
     }
 
     g.setFont(juce::FontOptions(12.0f).withStyle("Bold"));
-    g.drawText("LoudDealers", juce::roundToInt(bbf.getX() + 12.0f + logoW), juce::roundToInt(bbf.getY()),
+    g.drawText("Stardust", juce::roundToInt(bbf.getX() + 12.0f + logoW), juce::roundToInt(bbf.getY()),
                juce::roundToInt(bbf.getWidth() * 0.5f), juce::roundToInt(bbf.getHeight()),
                juce::Justification::centredLeft);
 
@@ -3282,33 +2865,48 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
             g.reduceClipRegion(clip);
     }
 
-    // Draw inner screen border ON TOP of the starfield child component
+    // Draw fisheye lens border ON TOP of the starfield child component
     const auto screenf = screenBounds.toFloat();
 
     if (!libraryVisible)
     {
-        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.65f));
-        g.drawRoundedRectangle(screenf, 3.0f, 2.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.70f));
+        g.drawEllipse(screenf.reduced(0.5f), 7.0f);
+        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.58f));
+        g.drawEllipse(screenf.reduced(1.5f), 4.0f);
 
-        // ---- Vertical plugin name (left padding area) ----
+        const float characterAmount = juce::jlimit(0.0f, 1.0f,
+            processorRef.apvts.getRawParameterValue("characterAmount")->load(std::memory_order_relaxed));
+        if (characterAmount > 0.001f || draggingCharacterAmount)
         {
-            const int leftPadW = screenBounds.getX() - galaxyBounds.getX();
-            const float cx = static_cast<float>(galaxyBounds.getX()) + static_cast<float>(leftPadW) * 0.5f;
-            const float centerY = static_cast<float>(screenBounds.getY()) +
-                static_cast<float>(screenBounds.getHeight()) * 0.5f;
-
-            g.saveState();
-            g.addTransform(juce::AffineTransform::rotation(
-                -juce::MathConstants<float>::halfPi, cx, centerY));
-
-            g.setFont(juce::FontOptions(juce::Font::getDefaultSansSerifFontName(), 13.0f, juce::Font::bold));
-            g.setColour(StardustLookAndFeel::kAccent);
-            g.drawText("S  T  A  R  D  U  S  T", static_cast<int>(cx - 80), static_cast<int>(centerY - 8),
-                       160, 16, juce::Justification::centred);
-            g.restoreState();
+            juce::Path amountArc;
+            amountArc.addCentredArc(screenf.getCentreX(), screenf.getCentreY(),
+                                    screenf.getWidth() * 0.5f + 7.0f,
+                                    screenf.getHeight() * 0.5f + 7.0f,
+                                    0.0f,
+                                    -juce::MathConstants<float>::pi,
+                                    -juce::MathConstants<float>::pi
+                                        + juce::MathConstants<float>::twoPi * characterAmount,
+                                    true);
+            g.setColour(StardustLookAndFeel::kAccent.withAlpha(draggingCharacterAmount ? 0.86f : 0.42f));
+            g.strokePath(amountArc, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved,
+                                                        juce::PathStrokeType::rounded));
         }
 
-        // Star dot pattern is now part of the global background texture
+        const bool showCharacterReadout = draggingCharacterAmount || screenBounds.contains(getMouseXYRelative());
+        if (showCharacterReadout)
+        {
+            const auto readout = juce::Rectangle<float>(
+                screenf.getCentreX() - 62.0f, screenf.getCentreY() - 9.0f, 124.0f, 18.0f);
+            g.setColour(juce::Colours::black.withAlpha(0.58f));
+            g.fillRoundedRectangle(readout, 4.0f);
+            g.setColour(StardustLookAndFeel::kAccent);
+            g.drawRoundedRectangle(readout, 4.0f, 1.0f);
+            g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            g.setColour(StardustLookAndFeel::kAccent);
+            g.drawText("Character " + juce::String(juce::roundToInt(characterAmount * 100.0f)) + "%",
+                       readout.toNearestInt(), juce::Justification::centred, false);
+        }
 
         // Preset bar background + border is drawn in paint() so icons render on top
     }
@@ -3331,102 +2929,7 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
         g.drawText(juce::String(chunkVal), textBounds, juce::Justification::centredRight, false);
     }
 
-    // Reverser value/value display: border + centered text
-    if (reverserRepeatSlider.isVisible() && !reverserDisplayBounds.isEmpty())
-    {
-        // Border
-        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.5f));
-        g.drawRoundedRectangle(reverserDisplayBounds.toFloat(), 4.0f, 1.0f);
-
-        // Draw values + slash
-        g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
-        g.setColour(StardustLookAndFeel::kAccent);
-
-        const auto repeatBounds = reverserRepeatSlider.getBounds();
-        const auto divBounds = reverserDivSlider.getBounds();
-
-        // Left value
-        const int repeatVal = static_cast<int>(reverserRepeatSlider.getValue());
-        g.drawText(juce::String(repeatVal), repeatBounds, juce::Justification::centred, false);
-
-        // "/" between the two sliders
-        const int slashX = repeatBounds.getRight();
-        const int slashW = divBounds.getX() - slashX;
-        g.setColour(StardustLookAndFeel::kFgDim);
-        g.drawText("/", slashX, repeatBounds.getY(), slashW, repeatBounds.getHeight(), juce::Justification::centred, false);
-
-        // Right value
-        static const char* divNames[] = { "64", "32", "16T", "16", "8T", "8", "4T", "4" };
-        const int divIdx = juce::jlimit(0, 7, static_cast<int>(reverserDivSlider.getValue()));
-        g.setColour(StardustLookAndFeel::kAccent);
-        g.drawText(juce::String(divNames[divIdx]), divBounds, juce::Justification::centred, false);
-    }
-
-    // Drag ghost for FX chain reorder
-    if (dragSourceRow >= 0)
-    {
-        static const juce::String kGhostNames[14] = { "", "GRIT", "", "JU-60", "OXIDE-456", "DIST", "VOID", "NOISE", "MULTIPLY", "", "GATE", "SHIFT", "REVERSER", "HALFTIME" };
-        static constexpr int kGhostLeftW = 118;
-        static constexpr int kGhostDragW =  30;
-        static constexpr int kGhostPillX =  18;
-        static constexpr int kGhostPillW =  92;
-        static constexpr int kGhostPillH =  28;
-        const auto effectCardSeparatorColour = StardustLookAndFeel::kFgDim.withAlpha(kEffectCardSeparatorAlpha);
-
-        const int fx = chainSlots[dragSourceRow];
-        auto rb = stripRowBounds(dragSourceRow).withY(dragPos.y - stripRowBounds(0).getHeight() / 2);
-
-        // Ghost background
-        g.setColour(StardustLookAndFeel::kBg.withAlpha(0.88f));
-        g.fillRect(rb);
-
-        // Name pill
-        const int pillY = rb.getCentreY() - kGhostPillH / 2;
-        const auto pillRect = juce::Rectangle<float>(
-            static_cast<float>(rb.getX() + kGhostPillX), static_cast<float>(pillY),
-            static_cast<float>(kGhostPillW),              static_cast<float>(kGhostPillH));
-
-        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.15f));
-        g.fillRoundedRectangle(pillRect, 3.0f);
-        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.85f));
-        g.drawRoundedRectangle(pillRect, 3.0f, 1.0f);
-
-        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
-        g.setColour(StardustLookAndFeel::kAccent);
-        g.drawText(kGhostNames[fx],
-                   static_cast<int>(pillRect.getX()), static_cast<int>(pillRect.getY()),
-                   static_cast<int>(pillRect.getWidth()), static_cast<int>(pillRect.getHeight()),
-                   juce::Justification::centred);
-
-        // Left divider
-        g.setColour(effectCardSeparatorColour);
-        g.fillRect(rb.getX() + kGhostLeftW - (kEffectCardSeparatorW / 2), rb.getY(),
-               kEffectCardSeparatorW, rb.getHeight());
-
-        // Right drag column
-        g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.08f));
-        g.fillRect(rb.getRight() - kGhostDragW, rb.getY(), kGhostDragW, rb.getHeight());
-        g.setColour(effectCardSeparatorColour);
-        g.fillRect(rb.getRight() - kGhostDragW - (kEffectCardSeparatorW / 2), rb.getY(),
-               kEffectCardSeparatorW, rb.getHeight());
-        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.8f));
-        const int dragCx = rb.getRight() - kGhostDragW / 2;
-        for (int i = 0; i < 3; ++i)
-            g.fillRect(dragCx - 5, rb.getCentreY() - 4 + i * 4, 10, 1);
-
-        // Outer border
-        g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.35f));
-        g.drawRect(rb.toFloat(), 1.0f);
-
-        // Drop target line
-        if (dragHoverRow >= 0)
-        {
-            const int lineY = stripRowBounds(dragHoverRow).getY();
-            g.setColour(StardustLookAndFeel::kAccent.withAlpha(0.7f));
-            g.drawHorizontalLine(lineY, static_cast<float>(controlsBounds.getX() + 4),
-                                 static_cast<float>(controlsBounds.getRight() - 4));
-        }
-    }
+    
 }
 
 void StardustEditor::parameterChanged(const juce::String& parameterID, float newValue)
@@ -3471,24 +2974,22 @@ void StardustEditor::parameterChanged(const juce::String& parameterID, float new
                 safeThis->hazeTypeBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
-    else if (parameterID == "halftimeDivision")
+    else if (parameterID == "characterMode")
     {
-        const int sel = juce::jlimit(0, 7, static_cast<int>(std::round(newValue)));
+        const int sel = juce::jlimit(0, 5, static_cast<int>(std::round(newValue)));
         auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
         juce::MessageManager::callAsync([safeThis, sel]() {
             if (safeThis == nullptr) return;
-            for (int i = 0; i < 8; ++i)
-                safeThis->halftimeDivBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+            for (int i = 0; i < 6; ++i)
+                safeThis->characterFlavorBtn[i].setToggleState(i == sel, juce::dontSendNotification);
         });
     }
-    else if (parameterID == "halftimeSpeed")
+    else if (parameterID == "characterAmount")
     {
-        const int sel = juce::jlimit(0, 1, static_cast<int>(std::round(newValue)));
         auto safeThis = juce::Component::SafePointer<StardustEditor>(this);
-        juce::MessageManager::callAsync([safeThis, sel]() {
+        juce::MessageManager::callAsync([safeThis]() {
             if (safeThis == nullptr) return;
-            for (int i = 0; i < 2; ++i)
-                safeThis->halftimeSpeedBtn[i].setToggleState(i == sel, juce::dontSendNotification);
+            safeThis->repaint(safeThis->screenBounds.expanded(18));
         });
     }
     else if (parameterID == "stutterRate")
@@ -3508,32 +3009,35 @@ void StardustEditor::mouseMove(const juce::MouseEvent& e)
     presetSelector.repaint();
 
     int newHoverRow = -1;
-    bool newHoverOnX = false;
     const auto pos = e.getPosition();
-    for (int row = 0; row < 4; ++row)
+    const int newHoverCharacter = characterModeAt(pos);
+    const bool overFisheye = screenBounds.contains(pos);
+    for (int row = 0; row < kFixedSectionCount; ++row)
     {
         auto rb = stripRowBounds(row);
         if (rb.contains(pos))
         {
             newHoverRow = row;
-            newHoverOnX = false; // no X button
             break;
         }
     }
-    if (newHoverRow != hoverRow || newHoverOnX != hoverOnX)
+    setMouseCursor(overFisheye ? juce::MouseCursor::DraggingHandCursor
+                               : juce::MouseCursor::NormalCursor);
+    if (newHoverRow != hoverRow || newHoverCharacter != hoverCharacter)
     {
         hoverRow  = newHoverRow;
-        hoverOnX  = newHoverOnX;
+        hoverCharacter = newHoverCharacter;
         repaint();
     }
 }
 
 void StardustEditor::mouseExit(const juce::MouseEvent& /*e*/)
 {
-    if (hoverRow != -1)
+    if (hoverRow != -1 || hoverCharacter != -1)
     {
-        hoverRow  = -1;
-        hoverOnX  = false;
+        hoverRow = -1;
+        hoverCharacter = -1;
+        setMouseCursor(juce::MouseCursor::NormalCursor);
         repaint();
     }
 }
@@ -3544,26 +3048,38 @@ void StardustEditor::timerCallback()
     {
         const auto mp = getMouseXYRelative();
         int newHoverRow = -1;
-        bool newHoverOnX = false;
         if (isMouseOver(true))
         {
-            for (int row = 0; row < 4; ++row)
+            hoverCharacter = characterModeAt(mp);
+            for (int row = 0; row < kFixedSectionCount; ++row)
             {
                 auto rb = stripRowBounds(row);
                 if (rb.contains(mp))
                 {
                     newHoverRow = row;
-                    newHoverOnX = false; // no X button
                     break;
                 }
             }
         }
+        else
+        {
+            hoverCharacter = -1;
+        }
         hoverRow = newHoverRow;
-        hoverOnX = newHoverOnX;
+    }
+
+    bool characterAnimChanged = false;
+    for (int i = 0; i < 6; ++i)
+    {
+        const float target = characterFlavorBtn[i].getToggleState() ? 1.0f : 0.0f;
+        const float previous = characterFlavorAnim[i];
+        characterFlavorAnim[i] += (target - characterFlavorAnim[i]) * 0.22f;
+        characterAnimChanged = characterAnimChanged || std::abs(characterFlavorAnim[i] - previous) > 0.001f;
     }
 
     presetSelector.repaint();
-    repaint(); // refresh signal flow display
+    if (characterAnimChanged || hoverRow != -1 || hoverCharacter != -1)
+        repaint(); // refresh radial highlights and hover feedback
 
     // Sync preset selection with processor (for DAW session restore)
     const int procIdx = processorRef.getCurrentProgram();
@@ -3633,154 +3149,142 @@ void StardustEditor::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-
-    // Chain strip row hit-testing
-    const auto pos = e.getPosition();
-    static constexpr int kDragW  =  30; // right drag column
-    static constexpr int kPillX  =  18;
-    static constexpr int kPillW  =  92;
-    static constexpr int kPillH  =  28;
-    for (int row = 0; row < 4; ++row)
-    {
-        auto rb = stripRowBounds(row); // full 92px row
-        if (!rb.contains(pos)) continue;
-
-        const int fx = chainSlots[row];
-        if (fx == 0)
-        {
-            showAddEffectMenu(row);
-            return;
-        }
-
-        // Right-click anywhere on row → context menu
-        if (e.mods.isPopupMenu())
-        {
-            juce::PopupMenu menu;
-            menu.setLookAndFeel(&lookAndFeel);
-            menu.addItem(1, "Remove Effect");
-            const auto target = juce::Rectangle<int>(pos.x + getScreenX(), pos.y + getScreenY(), 1, 1);
-            menu.showMenuAsync(juce::PopupMenu::Options()
-                                   .withTargetComponent(this)
-                                   .withTargetScreenArea(target),
-                [this, row](int result) {
-                    if (result == 1)
-                    {
-                        chainSlots[row] = 0;
-                        commitChainSlots();
-                        resized();
-                        repaint();
-                    }
-                });
-            return;
-        }
-
-        // Right drag column → start drag
-        if (pos.x >= rb.getRight() - kDragW)
-        {
-            dragSourceRow = row;
-            dragPos = pos;
-            return;
-        }
-
-        // Name pill zone → toggle effect on/off
-        const int pillY = rb.getCentreY() - kPillH / 2;
-        const juce::Rectangle<int> pillZone(rb.getX() + kPillX, pillY, kPillW, kPillH);
-        if (pillZone.contains(pos))
-        {
-            auto& tog = toggleForSection(fx);
-            tog.setToggleState(!tog.getToggleState(), juce::sendNotification);
-            repaint();
-            return;
-        }
-
+    if (beginCharacterAmountDrag(e.getPosition()))
         return;
-    }
+
+    if (selectCharacterModeAt(e.getPosition()))
+        return;
 
     AudioProcessorEditor::mouseDown(e);
 }
 
 void StardustEditor::mouseDrag(const juce::MouseEvent& e)
 {
-    if (dragSourceRow < 0) return;
-    dragPos = e.getPosition();
-    const int sH = controlsBounds.getHeight() / 4;
-    const int rawRow = juce::jlimit(0, 3, (dragPos.y - controlsBounds.getY()) / sH);
-    dragHoverRow = (rawRow != dragSourceRow) ? rawRow : -1;
-    repaint();
+    if (draggingCharacterAmount)
+    {
+        updateCharacterAmountFromFisheye(e.getPosition());
+        return;
+    }
+
+    if (selectCharacterModeAt(e.getPosition()))
+        return;
+
+    AudioProcessorEditor::mouseDrag(e);
 }
 
-void StardustEditor::mouseUp(const juce::MouseEvent& /*e*/)
+void StardustEditor::mouseUp(const juce::MouseEvent& e)
 {
-    if (dragSourceRow >= 0 && dragHoverRow >= 0)
+    if (draggingCharacterAmount)
     {
-        std::swap(chainSlots[dragSourceRow], chainSlots[dragHoverRow]);
-        commitChainSlots();
-        resized();
+        draggingCharacterAmount = false;
+        repaint(screenBounds.expanded(18));
+        return;
     }
-    dragSourceRow = -1;
-    dragHoverRow  = -1;
-    repaint();
+
+    AudioProcessorEditor::mouseUp(e);
+}
+
+int StardustEditor::characterModeAt(juce::Point<int> position) const
+{
+    if (screenBounds.isEmpty())
+        return -1;
+
+    const auto centre = screenBounds.toFloat().getCentre();
+    const float dx = static_cast<float>(position.x) - centre.x;
+    const float dy = static_cast<float>(position.y) - centre.y;
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    const float selectorRadius = screenBounds.toFloat().getWidth() * 0.5f + 44.0f;
+
+    if (std::abs(distance - selectorRadius) > 24.0f)
+        return -1;
+
+    float angleDeg = std::atan2(dy, dx) * 180.0f / juce::MathConstants<float>::pi;
+    static constexpr float kFlavorAnglesDeg[6] = { -90.0f, -30.0f, 30.0f, 90.0f, 150.0f, 210.0f };
+
+    int best = 0;
+    float bestDelta = 999.0f;
+    for (int i = 0; i < 6; ++i)
+    {
+        float delta = std::abs(angleDeg - kFlavorAnglesDeg[i]);
+        delta = std::min(delta, 360.0f - delta);
+        if (delta < bestDelta)
+        {
+            bestDelta = delta;
+            best = i;
+        }
+    }
+
+    if (bestDelta > 30.0f)
+        return -1;
+
+    return best;
+}
+
+bool StardustEditor::selectCharacterModeAt(juce::Point<int> position)
+{
+    const int best = characterModeAt(position);
+    if (best < 0)
+        return false;
+
+    if (auto* characterModeParam = dynamic_cast<juce::AudioParameterChoice*>(
+            processorRef.apvts.getParameter("characterMode")))
+    {
+        characterModeParam->setValueNotifyingHost(
+            characterModeParam->convertTo0to1(static_cast<float>(best)));
+        for (int i = 0; i < 6; ++i)
+            characterFlavorBtn[i].setToggleState(i == best, juce::dontSendNotification);
+        repaint();
+        return true;
+    }
+
+    return false;
+}
+
+bool StardustEditor::beginCharacterAmountDrag(juce::Point<int> position)
+{
+    if (!screenBounds.contains(position))
+        return false;
+
+    draggingCharacterAmount = true;
+    updateCharacterAmountFromFisheye(position);
+    return true;
+}
+
+void StardustEditor::updateCharacterAmountFromFisheye(juce::Point<int> position)
+{
+    if (auto* characterAmountParam = dynamic_cast<juce::AudioParameterFloat*>(
+            processorRef.apvts.getParameter("characterAmount")))
+    {
+        const float amount = juce::jlimit(0.0f, 1.0f,
+            1.0f - static_cast<float>(position.y - screenBounds.getY())
+                    / static_cast<float>(juce::jmax(1, screenBounds.getHeight())));
+        characterAmountParam->setValueNotifyingHost(characterAmountParam->convertTo0to1(amount));
+        repaint(screenBounds.expanded(18));
+    }
 }
 
 void StardustEditor::resized()
 {
-    const int margin = 8;
-    const int gap = 10;
-
+    const int margin = 12;
     const int panelW = getWidth() - margin * 2;
-
-    // Bottom bar
     const int barH = 22;
     bottomBarBounds = { margin, getHeight() - margin - barH, panelW, barH };
 
-    // 4 equal sections: 24px header + 68px knobs each = 92px per section
-    const int panelH = 4 * 92;
-    controlsBounds = { margin, bottomBarBounds.getY() - gap - panelH, panelW, panelH };
-
-    // Galaxy viewport: top, between top margin and controls
-    const int galaxyY = margin;
-    const int galaxyH = controlsBounds.getY() - gap - galaxyY;
-    galaxyBounds = { margin, galaxyY, panelW, galaxyH };
-
-    // Screen bounds: padded area inside viewport where visuals render
-    const int pad = 64;
-    const int topExtraPad = 12;
-    screenBounds = galaxyBounds.reduced(pad);
-    screenBounds.setTop(screenBounds.getY() + topExtraPad);
-
-    // Starfield renders only in the screen area
-    starfield.setBounds(screenBounds);
-    starfield.setExcludeRect({});
-
-    // Preset bar: ≡  [☆  Default▾  < >]  ⋯  ⚙
-    // Center the bordered group (star + preset + arrows), place outer icons with equal gap from group edges
+    // Compact fisheye layout: central lens, radial character buttons, lower fine controls.
+    const int topY = margin;
     const int presetH = 26;
-    const int presetY = screenBounds.getBottom() + (galaxyBounds.getBottom() - screenBounds.getBottom() - presetH) / 2;
     const int btnW = 26;
-    const int selectorW = 200;
-    const int innerGap = 4; // tight spacing inside the bordered group
-    const int outerGap = 10; // gap between outer icons and group border edge
-
-    // Bordered group width: star + gap + selector + gap + < + gap + >
-    const int groupW = btnW + innerGap + selectorW + innerGap + btnW + innerGap + btnW;
-    const int groupX = galaxyBounds.getX() + (galaxyBounds.getWidth() - groupW) / 2;
-
-    // Place bordered group elements
-    int gx = groupX;
-    favoriteBtn.setBounds(gx, presetY, btnW, presetH);       gx += btnW + innerGap;
-    presetSelector.setBounds(gx, presetY, selectorW, presetH);
+    const int selectorW = 190;
+    int presetX = (getWidth() - (btnW + 4 + selectorW + 4 + btnW + 4 + btnW)) / 2;
+    favoriteBtn.setBounds(presetX, topY, btnW, presetH); presetX += btnW + 4;
+    presetSelector.setBounds(presetX, topY, selectorW, presetH);
     presetSelector.setJustificationType(juce::Justification::centred);
-                                                               gx += selectorW + innerGap;
-    prevPresetBtn.setBounds(gx, presetY, btnW, presetH);     gx += btnW + innerGap;
-    nextPresetBtn.setBounds(gx, presetY, btnW, presetH);
-
-    // Outer icons: equal gap from group border (3px expansion accounted for)
-    const int groupBorderPad = 3;
-    libraryBtn.setBounds(groupX - groupBorderPad - outerGap - btnW, presetY, btnW, presetH);
-
-    int rx = groupX + groupW + groupBorderPad + outerGap;
-    savePresetBtn.setBounds(rx, presetY, btnW, presetH);     rx += btnW + outerGap;
-    scaleBtn.setBounds(rx, presetY, btnW, presetH);
+    presetX += selectorW + 4;
+    prevPresetBtn.setBounds(presetX, topY, btnW, presetH); presetX += btnW + 4;
+    nextPresetBtn.setBounds(presetX, topY, btnW, presetH);
+    libraryBtn.setBounds(margin, topY, btnW, presetH);
+    savePresetBtn.setBounds(getWidth() - margin - btnW * 2 - 8, topY, btnW, presetH);
+    scaleBtn.setBounds(getWidth() - margin - btnW, topY, btnW, presetH);
     deletePresetBtn.setVisible(false);
 
     presetSelector.onChange = [this] {
@@ -3790,7 +3294,33 @@ void StardustEditor::resized()
         resized();
     };
 
-    // ---- FX chain strip + active section panel ----
+    const int mainTop = 84;
+    const int lensSize = 220;
+    screenBounds = { (getWidth() - lensSize) / 2, mainTop + 22, lensSize, lensSize };
+    galaxyBounds = screenBounds.expanded(12);
+    starfield.setBounds(screenBounds);
+    starfield.setExcludeRect({});
+
+    characterModeCombo.setBounds({0, 0, 0, 0});
+    const int flavorW = 72;
+    const int flavorH = 22;
+    const auto lensCentre = screenBounds.toFloat().getCentre();
+    const float flavorRadius = static_cast<float>(lensSize) * 0.5f + 46.0f;
+    static constexpr float kFlavorAnglesDeg[6] = { -90.0f, -30.0f, 30.0f, 90.0f, 150.0f, 210.0f };
+    for (int i = 0; i < 6; ++i)
+    {
+        characterFlavorBtn[i].setTransform({});
+        const float angle = kFlavorAnglesDeg[i] * juce::MathConstants<float>::pi / 180.0f;
+        const float cx = lensCentre.x + std::cos(angle) * flavorRadius;
+        const float cy = lensCentre.y + std::sin(angle) * flavorRadius;
+        characterFlavorBtn[i].setBounds(juce::roundToInt(cx - static_cast<float>(flavorW) * 0.5f),
+                                        juce::roundToInt(cy - static_cast<float>(flavorH) * 0.5f),
+                                        flavorW, flavorH);
+    }
+
+    advancedToggleBtn.setBounds({0, 0, 0, 0});
+
+    // ---- Fixed section panel ----
     syncChainSlots();
 
     const int toggleH = 14;
@@ -3798,11 +3328,17 @@ void StardustEditor::resized()
 
     // Toggle buttons are kept for APVTS binding but rendered as name-pill in paint()
     juce::ignoreUnused(toggleH, toggleW);
-    for (int fx = 1; fx <= 13; ++fx)
-        toggleForSection(fx).setBounds({0, 0, 0, 0});
+    for (auto* t : { &destroyToggle, &exciterToggle, &multiplyToggle, &tapeToggle, &distortionToggle,
+                     &reverbToggle, &hazeToggle, &unisonToggle, &stutterToggle,
+                     &shiftToggle })
+    {
+        t->setBounds({0, 0, 0, 0});
+        t->setVisible(false);
+    }
 
-    // Hide all section knobs first, then lay out each occupied slot
-    for (auto* k : { &destroyDriveKnob, &destroyColorKnob, &destroyBitsKnob, &destroyRateKnob, &destroyJitterKnob,
+    // Hide all advanced section knobs first.
+    for (auto* k : { &destroyDriveKnob, &destroyBitsKnob, &destroyRateKnob, &destroyJitterKnob,
+                     &exciterDriveKnob, &exciterToneKnob,
                      &hazeColorKnob,
                      &chorusMixKnob,
                      &tapeDriveKnob, &tapeInputKnob, &tapeGlueKnob, &tapeNoiseKnob,
@@ -3812,16 +3348,13 @@ void StardustEditor::resized()
                      &unisonSpeedKnob, &unisonOuterKnob, &unisonInnerKnob,
                      &stutterAttackKnob, &stutterDecayKnob, &stutterSustainKnob,
                      &stutterReleaseKnob, &stutterSwingKnob,
-                     &shiftPitchKnob, &shiftFeedbackKnob, &shiftToneKnob,
-                     &reverserCrossfadeKnob,
-                     &halftimeFadeKnob })
+                     &shiftAmountKnob, &shiftJitterKnob, &shiftGrainSizeKnob })
         k->setBounds({0, 0, 0, 0});
 
     // Hide all sidebar mix sliders first
-    for (auto* s : { &destroyMixStrip, &multiplyMixStrip, &tapeMixStrip,
+    for (auto* s : { &destroyMixStrip, &exciterMixStrip, &multiplyMixStrip, &tapeMixStrip,
                      &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                     &stutterMixStrip, &shiftMixStrip, &reverserMixStrip,
-                     &halftimeMixStrip })
+                     &stutterMixStrip, &shiftMixStrip })
         s->setBounds({0, 0, 0, 0});
 
     hazeTypeLabel.setVisible(false);
@@ -3833,67 +3366,31 @@ void StardustEditor::resized()
     for (auto& b : distortionModeBtn) b.setVisible(false);
     multiplyLfoLabel.setVisible(false);
     for (auto& b : multiplyLfoBtn) b.setVisible(false);
-    reverserRepeatSlider.setVisible(false);
-    reverserDivSlider.setVisible(false);
-    reverserSlashLabel.setVisible(false);
+    
     stutterChunkSlider.setVisible(false);
     stutterPatternEditor.setVisible(false);
     stutterResolutionCombo.setVisible(false);
     stutterChunkDisplayBounds = {};
-    for (auto& b : halftimeDivBtn) b.setVisible(false);
-    for (auto& b : halftimeSpeedBtn) b.setVisible(false);
-    halftimeDivLabel.setVisible(false);
-    halftimeSpeedLabel.setVisible(false);
-    // Pill constants (mirror paint() constants)
-    static constexpr int kSbPillX = 18;
-    static constexpr int kSbPillW = 92;
-    static constexpr int kSbPillH = 28;
-    juce::Slider* mixStripForFx[14] = { nullptr, &destroyMixStrip, nullptr,
-                                        &multiplyMixStrip, &tapeMixStrip, &distortionMixStrip, &reverbMixStrip, &hazeMixStrip, &unisonMixStrip,
-                                        nullptr, &stutterMixStrip, &shiftMixStrip, &reverserMixStrip, &halftimeMixStrip };
+    const int fineW = panelW;
+    const int fineH = 138;
+    controlsBounds = { bottomBarBounds.getX(), bottomBarBounds.getY() - fineH - 8, fineW, fineH };
+    const int innerX = controlsBounds.getX() + 28;
+    const int innerW = controlsBounds.getWidth() - 56;
+    const int knobW = innerW / 4;
+    const int knobH = 62;
+    const int row1Y = controlsBounds.getY() + 8;
+    const int row2Y = controlsBounds.getY() + 78;
+    destroyToggle.setVisible(false);
+    exciterToggle.setVisible(false);
+    destroyToggle.setBounds({0, 0, 0, 0});
+    exciterToggle.setBounds({0, 0, 0, 0});
+    layoutKnobInBounds(destroyJitterKnob, { innerX + knobW * 0, row1Y, knobW, knobH });
+    layoutKnobInBounds(destroyRateKnob,   { innerX + knobW * 1, row1Y, knobW, knobH });
+    layoutKnobInBounds(destroyBitsKnob,   { innerX + knobW * 2, row1Y, knobW, knobH });
+    destroyMixStrip.setBounds(innerX + knobW * 3, row1Y + 14, knobW, knobH - 14);
 
-    // Layout all occupied slots simultaneously
-    for (int row = 0; row < 4; ++row)
-    {
-        const int fx = chainSlots[row];
-        if (fx == 0) continue;
-        const auto kp = sectionKnobBounds(row);
-        switch (fx)
-        {
-            case 1: layoutCrushSection(kp);      break;
-            case 3: layoutMultiplySection(kp);   break;
-            case 4: layoutTapeSection(kp);       break;
-            case 5: layoutDistortionSection(kp); break;
-            case 6: layoutReverbSection(kp);     break;
-            case 7: layoutHazeSection(kp);       break;
-            case 8: layoutUnisonSection(kp);     break;
-            case 10: layoutStutterSection(kp);   break;
-            case 11: layoutShiftSection(kp);     break;
-            case 12: layoutReverserSection(kp);  break;
-            case 13: layoutHalfTimeSection(kp);  break;
-            default: break;
-        }
-
-        // Position sidebar mix slider below name pill (not all sections have one)
-        const auto rb = stripRowBounds(row);
-        const int sliderY = rb.getCentreY() + kSbPillH / 2 + 5;
-        if (auto* strip = mixStripForFx[fx])
-            strip->setBounds(rb.getX() + kSbPillX, sliderY, kSbPillW, 14);
-    }
-
-    // Right padding: 3 knobs stacked vertically (Input, Output, Dry/Wet)
-    {
-        const int rightPadW = galaxyBounds.getRight() - screenBounds.getRight();
-        const int rightCenterX = screenBounds.getRight() + rightPadW / 2;
-        const int knobSize = 68;
-        const int knobGap = 4;
-        const int totalKnobH = knobSize * 3 + knobGap * 2;
-        const int knobStartY = screenBounds.getY() + (screenBounds.getHeight() - totalKnobH) / 2;
-        const int knobX = rightCenterX - knobSize / 2;
-
-        layoutKnobInBounds(inputGainKnob,  { knobX, knobStartY, knobSize, knobSize });
-        layoutKnobInBounds(outputGainKnob, { knobX, knobStartY + knobSize + knobGap, knobSize, knobSize });
-        layoutKnobInBounds(masterMixKnob,  { knobX, knobStartY + (knobSize + knobGap) * 2, knobSize, knobSize });
-    }
-    // Left padding: signal flow display is drawn in paintOverChildren
+    layoutKnobInBounds(destroyDriveKnob,  { innerX + knobW * 0, row2Y, knobW, knobH });
+    layoutKnobInBounds(exciterDriveKnob,  { innerX + knobW * 1, row2Y, knobW, knobH });
+    layoutKnobInBounds(exciterToneKnob,   { innerX + knobW * 2, row2Y, knobW, knobH });
+    exciterMixStrip.setBounds(innerX + knobW * 3, row2Y + 14, knobW, knobH - 14);
 }

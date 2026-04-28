@@ -13,6 +13,39 @@ constexpr float kGateSustainMaxPct = 100.0f;
 constexpr float kGateSwingMinPct = 10.0f;
 constexpr float kGateSwingMaxPct = 90.0f;
 
+struct CharacterFlavor
+{
+    float gritRate;
+    float gritBits;
+    float gritDriveDb;
+    float gritOutDb;
+    float gritJitter;
+    float gritMix;
+    float exciterDrive;
+    float exciterToneHz;
+    float exciterMix;
+};
+
+constexpr std::array<CharacterFlavor, 6> kCharacterFlavors {{
+    // Dust
+    { 26040.0f, 14.0f, 3.0f, -1.5f, 0.12f, 0.45f, 0.24f, 5200.0f, 0.12f },
+    // Glass
+    { 44100.0f, 18.0f, 1.0f, -0.5f, 0.02f, 0.16f, 0.28f, 9600.0f, 0.36f },
+    // Rust
+    { 16000.0f, 10.0f, 7.0f, -4.0f, 0.26f, 0.68f, 0.36f, 3600.0f, 0.14f },
+    // Heat
+    { 44100.0f, 16.0f, 8.0f, -4.0f, 0.04f, 0.52f, 0.34f, 6500.0f, 0.20f },
+    // Broken
+    { 7000.0f, 6.0f, 12.0f, -6.0f, 0.42f, 0.86f, 0.64f, 4300.0f, 0.30f },
+    // Glow
+    { 44100.0f, 18.0f, 2.0f, -1.0f, 0.02f, 0.22f, 0.30f, 8200.0f, 0.46f },
+}};
+
+float blendToward(float current, float target, float amount)
+{
+    return current + (target - current) * amount;
+}
+
 std::array<uint64_t, StardustProcessor::kGatePatternSlots> defaultGateEnabledMasks()
 {
     return {
@@ -25,13 +58,17 @@ int sanitizeChainSlotValue(float value)
     if (!std::isfinite(value))
         return 0;
 
-    const int fx = juce::jlimit(0, 13, juce::roundToInt(value));
+    const int fx = juce::roundToInt(value);
 
-    // Legacy IDs no longer used by the modern chain.
-    if (fx == 2 || fx == 9)
-        return 0;
-
-    return fx;
+    // Redesigned chain only supports GRIT and EXCITER.
+    switch (fx)
+    {
+        case 1:
+        case 2:
+            return fx;
+        default:
+            return 0;
+    }
 }
 
 void sanitizePresetValuesForRemovedEffects(std::map<juce::String, float>& values)
@@ -293,12 +330,115 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("distortionEnabled", 1), "Distortion Enabled", false));
 
-    // FX chain slot assignments (0=empty, 1=CRUSH, 3=CHORUS, 4=TAPE, 5=SATURATE,
-    // 6=REVERB, 7=NOISE, 8=MULTIPLY, 10=GATE, 11=SHIFT, 12=REVERSER, 13=HALFTIME)
+    // Legacy slot assignments are retained for session/preset compatibility.
+    // Runtime now processes a fixed chain (GRIT -> EXCITER).
     for (int i = 0; i < 4; ++i)
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID("chainSlot" + juce::String(i), 1),
             "FX Slot " + juce::String(i + 1), 0, 13, 0));
+
+    // Deprecated removed-effect parameters retained only so older sessions/presets
+    // can restore automation/state without changing the plugin parameter layout abruptly.
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("reverserEnabled", 1), "Deprecated Reverser Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserRepeat", 1), "Deprecated Reverser Repeat",
+        juce::NormalisableRange<float>(1.0f, 16.0f, 1.0f), 4.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserDivision", 1), "Deprecated Reverser Division",
+        juce::NormalisableRange<float>(0.0f, 5.0f, 1.0f), 3.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserCrossfade", 1), "Deprecated Reverser Crossfade",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("reverserMix", 1), "Deprecated Reverser Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("flipbedEnabled", 1), "Deprecated Flipbed Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedSlice", 1), "Deprecated Flipbed Slice",
+        juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f), 160.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedFlip", 1), "Deprecated Flipbed Flip",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.65f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedOrbit", 1), "Deprecated Flipbed Orbit",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.35f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedSmear", 1), "Deprecated Flipbed Smear",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.40f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedDirt", 1), "Deprecated Flipbed Dirt",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedDuck", 1), "Deprecated Flipbed Duck",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.55f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("flipbedMix", 1), "Deprecated Flipbed Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("orbitMirrorEnabled", 1), "Deprecated Orbit Mirror Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorWindow", 1), "Deprecated Orbit Mirror Window",
+        juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f), 180.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorSpeed", 1), "Deprecated Orbit Mirror Speed",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.50f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorRadius", 1), "Deprecated Orbit Mirror Radius",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.35f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorCrossfade", 1), "Deprecated Orbit Mirror Crossfade",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.40f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorDuck", 1), "Deprecated Orbit Mirror Duck",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.50f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("orbitMirrorMix", 1), "Deprecated Orbit Mirror Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.22f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("frayLoopEnabled", 1), "Deprecated Fray Loop Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopSlice", 1), "Deprecated Fray Loop Slice",
+        juce::NormalisableRange<float>(20.0f, 500.0f, 1.0f), 90.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopSensitivity", 1), "Deprecated Fray Loop Sensitivity",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.60f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopFray", 1), "Deprecated Fray Loop Fray",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.45f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopDrift", 1), "Deprecated Fray Loop Drift",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.18f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopSmear", 1), "Deprecated Fray Loop Smear",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.30f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("frayLoopMix", 1), "Deprecated Fray Loop Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.28f));
+
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("halftimeEnabled", 1), "Deprecated Halftime Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID("halftimeDivision", 1), "Deprecated Halftime Division", 0, 7, 3));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID("halftimeSpeed", 1), "Deprecated Halftime Speed", 0, 1, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("halftimeFade", 1), "Deprecated Halftime Fade",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("halftimeMix", 1), "Deprecated Halftime Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("characterAmount", 1), "Character",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID("characterMode", 1), "Flavor",
+        juce::StringArray{"Dust", "Glass", "Rust", "Heat", "Broken", "Glow"}, 0));
 
     // Reverb (standalone Dattorro plate)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -324,6 +464,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("reverbEnabled", 1), "Reverb Enabled", false));
+
+    // Harmonic Exciter (non-reverse feature)
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("exciterEnabled", 1), "Exciter Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("exciterDrive", 1), "Exciter Drive",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.35f));
+    {
+        juce::NormalisableRange<float> toneRange(800.0f, 16000.0f, 1.0f);
+        toneRange.setSkewForCentre(6000.0f);
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID("exciterTone", 1), "Exciter Tone", toneRange, 6000.0f));
+    }
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("exciterMix", 1), "Exciter Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
     // --- Feature additions ---
 
@@ -415,37 +571,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("shiftMix", 1), "Shift Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
 
-    // REVERSER: tempo-synced reverse (slot 12)
-    params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID("reverserRepeat", 1), "Reverser Repeat", 1, 64, 4)); // repeat count (kHs style "4/16")
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("reverserDivision", 1), "Reverser Division",
-        juce::StringArray{"1/64", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4"}, 3)); // default 1/16
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("reverserCrossfade", 1), "Reverser Crossfade",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("reverserEnabled", 1), "Reverser Enabled", false));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("reverserMix", 1), "Reverser Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
-
-    // HALFTIME: tempo-synced half/quarter speed (slot 13)
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("halftimeDivision", 1), "HalfTime Division",
-        juce::StringArray{"1/16", "1/8T", "1/8", "1/4", "1/2", "1 Bar", "2 Bars", "4 Bars"}, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID("halftimeSpeed", 1), "HalfTime Speed",
-        juce::StringArray{"2x", "4x"}, 0));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("halftimeFade", 1), "HalfTime Fade",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.15f));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID("halftimeEnabled", 1), "HalfTime Enabled", false));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("halftimeMix", 1), "HalfTime Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
-
+    
     return { params.begin(), params.end() };
 }
 
@@ -453,27 +579,8 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
 
-    // 2x oversampling for destroy section
-    oversampling = std::make_unique<juce::dsp::Oversampling<float>>(
-        2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
-    oversampling->initProcessing(static_cast<size_t>(samplesPerBlock));
-
     // CRUSH DSP modules run at native rate (Degrader-style: no oversampling)
     bitCrusher.prepare(sampleRate, samplesPerBlock);
-    destroyDrive.prepare(sampleRate, samplesPerBlock);
-
-    chorusEngine.prepare(sampleRate, samplesPerBlock);
-    multiplyEngine.prepare(sampleRate, samplesPerBlock);
-    tapeEngine.prepare(sampleRate, samplesPerBlock);
-    tapeEngine.setStandard(0);    // NAB — hardcoded
-    tapeNoiseSpeedParam  = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("tapeNoiseSpeed"));
-    // tapeFormulation hardcoded to 456 — no runtime selection needed
-    saturation.prepare(sampleRate, samplesPerBlock);
-    standaloneReverb.prepare(sampleRate);
-    stutterEngine.prepare(sampleRate, samplesPerBlock);
-    pitchShifter.prepare(sampleRate, samplesPerBlock);
-    reverserEngine.prepare(sampleRate, samplesPerBlock);
-    halfTimeEngine.prepare(sampleRate, samplesPerBlock);
 
     // Pre-allocate with generous headroom for oversampled data
     // Use 8x to handle hosts that exceed the declared block size
@@ -482,67 +589,13 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     msWidthSmoothed.reset(sampleRate, 0.02);
     inputGainSmoothed.reset(sampleRate, 0.01);
     outputGainSmoothed.reset(sampleRate, 0.01);
-    modMatrix.prepare(sampleRate);
+    characterAmountSmoothed.reset(sampleRate, 0.02);
+    characterAmountSmoothed.setCurrentAndTargetValue(0.0f);
 
-    // H2: Mains hum incremental oscillators (zero trig per sample)
-    const float sr = static_cast<float>(currentSampleRate);
-    humOsc60.init(60.0f, sr);
-    humOsc120.init(120.0f, sr);
-    humOsc180.init(180.0f, sr);
-    humOsc240.init(240.0f, sr);
+    // Prepare Harmonic Exciter
+    exciter.prepare(sampleRate, samplesPerBlock);
 
-    // H3: Sub-bass rumble
-    rumbleLFOPhase = 0.0f;
-    std::memset(rumbleState, 0, sizeof(rumbleState));
-
-    // H1: Vinyl crackle
-    std::memset(crackleDecay, 0, sizeof(crackleDecay));
-    std::memset(crackleImpulse, 0, sizeof(crackleImpulse));
-    std::memset(crackleBPState, 0, sizeof(crackleBPState));
-
-    // H4: Signal envelope
-    std::memset(hazeSignalEnv, 0, sizeof(hazeSignalEnv));
-
-    // H5: Wow LFO
-    hazeWowPhase = 0.0f;
-
-    // H6: Allpass decorrelation
-    std::memset(hazeAllpassBuf, 0, sizeof(hazeAllpassBuf));
-    hazeAllpassWritePos = 0;
-
-    // Cache parameter pointers for real-time-safe access in processBlock
-    // (avoids juce::String heap allocation on the audio thread)
-    cachedModLfo1Rate  = apvts.getRawParameterValue("modLfo1Rate");
-    cachedModLfo1Depth = apvts.getRawParameterValue("modLfo1Depth");
-    cachedModLfo1Wave  = apvts.getRawParameterValue("modLfo1Wave");
-    cachedModLfo1Sync  = apvts.getRawParameterValue("modLfo1Sync");
-    cachedModLfo2Rate  = apvts.getRawParameterValue("modLfo2Rate");
-    cachedModLfo2Depth = apvts.getRawParameterValue("modLfo2Depth");
-    cachedModLfo2Wave  = apvts.getRawParameterValue("modLfo2Wave");
-    cachedModLfo2Sync  = apvts.getRawParameterValue("modLfo2Sync");
-
-    cachedModSlot1Src = apvts.getRawParameterValue("modSlot1Src");
-    cachedModSlot1Tgt = apvts.getRawParameterValue("modSlot1Tgt");
-    cachedModSlot1Amt = apvts.getRawParameterValue("modSlot1Amt");
-    cachedModSlot2Src = apvts.getRawParameterValue("modSlot2Src");
-    cachedModSlot2Tgt = apvts.getRawParameterValue("modSlot2Tgt");
-    cachedModSlot2Amt = apvts.getRawParameterValue("modSlot2Amt");
-    cachedModSlot3Src = apvts.getRawParameterValue("modSlot3Src");
-    cachedModSlot3Tgt = apvts.getRawParameterValue("modSlot3Tgt");
-    cachedModSlot3Amt = apvts.getRawParameterValue("modSlot3Amt");
-    cachedModSlot4Src = apvts.getRawParameterValue("modSlot4Src");
-    cachedModSlot4Tgt = apvts.getRawParameterValue("modSlot4Tgt");
-    cachedModSlot4Amt = apvts.getRawParameterValue("modSlot4Amt");
-
-    cachedChainSlot[0] = apvts.getRawParameterValue("chainSlot0");
-    cachedChainSlot[1] = apvts.getRawParameterValue("chainSlot1");
-    cachedChainSlot[2] = apvts.getRawParameterValue("chainSlot2");
-    cachedChainSlot[3] = apvts.getRawParameterValue("chainSlot3");
-
-    // Always report max latency (oversampling + tape base delay) to avoid
-    // host re-sync glitches when sections toggle on/off (fix 1.5)
-    setLatencySamples(static_cast<int>(oversampling->getLatencyInSamples())
-                      + TapeEngine::getBaseDelaySamples());
+    setLatencySamples(0);
 
 }
 
@@ -574,44 +627,20 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 data[i] = 0.0f;
         }
 
-        // Reset all DSP modules (zeroes buffers, resets positions)
+        // Reset active DSP modules (zeroes buffers, resets positions)
         const int blk = buffer.getNumSamples();
-        tapeEngine.prepare(currentSampleRate, blk);
-        standaloneReverb.prepare(currentSampleRate);
-        standaloneReverb.reset();
-        chorusEngine.prepare(currentSampleRate, blk);
-        multiplyEngine.prepare(currentSampleRate, blk);
-        saturation.prepare(currentSampleRate, blk);
-        destroyDrive.prepare(currentSampleRate, blk);
         bitCrusher.prepare(currentSampleRate, blk);
-        stutterEngine.prepare(currentSampleRate, blk);
-        pitchShifter.prepare(currentSampleRate, blk);
-        reverserEngine.prepare(currentSampleRate, blk);
-        halfTimeEngine.prepare(currentSampleRate, blk);
 
-        // Clear haze state (inline DSP, no separate module)
-        std::memset(noisePinkB, 0, sizeof(noisePinkB));
-        std::memset(hazeColorLP, 0, sizeof(hazeColorLP));
+        // Reset new exciter as well
+        exciter.prepare(currentSampleRate, blk);
 
         return; // skip processing this block — next block starts clean
     }
 
-    // Input gain — smoothed per-sample to avoid zipper noise on automation (fix 2.4)
-    const float inputGainDb = *apvts.getRawParameterValue("inputGain");
-    inputGainSmoothed.setTargetValue(std::pow(10.0f, inputGainDb / 20.0f));
-    if (std::abs(inputGainDb) > 0.05f || inputGainSmoothed.isSmoothing())
-    {
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-        {
-            const float g = inputGainSmoothed.getNextValue();
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.getWritePointer(ch)[i] *= g;
-        }
-    }
-    else
-    {
-        inputGainSmoothed.skip(buffer.getNumSamples());
-    }
+    // Main Input/Output/Mix parameters are kept for old sessions, but the
+    // simplified UI fixes them to neutral behavior.
+    inputGainSmoothed.setCurrentAndTargetValue(1.0f);
+    outputGainSmoothed.setCurrentAndTargetValue(1.0f);
 
     // Measure input levels
     inputLevelLeft.store(buffer.getMagnitude(0, 0, buffer.getNumSamples()));
@@ -621,14 +650,9 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
-    // Save dry copy for master dry/wet blend
-    const float masterMixVal = *apvts.getRawParameterValue("masterMix");
-    const bool masterDryOk = masterDryBuffer.getNumSamples() >= numSamples;
-    if (masterMixVal < 0.999f && masterDryOk)
-    {
-        for (int ch = 0; ch < numChannels; ++ch)
-            masterDryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-    }
+    // Global dry/wet is fixed at 100% wet; section mix controls handle blending.
+    constexpr float masterMixVal = 1.0f;
+    constexpr bool masterDryOk = false;
 
     // Read parameters
     const float destroyInVal    = *apvts.getRawParameterValue("destroyIn");
@@ -637,37 +661,34 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float destroyFaderVal = *apvts.getRawParameterValue("destroyFader");
     const float destroyBitsVal  = *apvts.getRawParameterValue("destroyBits");
     const float destroyJitterVal = *apvts.getRawParameterValue("destroyJitter");
-    // Update modulation matrix LFOs and routing (using cached pointers — no heap alloc)
-    modMatrix.setLFO(0, *cachedModLfo1Rate, *cachedModLfo1Depth,
-        static_cast<int>(*cachedModLfo1Wave), *cachedModLfo1Sync >= 0.5f);
-    modMatrix.setLFO(1, *cachedModLfo2Rate, *cachedModLfo2Depth,
-        static_cast<int>(*cachedModLfo2Wave), *cachedModLfo2Sync >= 0.5f);
+    const float exciterDriveVal = *apvts.getRawParameterValue("exciterDrive");
+    const float exciterToneVal = *apvts.getRawParameterValue("exciterTone");
+    const float exciterMixVal = *apvts.getRawParameterValue("exciterMix");
+    const float characterAmountTarget = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("characterAmount")->load(std::memory_order_relaxed));
+    characterAmountSmoothed.setTargetValue(characterAmountTarget);
+    const float characterAmountVal = characterAmountSmoothed.getNextValue();
+    if (numSamples > 1)
+        characterAmountSmoothed.skip(numSamples - 1);
+    const int characterModeVal = juce::jlimit(0, static_cast<int>(kCharacterFlavors.size()) - 1,
+        juce::roundToInt(apvts.getRawParameterValue("characterMode")->load(std::memory_order_relaxed)));
+    const auto& character = kCharacterFlavors[static_cast<size_t>(characterModeVal)];
 
-    modMatrix.setSlot(0, static_cast<int>(*cachedModSlot1Src) - 1,
-        static_cast<int>(*cachedModSlot1Tgt) - 1, *cachedModSlot1Amt);
-    modMatrix.setSlot(1, static_cast<int>(*cachedModSlot2Src) - 1,
-        static_cast<int>(*cachedModSlot2Tgt) - 1, *cachedModSlot2Amt);
-    modMatrix.setSlot(2, static_cast<int>(*cachedModSlot3Src) - 1,
-        static_cast<int>(*cachedModSlot3Tgt) - 1, *cachedModSlot3Amt);
-    modMatrix.setSlot(3, static_cast<int>(*cachedModSlot4Src) - 1,
-        static_cast<int>(*cachedModSlot4Tgt) - 1, *cachedModSlot4Amt);
-    // Feed envelope follower from input levels (average of L/R peak)
-    modMatrix.setEnvFollower((inputLevelLeft.load(std::memory_order_relaxed)
-                            + inputLevelRight.load(std::memory_order_relaxed)) * 0.5f);
+    const float effectiveDestroyMix = blendToward(destroyMixVal,
+                                                  character.gritMix,
+                                                  characterAmountVal);
+    const bool effectiveDestroyOn = effectiveDestroyMix > 0.001f;
+    const float effectiveDestroyIn = blendToward(destroyInVal, character.gritDriveDb, characterAmountVal);
+    const float effectiveDestroyOut = blendToward(destroyOutVal, character.gritOutDb, characterAmountVal);
+    const float effectiveDestroyFader = blendToward(destroyFaderVal, character.gritRate, characterAmountVal);
+    const float effectiveDestroyBits = blendToward(destroyBitsVal, character.gritBits, characterAmountVal);
+    const float effectiveDestroyJitter = blendToward(destroyJitterVal, character.gritJitter, characterAmountVal);
 
-    // Advance LFOs to block midpoint, then read modulated values (fix 1.1)
-    const int halfBlock = numSamples / 2;
-    for (int s = 0; s < halfBlock; ++s)
-        modMatrix.processSample();
-
-    // Advance remaining LFO samples after reading midpoint values
-    for (int s = halfBlock; s < numSamples; ++s)
-        modMatrix.processSample();
-
-    const float chorusMixVal   = *apvts.getRawParameterValue("chorusMix");
-    const bool destroyOn  = *apvts.getRawParameterValue("destroyEnabled") >= 0.5f;
-    const bool multiplyOn = *apvts.getRawParameterValue("multiplyEnabled") >= 0.5f;
-    const bool tapeOn     = *apvts.getRawParameterValue("tapeEnabled") >= 0.5f;
+    const float effectiveExciterMix = blendToward(exciterMixVal,
+                                                  character.exciterMix,
+                                                  characterAmountVal);
+    const float effectiveExciterDrive = blendToward(exciterDriveVal, character.exciterDrive, characterAmountVal);
+    const float effectiveExciterTone = blendToward(exciterToneVal, character.exciterToneHz, characterAmountVal);
 
     // If host exceeds our generous headroom (2x declared block size for
     // oversampling, 8x for dry buffer), skip oversampled processing rather
@@ -675,37 +696,37 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // but no crash occurs.
     const bool dryBufferOk = dryBuffer.getNumSamples() >= numSamples * 4;
 
-    // Process effects in chain slot order
-    for (int slot = 0; slot < 4; ++slot)
+    // Fixed runtime chain order (independent of legacy chain slot params).
+    static constexpr int kFixedFxChain[] = { 1, 2 };
+    for (const int fx : kFixedFxChain)
     {
-        const int fx = sanitizeChainSlotValue(*cachedChainSlot[slot]);
         switch (fx)
         {
             case 1: // CRUSH — Degrader-style: S&H → bit crush → saturation (no oversampling)
             {
-                if (!destroyOn) break;
+                if (!effectiveDestroyOn) break;
 
                 // Save dry copy for mix blending
-                if (destroyMixVal < 0.999f && dryBufferOk)
+                if (effectiveDestroyMix < 0.999f && dryBufferOk)
                     for (int ch = 0; ch < numChannels; ++ch)
                         dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
                 // Guard against NaN/Inf from automation glitch
-                const float safeFaderVal = (std::isfinite(destroyFaderVal)) ? destroyFaderVal : 26040.0f;
+                const float safeFaderVal = (std::isfinite(effectiveDestroyFader)) ? effectiveDestroyFader : 26040.0f;
                 const float effectiveRate = juce::jlimit(250.0f, 96000.0f, safeFaderVal);
 
                 // 1. BitCrusher: S&H rate reduction → raw truncation (no dither)
-                bitCrusher.setBitDepth(destroyBitsVal);
+                bitCrusher.setBitDepth(effectiveDestroyBits);
                 bitCrusher.setSampleRate(effectiveRate);
-                bitCrusher.setJitter(destroyJitterVal);
+                bitCrusher.setJitter(effectiveDestroyJitter);
                 bitCrusher.process(buffer);
 
                 // 2. Simple tanh saturation AFTER crush (Degrader-style soft clip)
                 //    destroyIn (0–24 dB) drives into saturation, destroyOut adjusts output level
-                if (destroyInVal > 0.1f)
+                if (effectiveDestroyIn > 0.1f)
                 {
-                    const float driveGain = std::pow(10.0f, destroyInVal / 20.0f);
-                    const float outGain   = std::pow(10.0f, destroyOutVal / 20.0f);
+                    const float driveGain = std::pow(10.0f, effectiveDestroyIn / 20.0f);
+                    const float outGain   = std::pow(10.0f, effectiveDestroyOut / 20.0f);
                     for (int ch = 0; ch < numChannels; ++ch)
                     {
                         auto* data = buffer.getWritePointer(ch);
@@ -718,10 +739,10 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 }
 
                 // Dry/wet mix
-                if (destroyMixVal < 0.999f && dryBufferOk)
+                if (effectiveDestroyMix < 0.999f && dryBufferOk)
                 {
-                    const float dryGain = std::cos(destroyMixVal * juce::MathConstants<float>::halfPi);
-                    const float wetGain = std::sin(destroyMixVal * juce::MathConstants<float>::halfPi);
+                    const float dryGain = std::cos(effectiveDestroyMix * juce::MathConstants<float>::halfPi);
+                    const float wetGain = std::sin(effectiveDestroyMix * juce::MathConstants<float>::halfPi);
                     for (int ch = 0; ch < numChannels; ++ch)
                     {
                         auto* wet = buffer.getWritePointer(ch);
@@ -732,345 +753,13 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 }
                 break;
             }
-            case 3: // CHORUS — Juno-60 ensemble emulation
+
+            case 2: // EXCITER - focused high-band harmonics after GRIT
             {
-                if (!multiplyOn) break;
-                chorusEngine.setMix(chorusMixVal);
-                chorusEngine.setMode(static_cast<int>(*apvts.getRawParameterValue("junoMode")));
-                chorusEngine.process(buffer);
+                exciter.process(buffer, effectiveExciterDrive, effectiveExciterTone, effectiveExciterMix);
                 break;
             }
-            case 4: // TAPE
-            {
-                const float tapeDriveRaw = *apvts.getRawParameterValue("tapeDrive");
-                const float tapeMixRaw = *apvts.getRawParameterValue("tapeMix");
-                const float driveMod = modMatrix.modulate(ModTarget::TapeDrive, tapeDriveRaw);
-                const float mixMod = modMatrix.modulate(ModTarget::TapeMix, tapeMixRaw);
-                const float drive = std::isfinite(driveMod)
-                    ? juce::jlimit(0.0f, 1.0f, driveMod)
-                    : juce::jlimit(0.0f, 1.0f, tapeDriveRaw);
-                const float mix = std::isfinite(mixMod)
-                    ? juce::jlimit(0.0f, 1.0f, mixMod)
-                    : juce::jlimit(0.0f, 1.0f, tapeMixRaw);
-                const float glue   = *apvts.getRawParameterValue("tapeGlue");
-                const float noise  = *apvts.getRawParameterValue("tapeNoise");
-                // Separate Wow + Flutter knobs (direct control, 0-1 maps to 0-0.48 depth)
-                const float rawWow = *apvts.getRawParameterValue("tapeWow");
-                tapeEngine.setWow(rawWow * 0.48f);
-                // Flutter uses quadratic response: slow wow dominates at low settings;
-                // flutter only becomes prominent at high wobble (accurate to tape physics).
-                tapeEngine.setFlutter(rawWow * rawWow * 0.48f);
-                tapeEngine.setHiss(juce::jlimit(0.0f, 1.0f, noise));
-                tapeEngine.setBias(juce::jlimit(0.0f, 1.0f, glue));
-                tapeEngine.setDrive(drive);
-                // Keep tape running in-slot and fade via mix so toggle changes are click-free.
-                tapeEngine.setMix(tapeOn ? mix : 0.0f);
-                tapeEngine.setInputGain(*apvts.getRawParameterValue("tapeInput"));
-                tapeEngine.setTapeOutputDb(*apvts.getRawParameterValue("tapeOutput"));
-                tapeEngine.setPrintThrough(*apvts.getRawParameterValue("tapePrintThrough"));
-                // Keep motor running while slot is active; TapeEngine motor ramp is post-mix.
-                // If ramped down during bypass it would scale dry path too.
-                tapeEngine.setMotorEnabled(true);
-                {
-                    static constexpr float kNoiseIps[] = { 7.5f, 15.0f, 30.0f };
-                    const int noiseIx = tapeNoiseSpeedParam ? juce::jlimit(0, 2, tapeNoiseSpeedParam->getIndex()) : 1;
-                    const float ips = kNoiseIps[noiseIx];
-                    tapeEngine.setSpeed(ips);
-                    tapeEngine.setHissSpeedIps(ips);
-                }
-                tapeEngine.setFormulation(0); // Ampex 456 hardcoded
-                tapeEngine.process(buffer);
-                break;
-            }
-            case 5: // DISTORTION — Saturation handles its own 8× internal oversampling
-            {
-                if (!(*apvts.getRawParameterValue("distortionEnabled") >= 0.5f)) break;
-                const float driveVal   = *apvts.getRawParameterValue("distortionDrive");
-                const float toneVal    = *apvts.getRawParameterValue("distortionTone");
-                const float distMixVal = *apvts.getRawParameterValue("distortionMix");
-
-                // Save dry signal for wet/dry blend
-                if (distMixVal < 0.999f && dryBufferOk)
-                {
-                    for (int ch = 0; ch < numChannels; ++ch)
-                        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-                }
-
-                // Engine modes: 0=Soft, 1=Tube, 2=Hard
-                const int mode = juce::jlimit(0, 2,
-                    static_cast<int>(*apvts.getRawParameterValue("distortionMode")));
-                saturation.setDrive(driveVal);
-                saturation.setMode(mode);
-                saturation.processInput(buffer);
-                saturation.setTone(toneVal);
-                saturation.processTone(buffer);
-                saturation.processOutput(buffer);
-
-                if (distMixVal < 0.999f && dryBufferOk)
-                {
-                    const float dryGain = std::cos(distMixVal * juce::MathConstants<float>::halfPi);
-                    const float wetGain = std::sin(distMixVal * juce::MathConstants<float>::halfPi);
-                    for (int ch = 0; ch < numChannels; ++ch)
-                    {
-                        auto* wet = buffer.getWritePointer(ch);
-                        const auto* dry = dryBuffer.getReadPointer(ch);
-                        for (int i = 0; i < numSamples; ++i)
-                            wet[i] = dry[i] * dryGain + wet[i] * wetGain;
-                    }
-                }
-                break;
-            }
-            case 6: // REVERB (standalone Dattorro plate)
-            {
-                if (!(*apvts.getRawParameterValue("reverbEnabled") >= 0.5f)) break;
-
-                standaloneReverb.setSize(*apvts.getRawParameterValue("reverbSize"));
-                standaloneReverb.setDecay(*apvts.getRawParameterValue("reverbDecay"));
-                standaloneReverb.setDamping(*apvts.getRawParameterValue("reverbDamp"));
-                standaloneReverb.setPreDelay(*apvts.getRawParameterValue("reverbPreDelay"));
-                standaloneReverb.setDiffusion(*apvts.getRawParameterValue("reverbDiffusion"));
-
-                const float reverbMixVal = *apvts.getRawParameterValue("reverbMix");
-                const float dryGain = std::cos(reverbMixVal * juce::MathConstants<float>::halfPi);
-                const float wetGain = std::sin(reverbMixVal * juce::MathConstants<float>::halfPi);
-
-                auto* dataL = buffer.getWritePointer(0);
-                auto* dataR = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
-
-                const float width = *apvts.getRawParameterValue("reverbWidth");
-                // M/S width: 0=mono wet, 1=full stereo wet
-                const float msS = width;
-                const float msM = 1.0f;
-
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    const float inL = dataL[i];
-                    const float inR = dataR ? dataR[i] : inL;
-                    float outL = 0.0f, outR = 0.0f;
-                    standaloneReverb.processSample(inL, inR, outL, outR);
-                    // Apply M/S width to wet signal before dry/wet blend
-                    const float wetMid  = (outL + outR) * 0.5f * msM;
-                    const float wetSide = (outL - outR) * 0.5f * msS;
-                    const float wL = wetMid + wetSide;
-                    const float wR = wetMid - wetSide;
-                    dataL[i] = inL * dryGain + wL * wetGain;
-                    if (dataR) dataR[i] = inR * dryGain + wR * wetGain;
-                }
-                break;
-            }
-            case 7: // NOISE — atmospheric noise texture
-            {
-                if (!(*apvts.getRawParameterValue("hazeEnabled") >= 0.5f)) break;
-
-                const float hazeColor  = *apvts.getRawParameterValue("hazeColor");
-                const int   hazeType   = static_cast<int>(*apvts.getRawParameterValue("hazeType"));
-                const float hazeMixVal = *apvts.getRawParameterValue("hazeMix");
-
-                // 1-pole LP coefficient for noise color (hazeColor 0=500Hz, 1=20kHz)
-                const float colorFreq = 500.0f + hazeColor * hazeColor * 19500.0f;
-
-                // H5: Slow wow modulation on noise color (~0.5Hz)
-                const float hazeWow = std::sin(hazeWowPhase) * 0.3f;  // ±30% cutoff variation
-                const float modulatedColorFreq = std::min(colorFreq * (1.0f + hazeWow),
-                                                        static_cast<float>(getSampleRate()) * 0.45f);
-                const float hazeLPMod = juce::jlimit(0.0f, 0.999f,
-                                                      1.0f - std::exp(-juce::MathConstants<float>::twoPi * modulatedColorFreq
-                                                                       / static_cast<float>(currentSampleRate)));
-
-                const float noiseScale = hazeMixVal * 0.012f; // ~-38dBFS at full strip
-                for (int ch = 0; ch < numChannels; ++ch)
-                {
-                    auto* data = buffer.getWritePointer(ch);
-                    for (int s = 0; s < numSamples; ++s)
-                    {
-                        float raw = 0.0f;
-                        if (hazeType == 1) // White
-                        {
-                            raw = random.nextFloat() * 2.0f - 1.0f;
-                        }
-                        else if (hazeType == 2) // Vinyl: pink + crackle impulses
-                        {
-                            const float w = random.nextFloat() * 2.0f - 1.0f;
-                            noisePinkB[0][ch] = 0.99886f * noisePinkB[0][ch] + w * 0.0555179f;
-                            noisePinkB[1][ch] = 0.99332f * noisePinkB[1][ch] + w * 0.0750759f;
-                            noisePinkB[2][ch] = 0.96900f * noisePinkB[2][ch] + w * 0.1538520f;
-                            noisePinkB[3][ch] = 0.86650f * noisePinkB[3][ch] + w * 0.3104856f;
-                            noisePinkB[4][ch] = 0.55000f * noisePinkB[4][ch] + w * 0.5329522f;
-                            raw = (noisePinkB[0][ch] + noisePinkB[1][ch]
-                                 + noisePinkB[2][ch] + noisePinkB[3][ch]
-                                 + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
-                            // H1: Improved vinyl crackle — Poisson-distributed impulses with bandpass
-                            if (random.nextFloat() < 0.003f) {  // ~130 crackles/sec at 44.1kHz
-                                crackleImpulse[ch] = (random.nextFloat() > 0.5f ? 1.0f : -1.0f) * 2.5f;
-                                crackleDecay[ch] = 1.0f;
-                            }
-                            crackleDecay[ch] *= 0.992f;  // ~5ms exponential decay at 44.1kHz
-                            float crackle = crackleImpulse[ch] * crackleDecay[ch];
-                            // Simple 1-pole BP approximation (800Hz-6kHz character)
-                            crackleBPState[ch] += 0.3f * (crackle - crackleBPState[ch]);
-                            raw += crackleBPState[ch] * 0.4f;
-                        }
-                        else // Pink (default)
-                        {
-                            const float w = random.nextFloat() * 2.0f - 1.0f;
-                            noisePinkB[0][ch] = 0.99886f * noisePinkB[0][ch] + w * 0.0555179f;
-                            noisePinkB[1][ch] = 0.99332f * noisePinkB[1][ch] + w * 0.0750759f;
-                            noisePinkB[2][ch] = 0.96900f * noisePinkB[2][ch] + w * 0.1538520f;
-                            noisePinkB[3][ch] = 0.86650f * noisePinkB[3][ch] + w * 0.3104856f;
-                            noisePinkB[4][ch] = 0.55000f * noisePinkB[4][ch] + w * 0.5329522f;
-                            raw = (noisePinkB[0][ch] + noisePinkB[1][ch]
-                                 + noisePinkB[2][ch] + noisePinkB[3][ch]
-                                 + noisePinkB[4][ch] + w * 0.5362f) * 0.11f;
-                        }
-
-                        // H2: Mains hum (60Hz + harmonics at 120/180/240Hz)
-                        const float hum = humOsc60.sinVal * 1.0f
-                                        + humOsc120.sinVal * 0.5f
-                                        + humOsc180.sinVal * 0.25f
-                                        + humOsc240.sinVal * 0.12f;
-                        raw += hum * 0.03f;  // subtle, ~-30dB relative to noise
-
-                        // H3: Sub-bass rumble (25Hz resonant noise, AM modulated)
-                        const float rumbleNoise = random.nextFloat() * 2.0f - 1.0f;
-                        rumbleState[ch] += 0.004f * (rumbleNoise - rumbleState[ch]);  // ~25Hz LP
-                        const float rumbleLFO = 0.5f + 0.5f * std::sin(rumbleLFOPhase);  // slow AM
-                        raw += rumbleState[ch] * rumbleLFO * 0.15f;
-
-                        // Apply LP color filter (H5: using wow-modulated coefficient)
-                        hazeColorLP[ch] += hazeLPMod * (raw - hazeColorLP[ch]);
-
-                        // H4: Noise riding — noise fades when signal is present
-                        const float signalLevel = std::abs(data[s]);
-                        const float envAlpha = signalLevel > hazeSignalEnv[ch] ? 0.01f : 0.0005f;  // fast attack, slow release
-                        hazeSignalEnv[ch] += envAlpha * (signalLevel - hazeSignalEnv[ch]);
-                        const float noiseRide = std::max(0.1f, 1.0f - hazeSignalEnv[ch] * 5.0f);
-
-                        // H6: Stereo allpass decorrelation for R channel
-                        if (ch == 1) {
-                            const int readPos = (hazeAllpassWritePos - kHazeAllpassDelay + 512) & 511;
-                            const float delayed = hazeAllpassBuf[readPos];
-                            const float allpassOut = delayed - 0.3f * hazeColorLP[ch];
-                            hazeAllpassBuf[hazeAllpassWritePos] = hazeColorLP[ch] + 0.3f * allpassOut;
-                            hazeAllpassWritePos = (hazeAllpassWritePos + 1) & 511;
-                            data[s] += allpassOut * noiseScale * noiseRide;
-                        } else {
-                            data[s] += hazeColorLP[ch] * noiseScale * noiseRide;
-                        }
-
-                        // Advance per-sample phase oscillators on ch==0 only
-                        if (ch == 0) {
-                            // H2: Advance hum oscillators
-                            humOsc60.advance();
-                            humOsc120.advance();
-                            humOsc180.advance();
-                            humOsc240.advance();
-                            // Renormalize every 512 samples to prevent magnitude drift
-                            if ((s & 511) == 0) { humOsc60.normalize(); humOsc120.normalize();
-                                                   humOsc180.normalize(); humOsc240.normalize(); }
-                            // H3: Rumble LFO phase (~0.2Hz)
-                            rumbleLFOPhase += juce::MathConstants<float>::twoPi * 0.2f / static_cast<float>(currentSampleRate);
-                            if (rumbleLFOPhase >= juce::MathConstants<float>::twoPi)
-                                rumbleLFOPhase -= juce::MathConstants<float>::twoPi;
-                            // H5: Wow LFO phase (~0.5Hz)
-                            hazeWowPhase += juce::MathConstants<float>::twoPi * 0.5f / static_cast<float>(currentSampleRate);
-                            if (hazeWowPhase >= juce::MathConstants<float>::twoPi)
-                                hazeWowPhase -= juce::MathConstants<float>::twoPi;
-                        }
-                    }
-                }
-                break;
-            }
-            case 8: // MULTIPLY — 4-voice unison thickener
-            {
-                if (!(*apvts.getRawParameterValue("unisonEnabled") >= 0.5f)) break;
-                multiplyEngine.setMix(*apvts.getRawParameterValue("unisonMix"));
-                multiplyEngine.setSpeed(*apvts.getRawParameterValue("unisonSpeed"));
-                multiplyEngine.setPans(*apvts.getRawParameterValue("unisonOuter"),
-                                       *apvts.getRawParameterValue("unisonInner"));
-                multiplyEngine.process(buffer);
-                break;
-            }
-            case 10: // GATE — trance-gate sequencer
-            {
-                if (!(*apvts.getRawParameterValue("stutterEnabled") >= 0.5f)) break;
-
-                double hostBPM = 120.0;
-                if (auto* playHead = getPlayHead())
-                    if (auto pos = playHead->getPosition())
-                        if (auto bpm = pos->getBpm())
-                            hostBPM = *bpm;
-
-                stutterEngine.setBPM(hostBPM);
-                stutterEngine.setChunks(juce::roundToInt(apvts.getRawParameterValue("stutterRate")->load(std::memory_order_relaxed)));
-                const float attackMs = apvts.getRawParameterValue("stutterAttack")->load(std::memory_order_relaxed);
-                const float decayMs = apvts.getRawParameterValue("stutterDecay")->load(std::memory_order_relaxed);
-                const float sustainPct = apvts.getRawParameterValue("stutterDepth")->load(std::memory_order_relaxed);
-                const float releaseMs = apvts.getRawParameterValue("stutterRelease")->load(std::memory_order_relaxed);
-                const float swingPct = apvts.getRawParameterValue("stutterSwing")->load(std::memory_order_relaxed);
-
-                const float attackNorm = juce::jmap(attackMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
-                const float decayNorm = juce::jmap(decayMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
-                const float sustainNorm = juce::jlimit(0.0f, 1.0f, sustainPct * 0.01f);
-                const float releaseNorm = juce::jmap(releaseMs, kGateEnvMinMs, kGateEnvMaxMs, 0.0f, 1.0f);
-                const float swingNorm = juce::jlimit(0.0f, 1.0f,
-                    (swingPct - kGateSwingMinPct) / (kGateSwingMaxPct - kGateSwingMinPct));
-
-                stutterEngine.setAttack(attackNorm);
-                stutterEngine.setDecay(decayNorm);
-                stutterEngine.setSustain(sustainNorm);
-                stutterEngine.setRelease(releaseNorm);
-                stutterEngine.setSwing(swingNorm);
-                stutterEngine.setResolution(juce::roundToInt(apvts.getRawParameterValue("stutterResolution")->load(std::memory_order_relaxed)));
-                stutterEngine.setPattern(
-                    gatePatternEnabledMasks[0].load(std::memory_order_relaxed),
-                    gatePatternTieMasks[0].load(std::memory_order_relaxed));
-                stutterEngine.setMix(*apvts.getRawParameterValue("stutterMix"));
-                stutterEngine.process(buffer);
-                break;
-            }
-            case 11: // SHIFT — pitch shifter
-            {
-                if (!(*apvts.getRawParameterValue("shiftEnabled") >= 0.5f)) break;
-                pitchShifter.setPitch(*apvts.getRawParameterValue("shiftPitch"));
-                pitchShifter.setFeedback(*apvts.getRawParameterValue("shiftFeedback"));
-                pitchShifter.setTone(*apvts.getRawParameterValue("shiftTone"));
-                pitchShifter.setMix(*apvts.getRawParameterValue("shiftMix"));
-                pitchShifter.process(buffer);
-                break;
-            }
-            case 12: // REVERSER — tempo-synced reverse
-            {
-                if (!(*apvts.getRawParameterValue("reverserEnabled") >= 0.5f)) break;
-                // Read BPM from host (default 120 if unavailable)
-                double hostBPM = 120.0;
-                if (auto* playHead = getPlayHead())
-                    if (auto pos = playHead->getPosition())
-                        if (auto bpm = pos->getBpm())
-                            hostBPM = *bpm;
-                reverserEngine.setBPM(hostBPM);
-                reverserEngine.setRepeatCount(static_cast<int>(*apvts.getRawParameterValue("reverserRepeat")));
-                reverserEngine.setDivision(static_cast<int>(*apvts.getRawParameterValue("reverserDivision")));
-                reverserEngine.setCrossfade(*apvts.getRawParameterValue("reverserCrossfade"));
-                reverserEngine.setMix(*apvts.getRawParameterValue("reverserMix"));
-                reverserEngine.process(buffer);
-                break;
-            }
-            case 13: // HALFTIME — tempo-synced half/quarter speed
-            {
-                if (!(*apvts.getRawParameterValue("halftimeEnabled") >= 0.5f)) break;
-                double hostBPM = 120.0;
-                if (auto* playHead = getPlayHead())
-                    if (auto pos = playHead->getPosition())
-                        if (auto bpm = pos->getBpm())
-                            hostBPM = *bpm;
-                halfTimeEngine.setBPM(hostBPM);
-                halfTimeEngine.setDivision(static_cast<int>(*apvts.getRawParameterValue("halftimeDivision")));
-                halfTimeEngine.setSpeed(static_cast<int>(*apvts.getRawParameterValue("halftimeSpeed")));
-                halfTimeEngine.setFade(*apvts.getRawParameterValue("halftimeFade"));
-                halfTimeEngine.setMix(*apvts.getRawParameterValue("halftimeMix"));
-                halfTimeEngine.process(buffer);
-                break;
-            }
+            
             default: break; // 0 = empty slot
         }
     }
@@ -1090,23 +779,6 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             dataL[i] = mid + side;
             dataR[i] = mid - side;
         }
-    }
-
-    // Output gain — smoothed per-sample to avoid zipper noise (fix 2.4)
-    const float outputGainDb = *apvts.getRawParameterValue("outputGain");
-    outputGainSmoothed.setTargetValue(std::pow(10.0f, outputGainDb / 20.0f));
-    if (std::abs(outputGainDb) > 0.05f || outputGainSmoothed.isSmoothing())
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float g = outputGainSmoothed.getNextValue();
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.getWritePointer(ch)[i] *= g;
-        }
-    }
-    else
-    {
-        outputGainSmoothed.skip(numSamples);
     }
 
     // Master dry/wet blend (constant-power crossfade) — before limiter so dry path is also protected
@@ -1191,16 +863,7 @@ void StardustProcessor::loadPreset(int index)
     // Prevents presets from having visible but disabled effects.
     static const std::pair<int, const char*> slotEnableMap[] = {
         { 1,  "destroyEnabled" },
-        { 3,  "multiplyEnabled" },  // chorus shares multiply toggle
-        { 4,  "tapeEnabled" },
-        { 5,  "distortionEnabled" },
-        { 6,  "reverbEnabled" },
-        { 7,  "hazeEnabled" },
-        { 8,  "unisonEnabled" },
-        { 10, "stutterEnabled" },
-        { 11, "shiftEnabled" },
-        { 12, "reverserEnabled" },
-        { 13, "halftimeEnabled" },
+        { 2,  "exciterEnabled" },
     };
     for (int slot = 0; slot < 4; ++slot)
     {

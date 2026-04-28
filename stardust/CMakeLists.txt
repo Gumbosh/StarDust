@@ -39,14 +39,14 @@ target_sources(Stardust PRIVATE
     src/dsp/DattorroReverb.h
     src/dsp/TapeEngine.cpp
     src/dsp/TapeEngine.h
+    src/dsp/HarmonicExciter.cpp
+    src/dsp/HarmonicExciter.h
     src/dsp/Saturation.cpp
     src/dsp/Saturation.h
     src/dsp/StutterEngine.cpp
     src/dsp/StutterEngine.h
     src/dsp/PitchShifter.cpp
     src/dsp/PitchShifter.h
-    src/dsp/ReverserEngine.cpp
-    src/dsp/ReverserEngine.h
     src/dsp/HalfTimeEngine.cpp
     src/dsp/HalfTimeEngine.h
     src/dsp/FastMath.h

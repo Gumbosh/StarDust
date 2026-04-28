@@ -12,6 +12,15 @@ void StarfieldBackground::paint(juce::Graphics& g)
 {
     if (cachedImage.isValid())
     {
+        auto bounds = getLocalBounds().toFloat();
+        const auto lens = bounds.reduced(2.0f);
+
+        juce::Path clip;
+        clip.addEllipse(lens);
+
+        juce::Graphics::ScopedSaveState saveState(g);
+        g.reduceClipRegion(clip);
+
         if (!excludeRect.isEmpty())
         {
             juce::RectangleList<int> clipRegion(getLocalBounds());
@@ -20,7 +29,15 @@ void StarfieldBackground::paint(juce::Graphics& g)
         }
 
         g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);
-        g.drawImage(cachedImage, getLocalBounds().toFloat());
+        g.drawImage(cachedImage, bounds);
+
+        juce::ColourGradient vignette(juce::Colours::transparentBlack,
+                                      bounds.getCentreX(), bounds.getCentreY(),
+                                      juce::Colours::black.withAlpha(0.62f),
+                                      bounds.getRight(), bounds.getBottom(),
+                                      true);
+        g.setGradientFill(vignette);
+        g.fillEllipse(lens);
     }
 }
 
@@ -36,69 +53,39 @@ void StarfieldBackground::timerCallback()
     repaint();
 }
 
-// ---------------------------------------------------------------------------
-// Mix and enabled parameter lookup helpers
-// ---------------------------------------------------------------------------
-
-static const char* mixParamForEffect(int id)
-{
-    switch (id)
-    {
-        case 1:  return "destroyMix";
-        case 3:  return "chorusMix";
-        case 4:  return "tapeMix";
-        case 5:  return "distortionMix";
-        case 6:  return "reverbMix";
-        case 7:  return "hazeMix";
-        case 8:  return "unisonMix";
-        case 10: return "stutterMix";
-        case 11: return "shiftMix";
-        case 12: return "reverserMix";
-        default: return nullptr;
-    }
-}
-
-static const char* enabledParamForEffect(int id)
-{
-    switch (id)
-    {
-        case 1:  return "destroyEnabled";
-        case 3:  return "multiplyEnabled";
-        case 4:  return "tapeEnabled";
-        case 5:  return "distortionEnabled";
-        case 6:  return "reverbEnabled";
-        case 7:  return "hazeEnabled";
-        case 8:  return "unisonEnabled";
-        case 10: return "stutterEnabled";
-        case 11: return "shiftEnabled";
-        case 12: return "reverserEnabled";
-        default: return nullptr;
-    }
-}
-
 StarfieldParams StarfieldBackground::readParams() const
 {
     StarfieldParams p;
+    const float characterAmount = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("characterAmount")->load(std::memory_order_relaxed));
+    const bool characterActive = characterAmount > 0.001f;
+    p.characterAmount = characterAmount;
+    p.characterMode = juce::jlimit(0, 5,
+        juce::roundToInt(apvts.getRawParameterValue("characterMode")->load(std::memory_order_relaxed)));
 
-    for (int i = 0; i < 4; ++i)
+    p.slots[0].effectId = 1;
+    p.slots[0].mix = *apvts.getRawParameterValue("destroyMix");
+    p.slots[0].enabled = p.slots[0].mix > 0.001f;
+
+    p.slots[1].effectId = 2;
+    p.slots[1].mix = *apvts.getRawParameterValue("exciterMix");
+    p.slots[1].enabled = p.slots[1].mix > 0.001f;
+
+    if (characterActive)
     {
-        const int slotId = static_cast<int>(
-            *apvts.getRawParameterValue("chainSlot" + juce::String(i)));
+        p.slots[0].mix = juce::jmax(p.slots[0].mix, characterAmount * 0.75f);
+        p.slots[0].enabled = true;
 
-        p.slots[i].effectId = slotId;
-
-        if (slotId == 0) continue;
-
-        if (const auto* mixId = mixParamForEffect(slotId))
-            p.slots[i].mix = *apvts.getRawParameterValue(mixId);
-
-        if (const auto* enId = enabledParamForEffect(slotId))
-            p.slots[i].enabled = *apvts.getRawParameterValue(enId) >= 0.5f;
+        p.slots[1].mix = juce::jmax(p.slots[1].mix, characterAmount * 0.65f);
+        p.slots[1].enabled = true;
     }
 
-    p.inputGain  = *apvts.getRawParameterValue("inputGain");
-    p.outputGain = *apvts.getRawParameterValue("outputGain");
-    p.masterMix  = *apvts.getRawParameterValue("masterMix");
+    p.gritDriveDb = *apvts.getRawParameterValue("destroyIn");
+    p.gritRateHz = *apvts.getRawParameterValue("destroyFader");
+    p.gritBits = *apvts.getRawParameterValue("destroyBits");
+    p.gritJitter = *apvts.getRawParameterValue("destroyJitter");
+    p.exciterDrive = *apvts.getRawParameterValue("exciterDrive");
+    p.exciterToneHz = *apvts.getRawParameterValue("exciterTone");
 
     return p;
 }
@@ -147,6 +134,38 @@ void StarfieldBackground::applyGrit(float mix, float time)
     {
         const float posterized = std::floor(px * levels) * invLevels;
         px = px + (posterized - px) * strength;
+    }
+}
+
+void StarfieldBackground::applyExciter(float mix, float time)
+{
+    const float sparkle = juce::jlimit(0.0f, 1.0f, mix);
+    if (sparkle < 0.01f)
+        return;
+
+    for (int y = 0; y < kRenderHeight; ++y)
+    {
+        for (int x = 0; x < kRenderWidth; ++x)
+        {
+            const float nx = (static_cast<float>(x) / static_cast<float>(kRenderWidth) - 0.5f) * 2.0f;
+            const float ny = (static_cast<float>(y) / static_cast<float>(kRenderHeight) - 0.5f) * 2.0f;
+            const float coreMask = std::exp(-(nx * nx * 2.8f + ny * ny * 1.6f));
+            const float shimmer = 0.65f + 0.35f * std::sin(time * 2.5f + nx * 12.0f + ny * 5.0f);
+            auto& pixel = pixelData_[static_cast<size_t>(y * kRenderWidth + x)];
+            pixel = std::min(1.0f, pixel + sparkle * coreMask * shimmer * 0.20f);
+        }
+    }
+
+    for (int y = 0; y < kRenderHeight; ++y)
+    {
+        for (int x = 0; x < kRenderWidth; ++x)
+        {
+            const float nx = (static_cast<float>(x) / static_cast<float>(kRenderWidth) - 0.5f) * 2.0f;
+            const float ny = (static_cast<float>(y) / static_cast<float>(kRenderHeight) - 0.5f) * 2.0f;
+            const float coreMask = std::exp(-(nx * nx * 2.4f + ny * ny * 1.4f));
+            auto& px = pixelData_[static_cast<size_t>(y * kRenderWidth + x)];
+            px = px + (std::min(1.0f, std::pow(px, 1.0f - sparkle * 0.10f)) - px) * coreMask;
+        }
     }
 }
 
@@ -488,13 +507,25 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
     const float cx = fw * 0.5f;
     const float cy = fh * 0.5f;
     const float maxDist = std::sqrt(cx * cx + cy * cy);
+    const float gritDriveNorm = juce::jlimit(0.0f, 1.0f, params.gritDriveDb / 24.0f);
+    const float gritRateNorm = juce::jlimit(0.0f, 1.0f,
+        (std::log(std::max(250.0f, params.gritRateHz)) - std::log(250.0f))
+        / (std::log(96000.0f) - std::log(250.0f)));
+    const float gritBitNorm = juce::jlimit(0.0f, 1.0f, (24.0f - params.gritBits) / 20.0f);
+    const float gritJitterNorm = juce::jlimit(0.0f, 1.0f, params.gritJitter);
+    const float exciterDriveNorm = juce::jlimit(0.0f, 1.0f, params.exciterDrive);
+    const float exciterToneNorm = juce::jlimit(0.0f, 1.0f,
+        (std::log(std::max(800.0f, params.exciterToneHz)) - std::log(800.0f))
+        / (std::log(16000.0f) - std::log(800.0f)));
 
     // Galaxy parameters
-    const float rotationSpeed = 0.3f;
-    const float spiralTightness = 0.03f;
-    const float coreRadius = 30.0f;
-    const float coreBrightness = 0.8f;
-    const float armBrightness = 0.20f;
+    const float rotationSpeed = 0.18f + 0.42f * params.characterAmount
+                              + 0.05f * static_cast<float>(params.characterMode);
+    const float spiralTightness = 0.022f + 0.020f * (1.0f - gritRateNorm);
+    const float coreRadius = 24.0f + 20.0f * exciterToneNorm;
+    const float coreBrightness = 0.62f + 0.30f * params.characterAmount + 0.22f * exciterDriveNorm;
+    const float armBrightness = 0.14f + 0.22f * gritDriveNorm + 0.10f * gritBitNorm;
+    const float modePhase = static_cast<float>(params.characterMode) * 0.73f;
 
     auto& pixelData = pixelData_;
     std::fill(pixelData.begin(), pixelData.end(), 0.0f);
@@ -512,21 +543,28 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
 
             const float coreGlow = coreBrightness * std::exp(-(dist * dist) / (2.0f * coreRadius * coreRadius));
 
-            const float spiralAngle = angle - dist * spiralTightness + time * rotationSpeed;
-            float armValue = std::cos(spiralAngle * 2.0f);
+            const float spiralAngle = angle - dist * spiralTightness + time * rotationSpeed + modePhase;
+            float armValue = std::cos(spiralAngle * (2.0f + static_cast<float>(params.characterMode % 3)));
             armValue = (armValue + 1.0f) * 0.5f;
 
-            const float armWidth = 0.3f + dist * 0.008f;
+            const float armWidth = 0.24f + dist * (0.006f + gritJitterNorm * 0.010f);
             armValue = std::pow(armValue, 1.0f / (armWidth + 0.01f));
 
             const float armFalloff = std::exp(-dist * 0.012f);
             const float armGlow = armValue * armBrightness * armFalloff;
 
-            const float dustLane = 1.0f - (1.0f - armValue) * 0.3f * armFalloff;
+            const float dustLane = 1.0f - (1.0f - armValue) * (0.22f + gritBitNorm * 0.36f) * armFalloff;
 
             float pixel = coreGlow + std::max(0.0f, armGlow);
             pixel *= dustLane;
-            pixel += 0.01f;
+            pixel += 0.006f + params.characterAmount * 0.008f;
+
+            if (gritJitterNorm > 0.001f)
+            {
+                const float n = hash(static_cast<float>(x) * 0.31f + time * 3.1f,
+                                     static_cast<float>(y) * 0.47f + modePhase);
+                pixel += (n - 0.5f) * gritJitterNorm * 0.08f;
+            }
 
             pixelData[static_cast<size_t>(y * kRenderWidth + x)] = pixel;
         }
@@ -542,6 +580,7 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         switch (slot.effectId)
         {
             case 1:  applyGrit(slot.mix, time);     break;
+            case 2:  applyExciter(slot.mix, time);  break;
             case 3:  applyJu60(slot.mix, time);      break;
             case 4:  applyOxide(slot.mix, time);     break;
             case 5:  applyDist(slot.mix, time);      break;
@@ -555,28 +594,9 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
         }
     }
 
-    // ---- Input Gain: overall scene brightness boost ----
-    {
-        const float inGainNorm = juce::jlimit(0.0f, 1.0f, (params.inputGain + 24.0f) / 36.0f);
-        const float brightMul = 0.5f + inGainNorm * 1.0f;
-        if (std::abs(brightMul - 1.0f) > 0.01f)
-            for (size_t i = 0; i < pixelData.size(); ++i)
-                pixelData[i] *= brightMul;
-    }
-
-    // ---- Output Gain: contrast/gamma adjustment ----
-    {
-        const float outGainNorm = juce::jlimit(0.0f, 1.0f, (params.outputGain + 24.0f) / 36.0f);
-        const float gamma = 1.5f - outGainNorm * 1.0f;
-        if (std::abs(gamma - 1.0f) > 0.02f)
-            for (size_t i = 0; i < pixelData.size(); ++i)
-                pixelData[i] = std::pow(juce::jlimit(0.0f, 1.0f, pixelData[i]), gamma);
-    }
-
     // ---- Bayer dithering + scanlines + vignette ----
     juce::Image::BitmapData bitmap(img, juce::Image::BitmapData::writeOnly);
 
-    const float mixAlpha = params.masterMix;
     constexpr int scanlineSpacing = 4;
     constexpr float scanlineDarken = 0.75f;
 
@@ -598,7 +618,6 @@ void StarfieldBackground::renderStarfield(const StarfieldParams& params, float t
             value *= vignette;
 
             value *= scanlineMul;
-            value *= mixAlpha;
 
             const float threshold = kBayerMatrix[y % kBayerSize][x % kBayerSize];
             const float scaled = value * static_cast<float>(kNumShades - 1);

@@ -13,11 +13,16 @@ inline std::map<juce::String, float> defaultPresetValues()
         // Chain slots — all empty
         {"chainSlot0", 0.0f}, {"chainSlot1", 0.0f}, {"chainSlot2", 0.0f}, {"chainSlot3", 0.0f},
 
+        // Character engine
+        {"characterAmount", 0.0f}, {"characterMode", 0.0f},
+
         // Enable flags — all off
         {"destroyEnabled", 0.0f}, {"tapeEnabled", 0.0f}, {"multiplyEnabled", 0.0f},
-        {"distortionEnabled", 0.0f}, {"reverbEnabled", 0.0f}, {"hazeEnabled", 0.0f},
+        {"distortionEnabled", 0.0f}, {"reverbEnabled", 0.0f}, {"exciterEnabled", 0.0f},
+        {"hazeEnabled", 0.0f},
         {"unisonEnabled", 0.0f}, {"stutterEnabled", 0.0f},
         {"shiftEnabled", 0.0f}, {"reverserEnabled", 0.0f},
+        {"flipbedEnabled", 0.0f}, {"orbitMirrorEnabled", 0.0f}, {"frayLoopEnabled", 0.0f},
 
         // Destroy
         {"destroyFader", 22082.0f}, {"destroyBits", 12.0f}, {"destroyIn", 0.0f},
@@ -35,6 +40,9 @@ inline std::map<juce::String, float> defaultPresetValues()
         // Distortion
         {"distortionDrive", 0.5f}, {"distortionTone", 0.5f},
         {"distortionMode", 0.0f}, {"distortionMix", 1.0f},
+
+        // Exciter
+        {"exciterDrive", 0.35f}, {"exciterTone", 6000.0f}, {"exciterMix", 0.25f},
 
         // Reverb
         {"reverbMix", 0.5f}, {"reverbSize", 0.5f}, {"reverbDecay", 0.5f},
@@ -56,12 +64,32 @@ inline std::map<juce::String, float> defaultPresetValues()
         {"stutterMix", 1.0f},
 
         // Shift
-        {"shiftPitch", 0.0f}, {"shiftFeedback", 0.0f},
-        {"shiftTone", 10000.0f}, {"shiftMix", 0.5f},
+        {"shiftAmount", 0.0f}, {"shiftJitter", 0.0f},
+        {"shiftGrainSize", 80.0f}, {"shiftMix", 0.5f},
 
         // Reverser
         {"reverserRepeat", 4.0f}, {"reverserDivision", 3.0f},
         {"reverserCrossfade", 0.15f}, {"reverserMix", 0.5f},
+
+        // Flipbed
+        {"flipbedSlice", 160.0f}, {"flipbedFlip", 0.65f},
+        {"flipbedOrbit", 0.35f}, {"flipbedSmear", 0.40f},
+        {"flipbedDirt", 0.20f}, {"flipbedDuck", 0.55f},
+        {"flipbedMix", 0.25f},
+
+        // Orbit Mirror
+        {"orbitMirrorWindow", 180.0f}, {"orbitMirrorSpeed", 0.50f},
+        {"orbitMirrorRadius", 0.35f}, {"orbitMirrorCrossfade", 0.40f},
+        {"orbitMirrorDuck", 0.50f}, {"orbitMirrorMix", 0.22f},
+
+        // Fray Loop
+        {"frayLoopSlice", 90.0f}, {"frayLoopSensitivity", 0.60f},
+        {"frayLoopFray", 0.45f}, {"frayLoopDrift", 0.18f},
+        {"frayLoopSmear", 0.30f}, {"frayLoopMix", 0.28f},
+
+        // Halftime
+        {"halftimeEnabled", 0.0f}, {"halftimeDivision", 3.0f},
+        {"halftimeSpeed", 0.0f}, {"halftimeFade", 0.15f}, {"halftimeMix", 0.5f},
 
         // Master
         {"inputGain", 0.0f}, {"outputGain", 0.0f}, {"masterMix", 1.0f}, {"msWidth", 1.0f},

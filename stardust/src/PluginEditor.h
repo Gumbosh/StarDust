@@ -207,32 +207,21 @@ private:
 
     // FX chain strip state
     int activeSection = 0;
-    int dragSourceRow = -1;
-    int dragHoverRow  = -1;
-    juce::Point<int> dragPos;
-    int chainSlots[4] { 1, 2, 3, 4 };
+    int chainSlots[4] {};
     int hoverRow  = -1;
-    bool hoverOnX = false;
 
     void syncChainSlots();
     void commitChainSlots();
-    void showAddEffectMenu(int row);
-    int  firstNonEmptyRow() const;
     juce::ToggleButton& toggleForSection(int fxId);
     juce::Rectangle<int> stripRowBounds(int row) const;
     juce::Rectangle<int> sectionKnobBounds(int row) const;
 
     void layoutCrushSection(juce::Rectangle<int> bounds);
-    void layoutHazeSection(juce::Rectangle<int> bounds);
-    void layoutMultiplySection(juce::Rectangle<int> bounds);
-    void layoutUnisonSection(juce::Rectangle<int> bounds);
-    void layoutTapeSection(juce::Rectangle<int> bounds);
-    void layoutDistortionSection(juce::Rectangle<int> bounds);
-    void layoutReverbSection(juce::Rectangle<int> bounds);
-    void layoutStutterSection(juce::Rectangle<int> bounds);
-    void layoutShiftSection(juce::Rectangle<int> bounds);
-    void layoutReverserSection(juce::Rectangle<int> bounds);
-    void layoutHalfTimeSection(juce::Rectangle<int> bounds);
+    void layoutExciterSection(juce::Rectangle<int> bounds);
+    int characterModeAt(juce::Point<int> position) const;
+    bool selectCharacterModeAt(juce::Point<int> position);
+    bool beginCharacterAmountDrag(juce::Point<int> position);
+    void updateCharacterAmountFromFisheye(juce::Point<int> position);
 
     StardustProcessor& processorRef;
     StardustLookAndFeel lookAndFeel;
@@ -248,9 +237,12 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyDriveKnob, destroyColorKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
+    LabeledKnob destroyDriveKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
     juce::Slider destroyFader;
     std::unique_ptr<SliderAttachment> destroyFaderAttachment;
+    LabeledKnob exciterDriveKnob, exciterToneKnob;
+    juce::ToggleButton exciterToggle;
+    std::unique_ptr<ButtonAttachment> exciterToggleAttach;
     LabeledKnob chorusMixKnob;
     juce::TextButton multiplyLfoBtn[3];  // Juno mode buttons: I / II / I+II
     juce::Label multiplyLfoLabel;
@@ -292,40 +284,27 @@ private:
     std::unique_ptr<SliderAttachment> stutterMixStripAttach;
 
     // SHIFT section
-    LabeledKnob shiftPitchKnob, shiftFeedbackKnob, shiftToneKnob;
+    LabeledKnob shiftAmountKnob, shiftJitterKnob, shiftGrainSizeKnob;
     juce::ToggleButton shiftToggle;
     std::unique_ptr<ButtonAttachment> shiftToggleAttach;
     juce::Slider shiftMixStrip;
     std::unique_ptr<SliderAttachment> shiftMixStripAttach;
 
-    // REVERSER section
-    LabeledKnob reverserCrossfadeKnob;
-    juce::Slider reverserRepeatSlider, reverserDivSlider;
-    std::unique_ptr<SliderAttachment> reverserRepeatAttach, reverserDivAttach;
-    juce::Label reverserSlashLabel;
-    juce::Rectangle<int> reverserDisplayBounds; // for border painting
-    juce::ToggleButton reverserToggle;
-    std::unique_ptr<ButtonAttachment> reverserToggleAttach;
-    juce::Slider reverserMixStrip;
-    std::unique_ptr<SliderAttachment> reverserMixStripAttach;
+    
 
-    // HALFTIME section
-    LabeledKnob halftimeFadeKnob;
-    juce::TextButton halftimeDivBtn[8];   // 1/16, 1/8T, 1/8, 1/4, 1/2, 1Bar, 2Bar, 4Bar
-    juce::Label halftimeDivLabel;
-    juce::TextButton halftimeSpeedBtn[2]; // 2x, 4x
-    juce::Label halftimeSpeedLabel;
-    juce::ToggleButton halftimeToggle;
-    std::unique_ptr<ButtonAttachment> halftimeToggleAttach;
-    juce::Slider halftimeMixStrip;
-    std::unique_ptr<SliderAttachment> halftimeMixStripAttach;
-
-    LabeledKnob inputGainKnob, outputGainKnob, masterMixKnob;
+    juce::ComboBox characterModeCombo;
+    std::unique_ptr<ComboBoxAttachment> characterModeAttach;
+    juce::TextButton characterFlavorBtn[6];
+    float characterFlavorAnim[6] {};
+    int hoverCharacter = -1;
+    bool draggingCharacterAmount = false;
+    juce::TextButton advancedToggleBtn;
 
     // Sidebar mix sliders (one per section, positioned below name pill)
-    juce::Slider destroyMixStrip, multiplyMixStrip, tapeMixStrip,
+    juce::Slider destroyMixStrip, exciterMixStrip, multiplyMixStrip, tapeMixStrip,
                  distortionMixStrip, hazeMixStrip, unisonMixStrip, reverbMixStrip;
     std::unique_ptr<SliderAttachment> destroyMixStripAttach,
+                                      exciterMixStripAttach,
                                       multiplyMixStripAttach, tapeMixStripAttach,
                                       distortionMixStripAttach, hazeMixStripAttach,
                                       unisonMixStripAttach, reverbMixStripAttach;

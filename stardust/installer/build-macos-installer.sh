@@ -13,7 +13,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
 ARTEFACTS="$BUILD_DIR/Stardust_artefacts/Release"
 PKG_ROOT="$BUILD_DIR/pkg-root"
+PKG_COMPONENT="$BUILD_DIR/Stardust-component.pkg"
 PKG_OUTPUT="$BUILD_DIR/Stardust-Installer.pkg"
+PKG_RESOURCES="$BUILD_DIR/pkg-resources"
+PKG_DISTRIBUTION="$BUILD_DIR/Distribution.xml"
 VERSION=$(grep 'project(Stardust VERSION' "$PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
 
 # Optional: set DEVELOPER_ID for signing (e.g. "Developer ID Installer: Your Name (TEAMID)")
@@ -22,14 +25,10 @@ SIGN_IDENTITY="${DEVELOPER_ID_INSTALLER:-}"
 echo "=== Stardust macOS Installer Builder ==="
 echo ""
 
-# ---- Step 1: Build if needed ------------------------------------------------
-if [ ! -d "$ARTEFACTS/VST3/Stardust.vst3" ]; then
-    echo "[1/6] Building Stardust..."
-    cmake -B "$BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PROJECT_DIR"
-    cmake --build "$BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
-else
-    echo "[1/6] Build artefacts found, skipping build."
-fi
+# ---- Step 1: Always build latest source -------------------------------------
+echo "[1/6] Building latest Stardust Character Engine..."
+cmake -B "$BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PROJECT_DIR"
+cmake --build "$BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
 
 # ---- Step 2: Verify artefacts exist -----------------------------------------
 echo "[2/6] Verifying build artefacts..."
@@ -70,9 +69,10 @@ fi
 # ---- Step 4: Create package root hierarchy -----------------------------------
 echo "[4/6] Preparing package root..."
 
-rm -rf "$PKG_ROOT"
+rm -rf "$PKG_ROOT" "$PKG_RESOURCES" "$PKG_COMPONENT" "$PKG_DISTRIBUTION" "$PKG_OUTPUT"
 mkdir -p "$PKG_ROOT/Library/Audio/Plug-Ins/VST3"
 mkdir -p "$PKG_ROOT/Applications"
+mkdir -p "$PKG_RESOURCES"
 
 # Copy bundles into install locations
 cp -R "$VST3_BUNDLE" "$PKG_ROOT/Library/Audio/Plug-Ins/VST3/"
@@ -112,27 +112,75 @@ cat > "$COMPONENT_PLIST" << 'PLIST'
 </plist>
 PLIST
 
-# Build the flat package
-SIGN_ARGS=""
-if [ -n "$SIGN_IDENTITY" ]; then
-    SIGN_ARGS="--sign \"$SIGN_IDENTITY\""
-    echo "  Signing with: $SIGN_IDENTITY"
-fi
+cat > "$PKG_RESOURCES/welcome.html" << 'HTML'
+<!doctype html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+<h2>Stardust Character Engine</h2>
+<p>Stardust turns GRIT and EXCITER into a fast character-shaping workflow for drums, vocals, loops, synths, and samples.</p>
+<p>Choose a Flavor like Dust, Glass, Rust, Heat, Broken, or Glow, then raise the Character control to add musical color without chasing technical settings.</p>
+</body>
+</html>
+HTML
+
+cat > "$PKG_RESOURCES/readme.html" << 'HTML'
+<!doctype html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+<h3>What gets installed</h3>
+<ul>
+  <li>Stardust.vst3 to /Library/Audio/Plug-Ins/VST3/</li>
+  <li>Stardust.app to /Applications/</li>
+</ul>
+<h3>About this version</h3>
+<p>This build packages the latest Stardust Character Engine with the new Character macro, Flavor selector, redesigned factory presets, and updated EXCITER workflow.</p>
+<p>After installing, rescan plugins in your DAW if Stardust does not appear immediately.</p>
+</body>
+</html>
+HTML
+
+cat > "$PKG_DISTRIBUTION" << XML
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>Stardust Character Engine</title>
+    <organization>com.stardust</organization>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <options customize="never" require-scripts="false"/>
+    <welcome file="welcome.html"/>
+    <readme file="readme.html"/>
+    <choices-outline>
+        <line choice="stardust"/>
+    </choices-outline>
+    <choice id="stardust" title="Stardust Character Engine" description="Installs the Stardust VST3 plugin and standalone app.">
+        <pkg-ref id="com.stardust.plugin.component"/>
+    </choice>
+    <pkg-ref id="com.stardust.plugin.component" version="$VERSION" onConclusion="none">Stardust-component.pkg</pkg-ref>
+</installer-gui-script>
+XML
 
 pkgbuild \
     --root "$PKG_ROOT" \
-    --identifier "com.stardust.plugin" \
+    --identifier "com.stardust.plugin.component" \
     --version "$VERSION" \
     --install-location "/" \
     --component-plist "$COMPONENT_PLIST" \
-    "$PKG_OUTPUT"
+    "$PKG_COMPONENT"
 
-# If we have a signing identity, sign the package
 if [ -n "$SIGN_IDENTITY" ]; then
-    SIGNED_PKG="$BUILD_DIR/Stardust-Installer-signed.pkg"
-    productsign --sign "$SIGN_IDENTITY" "$PKG_OUTPUT" "$SIGNED_PKG"
-    mv "$SIGNED_PKG" "$PKG_OUTPUT"
+    echo "  Signing with: $SIGN_IDENTITY"
+    productbuild \
+        --distribution "$PKG_DISTRIBUTION" \
+        --resources "$PKG_RESOURCES" \
+        --package-path "$BUILD_DIR" \
+        --sign "$SIGN_IDENTITY" \
+        "$PKG_OUTPUT"
     echo "  Package signed successfully."
+else
+    productbuild \
+        --distribution "$PKG_DISTRIBUTION" \
+        --resources "$PKG_RESOURCES" \
+        --package-path "$BUILD_DIR" \
+        "$PKG_OUTPUT"
 fi
 
 # ---- Step 6: Summary --------------------------------------------------------

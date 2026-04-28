@@ -6,15 +6,21 @@ struct StarfieldParams
 {
     struct Slot
     {
-        int effectId = 0;    // 0=empty, 1=GRIT, 3=JU-60, 4=OXIDE, etc.
+        int effectId = 0;    // 0=empty, 1=GRIT, 2=EXCITER, 3=JU-60, etc.
         float mix    = 0.0f; // 0..1 wet/dry
         bool enabled = false;
     };
     Slot slots[4];
 
-    float inputGain  = 0.0f;  // -24..+12 dB
-    float outputGain = 0.0f;  // -24..+12 dB
-    float masterMix  = 1.0f;  // 0..1
+    float characterAmount = 0.0f;
+    int characterMode = 0;
+
+    float gritDriveDb = 0.0f;
+    float gritRateHz = 22050.0f;
+    float gritBits = 12.0f;
+    float gritJitter = 0.0f;
+    float exciterDrive = 0.0f;
+    float exciterToneHz = 6000.0f;
 };
 
 class StarfieldBackground : public juce::Component, public juce::Timer
@@ -34,6 +40,7 @@ private:
 
     // Per-effect visual layers (each takes pixelData, mix intensity, and time)
     void applyGrit       (float mix, float time);
+    void applyExciter    (float mix, float time);
     void applyJu60       (float mix, float time);
     void applyOxide      (float mix, float time);
     void applyDist       (float mix, float time);

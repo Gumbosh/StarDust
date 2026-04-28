@@ -5,35 +5,64 @@ void PitchShifter::prepare(double sr, int /*samplesPerBlock*/)
 {
     sampleRate = sr;
     constexpr double kRampSec = 0.02;
-    pitchSmoothed.reset(sr, kRampSec);
-    feedbackSmoothed.reset(sr, kRampSec);
-    toneSmoothed.reset(sr, kRampSec);
+    shiftSmoothed.reset(sr, kRampSec);
+    jitterSmoothed.reset(sr, kRampSec);
+    grainSizeSmoothed.reset(sr, kRampSec);
     mixSmoothed.reset(sr, kRampSec);
+
+    shiftSmoothed.setCurrentAndTargetValue(0.0f);
+    jitterSmoothed.setCurrentAndTargetValue(0.0f);
+    grainSizeSmoothed.setCurrentAndTargetValue(80.0f);
+    mixSmoothed.setCurrentAndTargetValue(0.5f);
 
     writePos = 0;
     sawPhase = 0.0f;
+    jitterValue = 0.0f;
+    jitterTarget = 0.0f;
+    jitterCountdown = juce::jmax(1, static_cast<int>(sampleRate * 0.01));
 
     for (int ch = 0; ch < kMaxChannels; ++ch)
-    {
         delayBuffer[static_cast<size_t>(ch)].fill(0.0f);
-        lpState[static_cast<size_t>(ch)] = 0.0f;
-        feedbackSample[static_cast<size_t>(ch)] = 0.0f;
-    }
 
     // Precompute Hann window (full period)
     const float pi = juce::MathConstants<float>::pi;
-    for (int i = 0; i < kWindowSamples; ++i)
-        hannWindow[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowSamples)));
+    for (int i = 0; i < kWindowTableSize; ++i)
+        hannWindow[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / static_cast<float>(kWindowTableSize)));
 }
 
-void PitchShifter::setPitch(float st)
+void PitchShifter::setShift(float st)
 {
     const float snapped = std::round(juce::jlimit(-24.0f, 24.0f, st));
-    pitchSmoothed.setTargetValue(snapped);
+    shiftSmoothed.setTargetValue(snapped);
 }
-void PitchShifter::setFeedback(float fb) { feedbackSmoothed.setTargetValue(juce::jlimit(0.0f, 0.95f, fb)); }
-void PitchShifter::setTone(float hz)     { toneSmoothed.setTargetValue(juce::jlimit(200.0f, 20000.0f, hz)); }
+
+void PitchShifter::setJitter(float amount)
+{
+    jitterSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, amount));
+}
+
+void PitchShifter::setGrainSize(float grainSizeMs)
+{
+    grainSizeSmoothed.setTargetValue(juce::jlimit(20.0f, 200.0f, grainSizeMs));
+}
+
 void PitchShifter::setMix(float m)       { mixSmoothed.setTargetValue(juce::jlimit(0.0f, 1.0f, m)); }
+
+float PitchShifter::nextJitterValue(int grainSamples)
+{
+    --jitterCountdown;
+    if (jitterCountdown <= 0)
+    {
+        jitterTarget = random.nextFloat() * 2.0f - 1.0f;
+        const int minHold = juce::jmax(32, grainSamples / 2);
+        const int maxHold = juce::jmax(minHold + 1, grainSamples * 2);
+        jitterCountdown = minHold + random.nextInt(maxHold - minHold);
+    }
+
+    const float slew = 1.0f / static_cast<float>(juce::jmax(64, grainSamples));
+    jitterValue += (jitterTarget - jitterValue) * slew;
+    return jitterValue;
+}
 
 float PitchShifter::readHermite(int channel, float delaySamples) const
 {
@@ -67,21 +96,23 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const float pitch = pitchSmoothed.getNextValue();
-        const float fb = feedbackSmoothed.getNextValue();
-        const float tone = toneSmoothed.getNextValue();
+        const float shift = shiftSmoothed.getNextValue();
+        const float jitterAmount = jitterSmoothed.getNextValue();
+        const float grainSizeMs = grainSizeSmoothed.getNextValue();
         const float mix = mixSmoothed.getNextValue();
 
-        const float pitchRatio = std::exp2f(pitch / 12.0f);
-        const float sawRate = (1.0f - pitchRatio) / static_cast<float>(kWindowSamples);
+        const int grainSamples = juce::jlimit(
+            64,
+            kDelaySize / 2,
+            juce::roundToInt(grainSizeMs * 0.001f * sr));
 
-        // LP coefficient for feedback tone filter
-        const float lpCoeff = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * tone / sr);
+        const float jitterSemitones = nextJitterValue(grainSamples) * jitterAmount * 2.0f;
+        const float pitchRatio = std::exp2f((shift + jitterSemitones) / 12.0f);
+        const float sawRate = (1.0f - pitchRatio) / static_cast<float>(grainSamples);
 
-        // Write input + feedback into delay line
+        // Write dry input to delay line.
         for (int ch = 0; ch < numChannels; ++ch)
-            delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] =
-                buffer.getSample(ch, i) + feedbackSample[static_cast<size_t>(ch)];
+            delayBuffer[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] = buffer.getSample(ch, i);
 
         // Read two taps with Hann crossfade
         const float phaseA = sawPhase;
@@ -89,11 +120,11 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
         if (phaseBRaw >= 1.0f) phaseBRaw -= 1.0f;
         const float phaseB = phaseBRaw;
 
-        const float delayA = phaseA * static_cast<float>(kWindowSamples) + 1.0f; // +1 to avoid reading write head
-        const float delayB = phaseB * static_cast<float>(kWindowSamples) + 1.0f;
+        const float delayA = phaseA * static_cast<float>(grainSamples) + 1.0f;
+        const float delayB = phaseB * static_cast<float>(grainSamples) + 1.0f;
 
-        const int winIdxA = static_cast<int>(phaseA * static_cast<float>(kWindowSamples)) % kWindowSamples;
-        const int winIdxB = static_cast<int>(phaseB * static_cast<float>(kWindowSamples)) % kWindowSamples;
+        const int winIdxA = static_cast<int>(phaseA * static_cast<float>(kWindowTableSize)) % kWindowTableSize;
+        const int winIdxB = static_cast<int>(phaseB * static_cast<float>(kWindowTableSize)) % kWindowTableSize;
         const float windowA = hannWindow[static_cast<size_t>(winIdxA)];
         const float windowB = hannWindow[static_cast<size_t>(winIdxB)];
 
@@ -102,12 +133,6 @@ void PitchShifter::process(juce::AudioBuffer<float>& buffer)
             const float tapA = readHermite(ch, delayA) * windowA;
             const float tapB = readHermite(ch, delayB) * windowB;
             const float wet = tapA + tapB;
-
-            // Feedback path: tone LP → soft clip → scale
-            const size_t chIndex = static_cast<size_t>(ch);
-            lpState[chIndex] += lpCoeff * (wet - lpState[chIndex]);
-            const float clipped = FastMath::tanh(lpState[chIndex]);
-            feedbackSample[chIndex] = clipped * fb;
 
             // Constant-power dry/wet mix
             const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);

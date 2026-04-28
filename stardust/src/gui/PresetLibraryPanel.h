@@ -39,10 +39,10 @@ public:
     std::function<void(const juce::String&)> onDeleteBank;
     std::function<void(const juce::String&, const juce::String&)> onRenameBank;
 
-    // Factory bank display order (curated, not alphabetical)
-    static constexpr int kNumFactoryBanks = 4;
+    // Factory bank display order follows the fisheye character modes.
+    static constexpr int kNumFactoryBanks = 6;
     static inline const juce::String kFactoryBankOrder[kNumFactoryBanks] = {
-        "Lo-Fi", "Glitch", "Tape", "Atmosphere"
+        "Dust", "Glass", "Rust", "Heat", "Broken", "Glow"
     };
 
 private:
@@ -58,12 +58,12 @@ private:
 
         // Bank index layout:
         // 0 = FAVORITES
-        // 1..kNumFactoryBanks = factory sub-banks (Lo-Fi, Glitch, Tape, Atmosphere)
+        // 1..kNumFactoryBanks = factory sub-banks (Dust, Glass, Rust, Heat, Broken, Glow)
         // kNumFactoryBanks+1 = USER
         // kNumFactoryBanks+2+ = dynamic user banks
-        int selectedBank = 1; // default to first factory bank (Lo-Fi)
+        int selectedBank = 1; // default to first factory bank (Dust)
         int totalBankCount() const;
-        static constexpr int kFixedBanks = 1 + kNumFactoryBanks + 1; // FAV + 4 factory + USER = 6
+        static constexpr int kFixedBanks = 1 + kNumFactoryBanks + 1;
 
     private:
         PresetLibraryPanel& owner;
