@@ -21,14 +21,12 @@
   #define MyAppVersion "1.0.0"
 #endif
 #define MyAppPublisher "Stardust"
-#define MyAppURL "https://github.com/grainsp"
 
 [Setup]
 AppId={{7A3B8C5D-E9F1-4A2B-8C6D-1E3F5A7B9C0D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=..\build
@@ -88,7 +86,7 @@ Filename: "{app}\Stardust.exe"; \
     Components: standalone
 
 [Messages]
-WelcomeLabel2=This will install Stardust v{#MyAppVersion} on your computer.%n%nStardust is a Character Engine for adding musical grit, air, heat, dust, and broken-sampler color with one fast macro workflow.%n%nChoose a Flavor like Dust, Glass, Rust, Heat, Broken, or Glow, then use Character to shape GRIT and EXCITER together.%n%nThe VST3 plugin will be installed to the standard VST3 directory for use in FL Studio, Ableton Live, and other DAWs.
+WelcomeLabel2=This will install Stardust v{#MyAppVersion} on your computer.%n%nStardust adds musical grit, air, heat, dust, and broken-sampler color with one fast macro workflow.%n%nChoose a Flavor like Dust, Glass, Rust, Heat, Broken, or Glow, then use Character to shape GRIT and EXCITER together.%n%nThe VST3 plugin will be installed to the standard VST3 directory for use in FL Studio, Ableton Live, and other DAWs.
 
 [Code]
 // Show a post-install message reminding users to scan for plugins
@@ -98,7 +96,7 @@ begin
     begin
         if IsComponentSelected('vst3') then
         begin
-            MsgBox('Stardust Character Engine VST3 has been installed to:' + #13#10 +
+            MsgBox('Stardust VST3 has been installed to:' + #13#10 +
                    ExpandConstant('{commoncf}\VST3\Stardust.vst3') + #13#10#13#10 +
                    'To use it in your DAW:' + #13#10 +
                    '  FL Studio: Options > Manage plugins > Find more plugins > Start scan' + #13#10 +

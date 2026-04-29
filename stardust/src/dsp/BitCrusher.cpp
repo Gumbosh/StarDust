@@ -19,7 +19,7 @@ void BitCrusher::prepare(double sampleRate, int /*samplesPerBlock*/)
 void BitCrusher::setBitDepth(float bits)
 {
     bits = juce::jlimit(3.0f, 24.0f, bits);
-    if (currentBitDepth != bits)
+    if (std::abs(currentBitDepth - bits) > 1.0e-6f)
     {
         currentBitDepth = bits;
         bitDepthSmoothed.setTargetValue(bits);
@@ -28,7 +28,7 @@ void BitCrusher::setBitDepth(float bits)
 
 void BitCrusher::setSampleRate(float targetRate)
 {
-    if (currentTargetRate != targetRate)
+    if (std::abs(currentTargetRate - targetRate) > 1.0e-3f)
     {
         currentTargetRate = targetRate;
         targetRateSmoothed.setTargetValue(targetRate);

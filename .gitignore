@@ -6,5 +6,3 @@ stardust/build/
 installer/staging/
 installer/*.pkg
 
-# Development artifacts
-stardust/presets.txt

@@ -113,32 +113,6 @@ private:
     void selectTab(Tab tab);
 };
 
-class GatePatternEditor : public juce::Component
-{
-public:
-    std::function<int()> getChunkCount;
-    std::function<bool(int)> getStepEnabled;
-    std::function<void(int, bool)> setStepEnabled;
-
-    void paint(juce::Graphics& g) override;
-    void mouseDown(const juce::MouseEvent& e) override;
-    void mouseDrag(const juce::MouseEvent& e) override;
-    void mouseUp(const juce::MouseEvent& e) override;
-
-private:
-    enum class DragMode
-    {
-        none,
-        toggle
-    };
-
-    int stepAt(juce::Point<float> p) const;
-
-    DragMode dragMode = DragMode::none;
-    int dragLastStep = -1;
-    bool dragToggleValue = false;
-};
-
 class StardustEditor : public juce::AudioProcessorEditor,
                        private juce::Timer,
                        private juce::AudioProcessorValueTreeState::Listener
@@ -166,7 +140,6 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     struct LabeledKnob : public juce::Component
@@ -205,14 +178,8 @@ private:
     void updateDoubleClickDefaults();
     std::map<juce::String, LabeledKnob*> paramToKnob;
 
-    // FX chain strip state
-    int activeSection = 0;
-    int chainSlots[4] {};
     int hoverRow  = -1;
 
-    void syncChainSlots();
-    void commitChainSlots();
-    juce::ToggleButton& toggleForSection(int fxId);
     juce::Rectangle<int> stripRowBounds(int row) const;
     juce::Rectangle<int> sectionKnobBounds(int row) const;
 
@@ -238,59 +205,7 @@ private:
     void updateFavoriteButton();
 
     LabeledKnob destroyDriveKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
-    juce::Slider destroyFader;
-    std::unique_ptr<SliderAttachment> destroyFaderAttachment;
     LabeledKnob exciterDriveKnob, exciterToneKnob;
-    juce::ToggleButton exciterToggle;
-    std::unique_ptr<ButtonAttachment> exciterToggleAttach;
-    LabeledKnob chorusMixKnob;
-    juce::TextButton multiplyLfoBtn[3];  // Juno mode buttons: I / II / I+II
-    juce::Label multiplyLfoLabel;
-    LabeledKnob tapeDriveKnob, tapeInputKnob, tapeGlueKnob, tapeNoiseKnob, tapeMixKnob, tapeOutputKnob;
-    LabeledKnob tapeWowKnob;
-
-    LabeledKnob distortionDriveKnob, distortionToneKnob;
-    juce::TextButton distortionModeBtn[3];
-    juce::Label distortionModeLabel;
-    LabeledKnob reverbMixKnob, reverbDecayKnob, reverbPreDelayKnob, reverbWidthKnob;
-    juce::TextButton tapeNoiseSpeedBtn[3];
-    juce::Label tapeNoiseSpeedLabel;
-    // Tape formulation hardcoded to 456 — no UI selector
-
-    // HAZE section
-    LabeledKnob hazeColorKnob;
-    juce::TextButton hazeTypeBtn[3];
-    juce::Label hazeTypeLabel;
-    juce::ToggleButton hazeToggle;
-    std::unique_ptr<ButtonAttachment> hazeToggleAttach;
-
-    // MULTIPLY (unison) section
-    LabeledKnob unisonSpeedKnob, unisonOuterKnob, unisonInnerKnob;
-    juce::ToggleButton unisonToggle;
-    std::unique_ptr<ButtonAttachment> unisonToggleAttach;
-
-    // GATE section (slot 10)
-    LabeledKnob stutterAttackKnob, stutterDecayKnob, stutterSustainKnob,
-                stutterReleaseKnob, stutterSwingKnob;
-    juce::Slider stutterChunkSlider;
-    std::unique_ptr<SliderAttachment> stutterChunkAttach;
-    juce::Rectangle<int> stutterChunkDisplayBounds;
-    juce::ComboBox stutterResolutionCombo;
-    std::unique_ptr<ComboBoxAttachment> stutterResolutionAttach;
-    GatePatternEditor stutterPatternEditor;
-    juce::ToggleButton stutterToggle;
-    std::unique_ptr<ButtonAttachment> stutterToggleAttach;
-    juce::Slider stutterMixStrip;
-    std::unique_ptr<SliderAttachment> stutterMixStripAttach;
-
-    // SHIFT section
-    LabeledKnob shiftAmountKnob, shiftJitterKnob, shiftGrainSizeKnob;
-    juce::ToggleButton shiftToggle;
-    std::unique_ptr<ButtonAttachment> shiftToggleAttach;
-    juce::Slider shiftMixStrip;
-    std::unique_ptr<SliderAttachment> shiftMixStripAttach;
-
-    
 
     juce::ComboBox characterModeCombo;
     std::unique_ptr<ComboBoxAttachment> characterModeAttach;
@@ -300,18 +215,9 @@ private:
     bool draggingCharacterAmount = false;
     juce::TextButton advancedToggleBtn;
 
-    // Sidebar mix sliders (one per section, positioned below name pill)
-    juce::Slider destroyMixStrip, exciterMixStrip, multiplyMixStrip, tapeMixStrip,
-                 distortionMixStrip, hazeMixStrip, unisonMixStrip, reverbMixStrip;
+    juce::Slider destroyMixStrip, exciterMixStrip;
     std::unique_ptr<SliderAttachment> destroyMixStripAttach,
-                                      exciterMixStripAttach,
-                                      multiplyMixStripAttach, tapeMixStripAttach,
-                                      distortionMixStripAttach, hazeMixStripAttach,
-                                      unisonMixStripAttach, reverbMixStripAttach;
-
-    juce::ToggleButton destroyToggle, multiplyToggle, tapeToggle, distortionToggle, reverbToggle;
-    std::unique_ptr<ButtonAttachment> destroyToggleAttach, multiplyToggleAttach,
-                                      tapeToggleAttach, distortionToggleAttach, reverbToggleAttach;
+                                      exciterMixStripAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 

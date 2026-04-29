@@ -98,13 +98,13 @@ cat > "$STAGING/distribution.xml" << DIST
         <line choice="vst3"/>
         <line choice="app"/>
     </choices-outline>
-    <choice id="au" title="Audio Unit (AU)" description="Install Stardust Character Engine AU plugin for Logic Pro, GarageBand, and other AU hosts.">
+    <choice id="au" title="Audio Unit (AU)" description="Install the Stardust AU plugin for Logic Pro, GarageBand, and other AU hosts.">
         <pkg-ref id="com.stardust.au"/>
     </choice>
-    <choice id="vst3" title="VST3" description="Install Stardust Character Engine VST3 plugin for Ableton Live, FL Studio, Reaper, and other VST3 hosts.">
+    <choice id="vst3" title="VST3" description="Install the Stardust VST3 plugin for Ableton Live, FL Studio, Reaper, and other VST3 hosts.">
         <pkg-ref id="com.stardust.vst3"/>
     </choice>
-    <choice id="app" title="Standalone App" description="Install Stardust Character Engine standalone application.">
+    <choice id="app" title="Standalone App" description="Install the Stardust standalone application.">
         <pkg-ref id="com.stardust.app"/>
     </choice>
     <pkg-ref id="com.stardust.au" version="$VERSION">Stardust-AU.pkg</pkg-ref>

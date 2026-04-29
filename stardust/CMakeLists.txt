@@ -27,43 +27,15 @@ target_sources(Stardust PRIVATE
     src/PluginEditor.h
     src/dsp/BitCrusher.cpp
     src/dsp/BitCrusher.h
-    src/dsp/DestroyDrive.cpp
-    src/dsp/DestroyDrive.h
-    src/dsp/ButterworthFilter.cpp
-    src/dsp/ButterworthFilter.h
-    src/dsp/ChorusEngine.cpp
-    src/dsp/ChorusEngine.h
-    src/dsp/MultiplyEngine.cpp
-    src/dsp/MultiplyEngine.h
-    src/dsp/DattorroReverb.cpp
-    src/dsp/DattorroReverb.h
-    src/dsp/TapeEngine.cpp
-    src/dsp/TapeEngine.h
     src/dsp/HarmonicExciter.cpp
     src/dsp/HarmonicExciter.h
-    src/dsp/Saturation.cpp
-    src/dsp/Saturation.h
-    src/dsp/StutterEngine.cpp
-    src/dsp/StutterEngine.h
-    src/dsp/PitchShifter.cpp
-    src/dsp/PitchShifter.h
-    src/dsp/HalfTimeEngine.cpp
-    src/dsp/HalfTimeEngine.h
     src/dsp/FastMath.h
-    src/dsp/HalfBandDecimator.h
-    src/dsp/Oscillator.h
-    src/dsp/ModulationMatrix.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp
     src/gui/PresetLibraryPanel.h
     src/presets/FactoryPresets.h
     src/presets/FactoryPresets.cpp
-    src/presets/LoFiPresets.cpp
-    src/presets/GlitchPresets.cpp
-    src/presets/TapePresets.cpp
-    src/presets/AtmospherePresets.cpp
-    src/presets/AbstractPresets.cpp
 )
 
 juce_add_binary_data(StardustAssets SOURCES
