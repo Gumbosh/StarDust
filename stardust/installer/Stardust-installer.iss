@@ -86,7 +86,7 @@ Filename: "{app}\Stardust.exe"; \
     Components: standalone
 
 [Messages]
-WelcomeLabel2=This will install Stardust v{#MyAppVersion} on your computer.%n%nStardust adds musical grit, air, heat, dust, and broken-sampler color with one fast macro workflow.%n%nChoose a Flavor like Dust, Glass, Rust, Heat, Broken, or Glow, then use Character to shape GRIT and EXCITER together.%n%nThe VST3 plugin will be installed to the standard VST3 directory for use in FL Studio, Ableton Live, and other DAWs.
+WelcomeLabel2=This will install Stardust v{#MyAppVersion} on your computer.%n%nStardust adds musical grit, air, heat, dust, and broken-sampler color with one fast macro workflow.%n%nChoose a Flavor like Dust, Glass, Rust, Heat, Broken, or Glow, then use Character to shape GRIT and EXCITER together. Use OUTPUT for overall wet blend, and Mix controls on GRIT/AIR sections for local wet blends.%n%nThe VST3 plugin will be installed to the standard VST3 directory for use in FL Studio, Ableton Live, and other DAWs.%n%nUser presets are saved under your AppData/Roaming Stardust Presets folder.
 
 [Code]
 // Show a post-install message reminding users to scan for plugins

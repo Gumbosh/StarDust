@@ -15,7 +15,7 @@ cd stardust && cmake --build build --config Release
 bash installer/build_installer.sh
 ```
 
-The macOS installer is created at `installer/Stardust-Installer.pkg`. Build artifacts land in `stardust/build/Stardust_artefacts/Release/`. There are no automated tests.
+The macOS installer is created at `installer/Stardust-Installer.pkg`. Run `bash installer/build_installer.sh` from the repo root; it configures CMake Release with your existing generator (or the default CMake picks) and stamps component packages and the distribution with the semver from `project(Stardust VERSION …)` in `stardust/CMakeLists.txt`. Build artifacts land in `stardust/build/Stardust_artefacts/Release/`. There are no automated tests.
 
 ## Project Overview
 

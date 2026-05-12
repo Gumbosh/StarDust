@@ -76,16 +76,17 @@ void PresetLibraryPanel::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
     g.fillAll(juce::Colour(0xFF0A0A0A));
     g.setColour(kPanelBg);
-    g.fillRoundedRectangle(bounds, 6.0f);
+    g.fillRoundedRectangle(bounds, StardustLookAndFeel::kPanelCornerRadius);
 
     // Border
     g.setColour(kFgGhost.withAlpha(0.5f));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), StardustLookAndFeel::kPanelCornerRadius, 1.0f);
 
     // Header background
     auto headerBounds = getLocalBounds().removeFromTop(kHeaderH).toFloat();
     g.setColour(kBg);
-    g.fillRoundedRectangle(headerBounds.reduced(1.0f, 1.0f).withBottom(headerBounds.getBottom()), 5.0f);
+    g.fillRoundedRectangle(headerBounds.reduced(1.0f, 1.0f).withBottom(headerBounds.getBottom()),
+                           StardustLookAndFeel::kPanelCornerRadius);
 
     // Header title
     g.setColour(kAccent);

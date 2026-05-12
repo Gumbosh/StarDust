@@ -95,6 +95,8 @@ private:
 
     // Pre-allocated buffer for dry/wet mix (avoids audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
+    // Full-band dry copy before the GRIT→AIR chain for overall wet/dry
+    juce::AudioBuffer<float> chainDryBuffer;
 
     juce::SmoothedValue<float> characterAmountSmoothed { 0.0f };
 

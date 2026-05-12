@@ -1,4 +1,5 @@
 #include "StarfieldBackground.h"
+#include "../dsp/CharacterMacro.h"
 #include <cmath>
 
 StarfieldBackground::StarfieldBackground(juce::AudioProcessorValueTreeState& apvtsRef)
@@ -58,26 +59,39 @@ StarfieldParams StarfieldBackground::readParams() const
     StarfieldParams p;
     const float characterAmount = juce::jlimit(0.0f, 1.0f,
         apvts.getRawParameterValue("characterAmount")->load(std::memory_order_relaxed));
-    const bool characterActive = characterAmount > 0.001f;
     p.characterAmount = characterAmount;
-    p.characterMode = juce::jlimit(0, 5,
+    const int characterModeIdx = juce::jlimit(
+        0,
+        static_cast<int>(CharacterMacro::kFlavors.size()) - 1,
         juce::roundToInt(apvts.getRawParameterValue("characterMode")->load(std::memory_order_relaxed)));
+    p.characterMode = characterModeIdx;
 
-    p.gritMix = *apvts.getRawParameterValue("destroyMix");
-    p.exciterMix = *apvts.getRawParameterValue("exciterMix");
+    const auto& flavor = CharacterMacro::kFlavors[static_cast<size_t>(characterModeIdx)];
+    const auto macro = CharacterMacro::computeEffective(
+        flavor,
+        *apvts.getRawParameterValue("destroyMix"),
+        *apvts.getRawParameterValue("destroyIn"),
+        *apvts.getRawParameterValue("destroyFader"),
+        *apvts.getRawParameterValue("destroyBits"),
+        *apvts.getRawParameterValue("destroyJitter"),
+        *apvts.getRawParameterValue("exciterMix"),
+        *apvts.getRawParameterValue("exciterDrive"),
+        *apvts.getRawParameterValue("exciterTone"),
+        characterAmount);
 
-    if (characterActive)
-    {
-        p.gritMix = juce::jmax(p.gritMix, characterAmount * 0.75f);
-        p.exciterMix = juce::jmax(p.exciterMix, characterAmount * 0.65f);
-    }
+    p.gritMix = macro.destroyMix;
+    p.gritDriveDb = macro.destroyIn;
+    p.gritRateHz = macro.destroyFader;
+    p.gritBits = macro.destroyBits;
+    p.gritJitter = macro.destroyJitter;
+    p.exciterMix = macro.exciterMix;
+    p.exciterDrive = macro.exciterDrive;
+    p.exciterToneHz = macro.exciterTone;
 
-    p.gritDriveDb = *apvts.getRawParameterValue("destroyIn");
-    p.gritRateHz = *apvts.getRawParameterValue("destroyFader");
-    p.gritBits = *apvts.getRawParameterValue("destroyBits");
-    p.gritJitter = *apvts.getRawParameterValue("destroyJitter");
-    p.exciterDrive = *apvts.getRawParameterValue("exciterDrive");
-    p.exciterToneHz = *apvts.getRawParameterValue("exciterTone");
+    const float outputMix = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("outputMix")->load(std::memory_order_relaxed));
+    p.gritMix *= outputMix;
+    p.exciterMix *= outputMix;
 
     return p;
 }

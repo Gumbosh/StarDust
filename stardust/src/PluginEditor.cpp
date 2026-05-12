@@ -5,7 +5,7 @@
 
 namespace
 {
-constexpr int kFixedSectionCount = 2;
+constexpr int kFixedSectionCount = 1;
 }
 
 // ============================================================================
@@ -224,6 +224,47 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
         return;
     }
 
+    if (style == juce::Slider::LinearVertical && slider.getComponentID() == "sidebarMix")
+    {
+        const float fx = static_cast<float>(x);
+        const float fy = static_cast<float>(y);
+        const float fw = static_cast<float>(width);
+        const float fh = static_cast<float>(height);
+        const float pad = 7.0f;
+        const float trackTop = fy + pad;
+        const float trackBot = fy + fh - pad;
+        const float trackH = trackBot - trackTop;
+
+        const bool active = slider.isMouseOver(true) || slider.isMouseButtonDown();
+
+        const double min = slider.getMinimum();
+        const double max = slider.getMaximum();
+        const float norm = max > min
+            ? juce::jlimit(0.0f, 1.0f, static_cast<float>((slider.getValue() - min) / (max - min)))
+            : 0.0f;
+        const float thumbY = trackBot - norm * trackH;
+
+        const float cx = fx + fw * 0.5f;
+        const float trackHalfW = 1.5f;
+
+        g.setColour(kFgGhost.withAlpha(0.14f));
+        g.fillRoundedRectangle(cx - trackHalfW, trackTop, trackHalfW * 2.0f, trackH, 1.5f);
+
+        const float fillTop = thumbY;
+        const float fillH = trackBot - fillTop;
+        if (fillH > 0.5f && norm > 0.001f)
+        {
+            g.setColour(kAccent);
+            g.fillRoundedRectangle(cx - trackHalfW, fillTop, trackHalfW * 2.0f, fillH, 1.5f);
+        }
+
+        const float dotR = active ? 4.2f : 3.4f;
+        g.setColour(active ? kAccent : kAccent.withAlpha(0.80f));
+        g.fillEllipse(cx - dotR, thumbY - dotR, dotR * 2.0f, dotR * 2.0f);
+
+        return;
+    }
+
     if (style == juce::Slider::LinearVertical)
     {
         // Vertical gain fader — rectangle thumb with dB value, hover highlight below
@@ -278,6 +319,59 @@ void StardustLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y,
 
     if (style != juce::Slider::LinearHorizontal)
         return;
+
+    if (slider.getComponentID() == "chainBlend")
+    {
+        const float fx = static_cast<float>(x);
+        const float fy = static_cast<float>(y);
+        const float fw = static_cast<float>(width);
+        const float fh = static_cast<float>(height);
+        const float trackLeft = fx + 4.0f;
+        const float trackRight = fx + fw - 4.0f;
+        const float trackW = trackRight - trackLeft;
+        const float trackH = 9.0f;
+        const float trackY = fy + (fh - trackH) * 0.5f;
+        const auto trackBounds = juce::Rectangle<float>(trackLeft, trackY, trackW, trackH);
+
+        const bool active = slider.isMouseOver(true) || slider.isMouseButtonDown();
+
+        const double min = slider.getMinimum();
+        const double max = slider.getMaximum();
+        const float norm = max > min
+            ? juce::jlimit(0.0f, 1.0f, static_cast<float>((slider.getValue() - min) / (max - min)))
+            : 0.0f;
+        const float thumbX = trackLeft + norm * trackW;
+
+        g.setColour(juce::Colour(0xFF0B0B0B));
+        g.fillRoundedRectangle(trackBounds, trackH * 0.5f);
+        g.setColour(kFgGhost.withAlpha(active ? 0.42f : 0.28f));
+        g.drawRoundedRectangle(trackBounds.reduced(0.5f), trackH * 0.5f, 1.0f);
+
+        g.setColour(kFgGhost.withAlpha(0.22f));
+        for (float frac : { 0.25f, 0.5f, 0.75f })
+        {
+            const float tx = trackLeft + trackW * frac;
+            g.fillRect(tx - 0.5f, trackY + 2.0f, 1.0f, trackH - 4.0f);
+        }
+
+        const float beamW = juce::jmax(0.0f, thumbX - trackLeft);
+        if (beamW > 0.5f)
+        {
+            g.setColour(kAccent.withAlpha(active ? 0.88f : 0.62f));
+            g.fillRoundedRectangle(trackLeft, trackY + 1.0f, beamW, trackH - 2.0f, (trackH - 2.0f) * 0.5f);
+        }
+
+        const float coreR = active ? 3.6f : 3.0f;
+        const float haloR = active ? 7.0f : 5.8f;
+        g.setColour(kAccent.withAlpha(active ? 0.14f : 0.08f));
+        g.fillEllipse(thumbX - haloR, trackY + trackH * 0.5f - haloR, haloR * 2.0f, haloR * 2.0f);
+        g.setColour(kAccent.withAlpha(active ? 0.95f : 0.78f));
+        g.drawEllipse(thumbX - haloR, trackY + trackH * 0.5f - haloR, haloR * 2.0f, haloR * 2.0f, active ? 1.35f : 1.0f);
+        g.setColour(kAccent);
+        g.fillEllipse(thumbX - coreR, trackY + trackH * 0.5f - coreR, coreR * 2.0f, coreR * 2.0f);
+
+        return;
+    }
 
     // Compact horizontal bars used by sidebar mix strips.
     if (slider.getComponentID() == "sidebarMix")
@@ -456,9 +550,9 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
     {
         // AlertWindow buttons — rounded dark buttons with border
         g.setColour(shouldDrawButtonAsHighlighted ? kAccent.withAlpha(0.12f) : juce::Colour(0xFF151515));
-        g.fillRoundedRectangle(bounds.reduced(1.0f), 4.0f);
+        g.fillRoundedRectangle(bounds.reduced(1.0f), kPanelCornerRadius);
         g.setColour(shouldDrawButtonAsHighlighted ? kAccent.withAlpha(0.5f) : kFgGhost.withAlpha(0.4f));
-        g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 1.0f);
+        g.drawRoundedRectangle(bounds.reduced(1.0f), kPanelCornerRadius, 1.0f);
         return;
     }
 
@@ -485,7 +579,7 @@ void StardustLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& 
     if (shouldDrawButtonAsHighlighted && (isPresetBarBtn))
     {
         g.setColour(kAccent.withAlpha(0.08f));
-        g.fillRoundedRectangle(bounds.reduced(1.0f), 3.0f);
+        g.fillRoundedRectangle(bounds.reduced(1.0f), kPanelCornerRadius);
     }
 
     if (button.getButtonText() == "...")
@@ -626,11 +720,11 @@ void StardustLookAndFeel::drawAlertBox(juce::Graphics& g, juce::AlertWindow& win
 
     // Background
     g.setColour(juce::Colour(0xFF0A0A0A));
-    g.fillRoundedRectangle(bounds, 6.0f);
+    g.fillRoundedRectangle(bounds, kPanelCornerRadius);
 
     // Border — same style as plugin sections
     g.setColour(kFgGhost.withAlpha(0.4f));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.5f);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), kPanelCornerRadius, 1.5f);
 
     // Inner subtle line below title
     const float titleBottom = static_cast<float>(textArea.getY());
@@ -663,12 +757,12 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
     {
         // Input-field styled combo (dialogs, settings) — background + border + left-aligned
         g.setColour(box.findColour(juce::ComboBox::backgroundColourId));
-        g.fillRoundedRectangle(bounds, 4.0f);
+        g.fillRoundedRectangle(bounds, kPanelCornerRadius);
 
         g.setColour(box.isMouseOver(true)
             ? kAccent.withAlpha(0.35f)
             : outlineCol);
-        g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+        g.drawRoundedRectangle(bounds, kPanelCornerRadius, 1.0f);
 
         // Left-aligned text with padding — smaller font for compact combos
         const float fontSize = (height < 22) ? 11.0f : 13.0f;
@@ -695,7 +789,7 @@ void StardustLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height,
         if (box.isMouseOver(true))
         {
             g.setColour(kAccent.withAlpha(0.08f));
-            g.fillRoundedRectangle(bounds.reduced(1.0f), 3.0f);
+            g.fillRoundedRectangle(bounds.reduced(1.0f), kPanelCornerRadius);
         }
 
         auto font = getComboBoxFont(box);
@@ -748,9 +842,9 @@ void StardustLookAndFeel::drawBubble(juce::Graphics& g, juce::BubbleComponent& /
 {
     // Dark rounded tooltip matching plugin style
     g.setColour(juce::Colour(0xFF0A0A0A));
-    g.fillRoundedRectangle(body, 4.0f);
+    g.fillRoundedRectangle(body, kPanelCornerRadius);
     g.setColour(kFgGhost.withAlpha(0.4f));
-    g.drawRoundedRectangle(body, 4.0f, 1.0f);
+    g.drawRoundedRectangle(body, kPanelCornerRadius, 1.0f);
 }
 
 juce::Font StardustLookAndFeel::getSliderPopupFont(juce::Slider& /*slider*/)
@@ -1154,7 +1248,7 @@ void SettingsPanel::paint(juce::Graphics& g)
         // Reset to Factory border (drawn manually)
         auto resetBounds = resetFactoryBtn.getBounds().toFloat();
         g.setColour(juce::Colour(0xFFAA3030));
-        g.drawRoundedRectangle(resetBounds, 4.0f, 1.5f);
+        g.drawRoundedRectangle(resetBounds, StardustLookAndFeel::kPanelCornerRadius, 1.5f);
     }
     else if (currentTab == Tab::About)
     {
@@ -1216,7 +1310,7 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     starfield(p.apvts)
 {
     setLookAndFeel(&lookAndFeel);
-    setSize(620, 560);
+    setSize(620, 660);
 
     addAndMakeVisible(starfield);
     starfield.setInterceptsMouseClicks(false, false);
@@ -1228,9 +1322,11 @@ StardustEditor::StardustEditor(StardustProcessor& p)
     setupKnob(destroyDriveKnob, "destroyIn", "Crush");
     setupKnob(destroyBitsKnob, "destroyBits", "Bit");
     setupKnob(destroyJitterKnob, "destroyJitter", "Grit");
+    setupKnob(destroyMixKnob, "destroyMix", "Mix");
 
     setupKnob(exciterDriveKnob, "exciterDrive", "Heat");
     setupKnob(exciterToneKnob, "exciterTone", "Freq");
+    setupKnob(exciterMixKnob, "exciterMix", "Mix");
 
     // Rate knob — rotary attached to destroyFader param, integer Hz steps
     setupKnob(destroyRateKnob, "destroyFader", "Rate");
@@ -1286,48 +1382,33 @@ StardustEditor::StardustEditor(StardustProcessor& p)
 
     advancedToggleBtn.setVisible(false);
 
-    // Sidebar mix strip sliders (LinearHorizontal, positioned below name pill in each row)
-    auto setupMixStrip = [&](juce::Slider& s, std::unique_ptr<SliderAttachment>& a, const juce::String& paramId)
+    auto styleMixSliderValueBox = [](juce::Slider& s, int boxW, int boxH)
     {
-        s.setSliderStyle(juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        s.setComponentID("sidebarMix");
-        s.textFromValueFunction = [](double v) {
-            return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
-        };
-        s.setPopupDisplayEnabled(true, true, this, 400);
-        a = std::make_unique<SliderAttachment>(processorRef.apvts, paramId, s);
-        addAndMakeVisible(s);
-    };
-    setupMixStrip(destroyMixStrip,      destroyMixStripAttach,      "destroyMix");
-    setupMixStrip(exciterMixStrip,      exciterMixStripAttach,      "exciterMix");
-    for (auto* mixKnob : { &destroyMixStrip, &exciterMixStrip })
-    {
-        mixKnob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        mixKnob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 18);
-        mixKnob->setComponentID("");
-        mixKnob->setMouseDragSensitivity(180);
-        mixKnob->setPopupDisplayEnabled(false, false, nullptr);
-        mixKnob->setColour(juce::Slider::textBoxTextColourId,       StardustLookAndFeel::kFg);
-        mixKnob->setColour(juce::Slider::textBoxOutlineColourId,    StardustLookAndFeel::kFgGhost.withAlpha(0.22f));
-        mixKnob->setColour(juce::Slider::textBoxBackgroundColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
-        mixKnob->textFromValueFunction = [](double v) {
-            return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
-        };
-        mixKnob->valueFromTextFunction = [](const juce::String& t) {
-            return t.getDoubleValue() / 100.0;
-        };
-        mixKnob->updateText();
-        for (int i = 0; i < mixKnob->getNumChildComponents(); ++i)
+        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, boxW, boxH);
+        s.setColour(juce::Slider::textBoxTextColourId, StardustLookAndFeel::kFg);
+        s.setColour(juce::Slider::textBoxOutlineColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.22f));
+        s.setColour(juce::Slider::textBoxBackgroundColourId, StardustLookAndFeel::kFgGhost.withAlpha(0.06f));
+        for (int i = 0; i < s.getNumChildComponents(); ++i)
         {
-            if (auto* lbl = dynamic_cast<juce::Label*>(mixKnob->getChildComponent(i)))
-            {
+            if (auto* lbl = dynamic_cast<juce::Label*>(s.getChildComponent(i)))
                 lbl->setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::bold));
-                lbl->setEditable(false, true, false);
-                break;
-            }
         }
-    }
+    };
+
+    outputMixStrip.setSliderStyle(juce::Slider::LinearHorizontal);
+    outputMixStrip.setComponentID("chainBlend");
+    outputMixStrip.setMouseDragSensitivity(140);
+    outputMixStrip.setPopupDisplayEnabled(false, false, nullptr, 0);
+    outputMixStripAttach = std::make_unique<SliderAttachment>(processorRef.apvts, "outputMix", outputMixStrip);
+    outputMixStrip.textFromValueFunction = [](double v) {
+        return juce::String(static_cast<int>(std::round(v * 100.0))) + "%";
+    };
+    outputMixStrip.valueFromTextFunction = [](const juce::String& t) {
+        return t.getDoubleValue() / 100.0;
+    };
+    styleMixSliderValueBox(outputMixStrip, 48, 18);
+    outputMixStrip.updateText();
+    addAndMakeVisible(outputMixStrip);
     refreshPresetList();
     presetSelector.setRepaintsOnMouseActivity(true);
     presetSelector.setMouseClickGrabsKeyboardFocus(false);
@@ -2039,6 +2120,9 @@ void StardustEditor::updateDoubleClickDefaults()
         auto it = paramToKnob.find(paramId);
         if (it != paramToKnob.end())
             it->second->slider.setDoubleClickReturnValue(true, presetVal);
+
+        else if (paramId == "outputMix")
+            outputMixStrip.setDoubleClickReturnValue(true, presetVal);
     }
 
 }
@@ -2050,10 +2134,9 @@ void StardustEditor::updateDoubleClickDefaults()
 
 juce::Rectangle<int> StardustEditor::stripRowBounds(int row) const
 {
-    const int safeRow = juce::jlimit(0, kFixedSectionCount - 1, row);
-    const int sH = controlsBounds.getHeight() / kFixedSectionCount;
-    return { controlsBounds.getX(), controlsBounds.getY() + safeRow * sH,
-             controlsBounds.getWidth(), sH };
+    if (row == 0 && !controlsBounds.isEmpty())
+        return controlsBounds;
+    return {};
 }
 
 juce::Rectangle<int> StardustEditor::sectionKnobBounds(int row) const
@@ -2135,33 +2218,39 @@ void StardustEditor::paint(juce::Graphics& g)
     // Static black background
     g.fillAll(juce::Colours::black);
 
-    // ---- Advanced controls panel ----
+    // ---- Advanced controls: GRIT / HEAT bordered sections (muted gray outlines) ----
     if (!controlsBounds.isEmpty())
     {
-        auto drawRowLabel = [&](const juce::Rectangle<int>& rowAnchor, const juce::String& title) {
-            if (rowAnchor.isEmpty())
-                return;
+        const auto borderColour = StardustLookAndFeel::kFgDim.withAlpha(0.42f);
 
-            g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 9.0f, juce::Font::bold));
-            g.setColour(StardustLookAndFeel::kFgDim);
-            g.drawText(title, controlsBounds.getX() + 2, rowAnchor.getCentreY() - 6,
-                       24, 12, juce::Justification::centredLeft);
+        auto drawSectionBorder = [&](const juce::Rectangle<int>& r) {
+            if (r.isEmpty()) return;
+            g.setColour(borderColour);
+            g.drawRoundedRectangle(r.toFloat().reduced(0.75f), StardustLookAndFeel::kPanelCornerRadius, 1.15f);
         };
+        drawSectionBorder(gritSectionBounds);
+        drawSectionBorder(heatSectionBounds);
 
-        auto drawMixLabel = [&](const juce::Slider& slider, const juce::String& title) {
-            const auto b = slider.getBounds();
-            if (b.isEmpty())
-                return;
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+        g.setColour(juce::Colours::white.withAlpha(0.9f));
+        if (fineControlsRow1Y > 0 && !gritSectionBounds.isEmpty())
+            g.drawText("GRIT", gritSectionBounds.getX() + 10, fineControlsRow1Y - 16,
+                       100, 14, juce::Justification::centredLeft);
+        if (fineControlsRow1Y > 0 && !heatSectionBounds.isEmpty())
+            g.drawText("HEAT", heatSectionBounds.getX() + 10, fineControlsRow1Y - 16,
+                       100, 14, juce::Justification::centredLeft);
+    }
 
-            g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
-            g.setColour(StardustLookAndFeel::kFg);
-            g.drawText(title, b.getX(), b.getY() - 14, b.getWidth(), 14, juce::Justification::centred);
-        };
-
-        drawRowLabel(destroyJitterKnob.getBounds(), "GRIT");
-        drawRowLabel(destroyDriveKnob.getBounds(), "AIR");
-        drawMixLabel(destroyMixStrip, "Mix");
-        drawMixLabel(exciterMixStrip, "Mix");
+    if (!blendRowBounds.isEmpty())
+    {
+        g.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::bold));
+        g.setColour(juce::Colours::white.withAlpha(0.9f));
+        const int labelH = 14;
+        const int labelY = blendRowBounds.getY() + (blendRowBounds.getHeight() - labelH) / 2;
+        g.drawText("DRY", blendRowBounds.getX() + 10, labelY,
+                   100, labelH, juce::Justification::centredLeft);
+        g.drawText("WET", blendRowBounds.getRight() - 110, labelY,
+                   100, labelH, juce::Justification::centredRight);
     }
 
     // ---- Center fisheye visualizer ----
@@ -2229,16 +2318,16 @@ void StardustEditor::paint(juce::Graphics& g)
             .getUnion(nextPresetBtn.getBounds())
             .toFloat().expanded(3.0f, 1.0f);
         g.setColour(juce::Colour(0xFF151515));
-        g.fillRoundedRectangle(presetBarBg, 4.0f);
+        g.fillRoundedRectangle(presetBarBg, StardustLookAndFeel::kPanelCornerRadius);
         g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.25f));
-        g.drawRoundedRectangle(presetBarBg, 4.0f, 1.0f);
+        g.drawRoundedRectangle(presetBarBg, StardustLookAndFeel::kPanelCornerRadius, 1.0f);
     }
 
     // ---- Bottom bar — border only, dot texture shows through ----
     const auto bbf = bottomBarBounds.toFloat();
 
     g.setColour(StardustLookAndFeel::kFgGhost.withAlpha(0.65f));
-    g.drawRoundedRectangle(bbf, 3.0f, 2.0f);
+    g.drawRoundedRectangle(bbf, StardustLookAndFeel::kPanelCornerRadius, 2.0f);
 
     // Logo + name on left
     g.setColour(StardustLookAndFeel::kAccent);
@@ -2334,9 +2423,9 @@ void StardustEditor::paintOverChildren(juce::Graphics& g)
             const auto readout = juce::Rectangle<float>(
                 screenf.getCentreX() - 62.0f, screenf.getCentreY() - 9.0f, 124.0f, 18.0f);
             g.setColour(juce::Colours::black.withAlpha(0.58f));
-            g.fillRoundedRectangle(readout, 4.0f);
+            g.fillRoundedRectangle(readout, StardustLookAndFeel::kPanelCornerRadius);
             g.setColour(StardustLookAndFeel::kAccent);
-            g.drawRoundedRectangle(readout, 4.0f, 1.0f);
+            g.drawRoundedRectangle(readout, StardustLookAndFeel::kPanelCornerRadius, 1.0f);
             g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
             g.setColour(StardustLookAndFeel::kAccent);
             g.drawText("Character " + juce::String(juce::roundToInt(characterAmount * 100.0f)) + "%",
@@ -2661,16 +2750,19 @@ void StardustEditor::resized()
         resized();
     };
 
-    const int mainTop = 84;
+    const int presetBottom = topY + presetH;
+    constexpr int gapBelowPresetBar = 20;
     const int lensSize = 220;
-    screenBounds = { (getWidth() - lensSize) / 2, mainTop + 22, lensSize, lensSize };
+    const int flavorW = 72;
+    const int flavorH = 22;
+    const int flavorRadiusInt = lensSize / 2 + 46;
+    const int lensY = presetBottom + gapBelowPresetBar + flavorH / 2 + flavorRadiusInt - lensSize / 2;
+    screenBounds = { (getWidth() - lensSize) / 2, lensY, lensSize, lensSize };
     galaxyBounds = screenBounds.expanded(12);
     starfield.setBounds(screenBounds);
     starfield.setExcludeRect({});
 
     characterModeCombo.setBounds({0, 0, 0, 0});
-    const int flavorW = 72;
-    const int flavorH = 22;
     const auto lensCentre = screenBounds.toFloat().getCentre();
     const float flavorRadius = static_cast<float>(lensSize) * 0.5f + 46.0f;
     static constexpr float kFlavorAnglesDeg[6] = { -90.0f, -30.0f, 30.0f, 90.0f, 150.0f, 210.0f };
@@ -2689,29 +2781,91 @@ void StardustEditor::resized()
 
     // Hide all parameter controls before placing the active release controls.
     for (auto* k : { &destroyDriveKnob, &destroyBitsKnob, &destroyRateKnob, &destroyJitterKnob,
-                     &exciterDriveKnob, &exciterToneKnob })
+                     &destroyMixKnob, &exciterDriveKnob, &exciterToneKnob, &exciterMixKnob })
         k->setBounds({0, 0, 0, 0});
 
-    for (auto* s : { &destroyMixStrip, &exciterMixStrip })
-        s->setBounds({0, 0, 0, 0});
+    outputMixStrip.setBounds({0, 0, 0, 0});
+
+    gritSectionBounds = {};
+    heatSectionBounds = {};
+    blendRowBounds = {};
+    fineControlsRow1Y = 0;
+    fineControlsRow2Y = 0;
+
+    constexpr int padTop = 20;
+    constexpr int titleBand = 16;
+    constexpr int labelAbove = 18;
+    constexpr int knobH = 62;
+    constexpr int rowGap = 10;
+    constexpr int boxGap = 18;
+    constexpr int mixKnobW = 56;
+    constexpr int boxInnerPad = 8;
+    constexpr int boxPadX = 6;
+    constexpr int blendRowH = 46;
+    constexpr int blendSliderH = 34;
+    constexpr int blendEndLabelW = 56;
 
     const int fineW = panelW;
-    const int fineH = 138;
-    controlsBounds = { bottomBarBounds.getX(), bottomBarBounds.getY() - fineH - 8, fineW, fineH };
-    const int innerX = controlsBounds.getX() + 28;
-    const int innerW = controlsBounds.getWidth() - 56;
-    const int topW = innerW / 4;
-    const int bottomW = innerW / 4;
-    const int knobH = 62;
-    const int row1Y = controlsBounds.getY() + 8;
-    const int row2Y = controlsBounds.getY() + 78;
-    layoutKnobInBounds(destroyJitterKnob, { innerX + topW * 0, row1Y, topW, knobH });
-    layoutKnobInBounds(destroyRateKnob,   { innerX + topW * 1, row1Y, topW, knobH });
-    layoutKnobInBounds(destroyBitsKnob,   { innerX + topW * 2, row1Y, topW, knobH });
-    destroyMixStrip.setBounds(innerX + topW * 3, row1Y + 14, topW, knobH - 14);
+    constexpr int gapAroundBlendRow = 6;
+    constexpr int gapBelowOrbit = gapBelowPresetBar;
+    const int orbitBottom = static_cast<int>(lensCentre.y + flavorRadius + static_cast<float>(flavorH) * 0.5f);
+    const int blendRowY = bottomBarBounds.getY() - gapAroundBlendRow - blendRowH;
+    const int controlsY = orbitBottom + gapBelowOrbit - (padTop + titleBand - labelAbove);
+    const int resolvedFineH = blendRowY - controlsY;
+    controlsBounds = { bottomBarBounds.getX(),
+                       controlsY,
+                       fineW,
+                       resolvedFineH };
+    blendRowBounds = { bottomBarBounds.getX(),
+                       blendRowY,
+                       bottomBarBounds.getWidth(),
+                       blendRowH };
 
-    layoutKnobInBounds(destroyDriveKnob,  { innerX + bottomW * 0, row2Y, bottomW, knobH });
-    layoutKnobInBounds(exciterDriveKnob,  { innerX + bottomW * 1, row2Y, bottomW, knobH });
-    layoutKnobInBounds(exciterToneKnob,   { innerX + bottomW * 2, row2Y, bottomW, knobH });
-    exciterMixStrip.setBounds(innerX + bottomW * 3, row2Y + 14, bottomW, knobH - 14);
+    const int innerX = bottomBarBounds.getX() + boxPadX;
+    const int innerW = juce::jmax(160, bottomBarBounds.getWidth() - 2 * boxPadX);
+
+    const int y0 = controlsBounds.getY() + padTop;
+    fineControlsRow1Y = y0 + titleBand;
+    fineControlsRow2Y = fineControlsRow1Y + knobH + rowGap;
+
+    constexpr int boxBottomPad = 4;
+    const int boxH = labelAbove + knobH + rowGap + knobH + boxBottomPad;
+    const int boxTop = fineControlsRow1Y - labelAbove;
+    const int mixKnobY = boxTop + (boxH - knobH) / 2;
+
+    // Row: [ GRIT 2x2 + mix knob ] [ HEAT + mix knob ]
+    const int heatBoxW = juce::jmax(100, (innerW - boxGap) * 2 / 5);
+    const int gritBoxW = innerW - boxGap - heatBoxW;
+
+    const int gritBoxX = innerX;
+    const int heatBoxX = gritBoxX + gritBoxW + boxGap;
+
+    // GRIT: row1 Grit|Rate, row2 Bit|Crush; mix knob on the right
+    const int gritKnobAreaW = gritBoxW - boxInnerPad * 2 - mixKnobW - 6;
+    const int kwGrit = juce::jmax(40, gritKnobAreaW / 2);
+    const int gkx = gritBoxX + boxInnerPad;
+
+    layoutKnobInBounds(destroyJitterKnob, { gkx + 0 * kwGrit, fineControlsRow1Y, kwGrit, knobH });
+    layoutKnobInBounds(destroyRateKnob,   { gkx + 1 * kwGrit, fineControlsRow1Y, kwGrit, knobH });
+    layoutKnobInBounds(destroyBitsKnob,   { gkx + 0 * kwGrit, fineControlsRow2Y, kwGrit, knobH });
+    layoutKnobInBounds(destroyDriveKnob,  { gkx + 1 * kwGrit, fineControlsRow2Y, kwGrit, knobH });
+    layoutKnobInBounds(destroyMixKnob, { gritBoxX + gritBoxW - boxInnerPad - mixKnobW, mixKnobY, mixKnobW, knobH });
+
+    // HEAT: Heat row1, Freq row2; mix knob on the right
+    const int heatKnobAreaW = heatBoxW - boxInnerPad * 2 - mixKnobW - 6;
+    const int kwHeat = juce::jmin(kwGrit, heatKnobAreaW);
+    const int hkx = heatBoxX + boxInnerPad + (heatKnobAreaW - kwHeat) / 2;
+
+    layoutKnobInBounds(exciterDriveKnob, { hkx, fineControlsRow1Y, kwHeat, knobH });
+    layoutKnobInBounds(exciterToneKnob,  { hkx, fineControlsRow2Y, kwHeat, knobH });
+    layoutKnobInBounds(exciterMixKnob, { heatBoxX + heatBoxW - boxInnerPad - mixKnobW, mixKnobY, mixKnobW, knobH });
+
+    const int blendSliderY = blendRowBounds.getY() + (blendRowBounds.getHeight() - blendSliderH) / 2;
+    outputMixStrip.setBounds(blendRowBounds.getX() + blendEndLabelW,
+                             blendSliderY,
+                             blendRowBounds.getWidth() - blendEndLabelW * 2,
+                             blendSliderH);
+
+    gritSectionBounds = { gritBoxX - boxPadX, boxTop, gritBoxW + boxPadX * 2, boxH };
+    heatSectionBounds = { heatBoxX - boxPadX, boxTop, heatBoxW + boxPadX * 2, boxH };
 }

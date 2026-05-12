@@ -103,9 +103,9 @@ if errorlevel 1 (
 
 echo.
 echo === Done! ===
-echo   Installer: %BUILD_DIR%\Stardust-Setup.exe
+echo   Installer: !BUILD_DIR!\Stardust-Setup-!APP_VERSION!.exe
 echo.
-echo   To install silently: Stardust-Setup.exe /SILENT
+echo   To install silently: "!BUILD_DIR!\Stardust-Setup-!APP_VERSION!.exe" /SILENT
 echo.
 
 endlocal

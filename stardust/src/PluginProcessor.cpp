@@ -1,42 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "presets/FactoryPresets.h"
+#include "dsp/CharacterMacro.h"
 #include "dsp/FastMath.h"
-
-namespace
-{
-struct CharacterFlavor
-{
-    float gritRate;
-    float gritBits;
-    float gritDriveDb;
-    float gritJitter;
-    float gritMix;
-    float exciterDrive;
-    float exciterToneHz;
-    float exciterMix;
-};
-
-constexpr std::array<CharacterFlavor, 6> kCharacterFlavors {{
-    // Dust
-    { 26040.0f, 14.0f, 3.0f, 0.12f, 0.45f, 0.24f, 5200.0f, 0.12f },
-    // Glass
-    { 44100.0f, 18.0f, 1.0f, 0.02f, 0.16f, 0.28f, 9600.0f, 0.36f },
-    // Rust
-    { 16000.0f, 10.0f, 7.0f, 0.26f, 0.68f, 0.36f, 3600.0f, 0.14f },
-    // Heat
-    { 44100.0f, 16.0f, 8.0f, 0.04f, 0.52f, 0.34f, 6500.0f, 0.20f },
-    // Broken
-    { 7000.0f, 6.0f, 12.0f, 0.42f, 0.86f, 0.64f, 4300.0f, 0.30f },
-    // Glow
-    { 44100.0f, 18.0f, 2.0f, 0.02f, 0.22f, 0.30f, 8200.0f, 0.46f },
-}};
-
-float blendToward(float current, float target, float amount)
-{
-    return current + (target - current) * amount;
-}
-}
 
 StardustProcessor::StardustProcessor()
     : AudioProcessor(BusesProperties()
@@ -91,6 +57,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout StardustProcessor::createPar
         juce::ParameterID("exciterMix", 1), "Air Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("outputMix", 1), "Output",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 1.0f));
+
     return { params.begin(), params.end() };
 }
 
@@ -103,6 +73,7 @@ void StardustProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     // Pre-allocate with generous headroom for dry/wet section blends.
     dryBuffer.setSize(2, samplesPerBlock * 8, false, true, true);
+    chainDryBuffer.setSize(2, samplesPerBlock * 8, false, true, true);
     characterAmountSmoothed.reset(sampleRate, 0.02);
     characterAmountSmoothed.setCurrentAndTargetValue(0.0f);
 
@@ -168,34 +139,49 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const float exciterDriveVal = *apvts.getRawParameterValue("exciterDrive");
     const float exciterToneVal = *apvts.getRawParameterValue("exciterTone");
     const float exciterMixVal = *apvts.getRawParameterValue("exciterMix");
+    const float outputMixRaw = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue("outputMix")->load(std::memory_order_relaxed));
     const float characterAmountTarget = juce::jlimit(0.0f, 1.0f,
         apvts.getRawParameterValue("characterAmount")->load(std::memory_order_relaxed));
     characterAmountSmoothed.setTargetValue(characterAmountTarget);
     const float characterAmountVal = characterAmountSmoothed.getNextValue();
     if (numSamples > 1)
         characterAmountSmoothed.skip(numSamples - 1);
-    const int characterModeVal = juce::jlimit(0, static_cast<int>(kCharacterFlavors.size()) - 1,
+    const int characterModeVal = juce::jlimit(0, static_cast<int>(CharacterMacro::kFlavors.size()) - 1,
         juce::roundToInt(apvts.getRawParameterValue("characterMode")->load(std::memory_order_relaxed)));
-    const auto& character = kCharacterFlavors[static_cast<size_t>(characterModeVal)];
+    const auto& flavor = CharacterMacro::kFlavors[static_cast<size_t>(characterModeVal)];
 
-    const float effectiveDestroyMix = blendToward(destroyMixVal,
-                                                  character.gritMix,
-                                                  characterAmountVal);
+    const auto macro = CharacterMacro::computeEffective(
+        flavor,
+        destroyMixVal,
+        destroyInVal,
+        destroyFaderVal,
+        destroyBitsVal,
+        destroyJitterVal,
+        exciterMixVal,
+        exciterDriveVal,
+        exciterToneVal,
+        characterAmountVal);
+
+    const float effectiveDestroyMix = macro.destroyMix;
     const bool effectiveDestroyOn = effectiveDestroyMix > 0.001f;
-    const float effectiveDestroyIn = blendToward(destroyInVal, character.gritDriveDb, characterAmountVal);
-    const float effectiveDestroyFader = blendToward(destroyFaderVal, character.gritRate, characterAmountVal);
-    const float effectiveDestroyBits = blendToward(destroyBitsVal, character.gritBits, characterAmountVal);
-    const float effectiveDestroyJitter = blendToward(destroyJitterVal, character.gritJitter, characterAmountVal);
+    const float effectiveDestroyIn = macro.destroyIn;
+    const float effectiveDestroyFader = macro.destroyFader;
+    const float effectiveDestroyBits = macro.destroyBits;
+    const float effectiveDestroyJitter = macro.destroyJitter;
 
-    const float effectiveExciterMix = blendToward(exciterMixVal,
-                                                  character.exciterMix,
-                                                  characterAmountVal);
-    const float effectiveExciterDrive = blendToward(exciterDriveVal, character.exciterDrive, characterAmountVal);
-    const float effectiveExciterTone = blendToward(exciterToneVal, character.exciterToneHz, characterAmountVal);
+    const float effectiveExciterMix = macro.exciterMix;
+    const float effectiveExciterDrive = macro.exciterDrive;
+    const float effectiveExciterTone = macro.exciterTone;
 
     // Skip dry/wet blending rather than allocating if a host exceeds the
     // preallocated dry buffer.
     const bool dryBufferOk = dryBuffer.getNumSamples() >= numSamples;
+    const bool chainDryOk = chainDryBuffer.getNumSamples() >= numSamples;
+
+    if (outputMixRaw < 0.999f && chainDryOk)
+        for (int ch = 0; ch < numChannels; ++ch)
+            chainDryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
     // Fixed runtime chain order (independent of legacy chain slot params).
     static constexpr int kFixedFxChain[] = { 1, 2 };
@@ -261,6 +247,20 @@ void StardustProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             }
             
             default: break; // 0 = empty slot
+        }
+    }
+
+    // Overall wet/dry (equal-power) against pre-chain dry audio
+    if (outputMixRaw < 0.999f && chainDryOk)
+    {
+        const float dryGain = std::cos(outputMixRaw * juce::MathConstants<float>::halfPi);
+        const float wetGain = std::sin(outputMixRaw * juce::MathConstants<float>::halfPi);
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto* wet = buffer.getWritePointer(ch);
+            const auto* chainDry = chainDryBuffer.getReadPointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+                wet[i] = chainDry[i] * dryGain + wet[i] * wetGain;
         }
     }
 

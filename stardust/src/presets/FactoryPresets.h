@@ -19,6 +19,9 @@ inline std::map<juce::String, float> defaultPresetValues()
 
         // EXCITER
         {"exciterDrive", 0.35f}, {"exciterTone", 6000.0f}, {"exciterMix", 0.25f},
+
+        // Overall GRIT + AIR blend vs dry input (100% = current behaviour)
+        {"outputMix", 1.0f},
     };
 }
 

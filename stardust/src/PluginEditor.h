@@ -50,6 +50,7 @@ public:
     static inline const juce::Colour kKnobRing { 0xFF2A2A2A };
     static inline const juce::Colour kAccent { 0xFFFFFFFF };
     static inline const juce::Colour kInset { 0xFF060606 };
+    static constexpr float kPanelCornerRadius = 4.0f;
 };
 
 // LevelMeter removed — replaced by signal flow display + knobs
@@ -204,8 +205,8 @@ private:
     void showPresetDropdown();
     void updateFavoriteButton();
 
-    LabeledKnob destroyDriveKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob;
-    LabeledKnob exciterDriveKnob, exciterToneKnob;
+    LabeledKnob destroyDriveKnob, destroyBitsKnob, destroyRateKnob, destroyJitterKnob, destroyMixKnob;
+    LabeledKnob exciterDriveKnob, exciterToneKnob, exciterMixKnob;
 
     juce::ComboBox characterModeCombo;
     std::unique_ptr<ComboBoxAttachment> characterModeAttach;
@@ -215,13 +216,17 @@ private:
     bool draggingCharacterAmount = false;
     juce::TextButton advancedToggleBtn;
 
-    juce::Slider destroyMixStrip, exciterMixStrip;
-    std::unique_ptr<SliderAttachment> destroyMixStripAttach,
-                                      exciterMixStripAttach;
+    juce::Slider outputMixStrip;
+    std::unique_ptr<SliderAttachment> outputMixStripAttach;
 
     // Meters removed — replaced by signal flow display + knobs
 
     juce::Rectangle<int> controlsBounds;
+    juce::Rectangle<int> gritSectionBounds;
+    juce::Rectangle<int> heatSectionBounds;
+    juce::Rectangle<int> blendRowBounds;
+    int fineControlsRow1Y = 0;
+    int fineControlsRow2Y = 0;
     juce::Rectangle<int> galaxyBounds;
     juce::Rectangle<int> screenBounds;
     juce::Rectangle<int> bottomBarBounds;

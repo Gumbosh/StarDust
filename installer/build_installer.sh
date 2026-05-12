@@ -15,7 +15,6 @@ PLUGIN_PROJECT_DIR="$PROJECT_DIR/stardust"
 CMAKE_BUILD_DIR="$PLUGIN_PROJECT_DIR/build"
 BUILD_DIR="$CMAKE_BUILD_DIR/Stardust_artefacts/Release"
 STAGING="$SCRIPT_DIR/staging"
-OUTPUT="$SCRIPT_DIR/Stardust-Installer.pkg"
 
 CURRENT_USER="$(id -un)"
 CURRENT_GROUP="$(id -gn)"
@@ -29,15 +28,27 @@ if [ -d "$CMAKE_BUILD_DIR" ]; then
     fi
 fi
 
-# Plugin version
-VERSION=$(grep 'project(Stardust VERSION' "$PLUGIN_PROJECT_DIR/CMakeLists.txt" | sed 's/.*VERSION \([0-9.]*\)).*/\1/')
+# Plugin version — must match project(Stardust VERSION x.y.z) in stardust/CMakeLists.txt
+VERSION=$(grep -E 'project\(Stardust[[:space:]]+VERSION' "$PLUGIN_PROJECT_DIR/CMakeLists.txt" \
+    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [ -z "$VERSION" ]; then
+    echo "ERROR: Could not read version from $PLUGIN_PROJECT_DIR/CMakeLists.txt"
+    exit 1
+fi
+
+OUTPUT="$SCRIPT_DIR/Stardust-Installer.pkg"
 
 echo "=== Stardust Installer Builder ==="
+echo "Version: $VERSION"
 echo "Build dir: $BUILD_DIR"
+echo "Output:  $OUTPUT"
 
 echo "Building latest plugin artifacts..."
-cmake -B "$CMAKE_BUILD_DIR" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release "$PLUGIN_PROJECT_DIR"
-cmake --build "$CMAKE_BUILD_DIR" --config Release -j"$(sysctl -n hw.ncpu)"
+# Single-config generators (Makefile/Ninja): CMAKE_BUILD_TYPE=Release.
+# Xcode multi-config ignores BUILD_TYPE here; still pass --config Release below.
+JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+cmake -B "$CMAKE_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release "$PLUGIN_PROJECT_DIR"
+cmake --build "$CMAKE_BUILD_DIR" --config Release --parallel "$JOBS"
 
 # Verify artifacts exist
 for artifact in "$BUILD_DIR/AU/Stardust.component" "$BUILD_DIR/VST3/Stardust.vst3" "$BUILD_DIR/Standalone/Stardust.app"; do
@@ -70,6 +81,7 @@ pkgbuild --root "$STAGING/au" \
          --identifier "com.stardust.au" \
          --version "$VERSION" \
          --install-location "/" \
+         --ownership recommended \
          "$STAGING/Stardust-AU.pkg"
 
 echo "Building VST3 package..."
@@ -77,6 +89,7 @@ pkgbuild --root "$STAGING/vst3" \
          --identifier "com.stardust.vst3" \
          --version "$VERSION" \
          --install-location "/" \
+         --ownership recommended \
          "$STAGING/Stardust-VST3.pkg"
 
 echo "Building Standalone package..."
@@ -84,14 +97,16 @@ pkgbuild --root "$STAGING/app" \
          --identifier "com.stardust.app" \
          --version "$VERSION" \
          --install-location "/" \
+         --ownership recommended \
          "$STAGING/Stardust-App.pkg"
 
 # Create distribution XML for productbuild
 cat > "$STAGING/distribution.xml" << DIST
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>Stardust</title>
+    <title>Stardust $VERSION</title>
     <welcome file="welcome.txt"/>
+    <domains enable_anywhere="false" enable_localSystem="true"/>
     <options customize="allow" require-scripts="false" hostArchitectures="x86_64,arm64"/>
     <choices-outline>
         <line choice="au"/>
@@ -131,6 +146,11 @@ Choose a Flavor:
 Then raise Character to blend the flavor into your sound without
 chasing technical settings.
 
+Use GRIT MIX and AIR MIX for each section's wet blend, OUTPUT for the plugin's overall wet blend back to dry, and presets for recalls.
+
+User presets and banks are saved to:
+~/Library/Application Support/Stardust/Presets/
+
 This installer will place:
   - AU plugin in /Library/Audio/Plug-Ins/Components/
   - VST3 plugin in /Library/Audio/Plug-Ins/VST3/
@@ -144,6 +164,7 @@ echo "Building combined installer..."
 productbuild --distribution "$STAGING/distribution.xml" \
              --resources "$STAGING" \
              --package-path "$STAGING" \
+             --version "$VERSION" \
              "$OUTPUT"
 
 # Clean staging

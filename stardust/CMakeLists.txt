@@ -30,6 +30,7 @@ target_sources(Stardust PRIVATE
     src/dsp/HarmonicExciter.cpp
     src/dsp/HarmonicExciter.h
     src/dsp/FastMath.h
+    src/dsp/CharacterMacro.h
     src/gui/StarfieldBackground.cpp
     src/gui/StarfieldBackground.h
     src/gui/PresetLibraryPanel.cpp
